@@ -49,6 +49,7 @@ LabForge can also inspect the local build host before real deployment work:
 cd <LabForge repository root>
 
 python -m labforge intake template --out output/intake-scenario-02 --lab-id scenario-02-ad-domain-compromise --title "Scenario 02 - Active Directory Domain Compromise"
+python -m labforge intake scaffold --from output/intake-scenario-02/scenario-intake.yaml --out output/intake-scenario-02-lab --force
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
@@ -150,7 +151,7 @@ logs first, then later adapters can connect OpenAI, Claude CLI, or MCP.
 
 ```powershell
 python -m labforge intake template --out output/new-intake --lab-id new-lab --title "New Lab"
-python -m labforge init --out output/new-lab --lab-id new-lab --title "New Lab"
+python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml --out output/new-lab --force
 python -m labforge validate output/new-lab
 python -m labforge lint output/new-lab
 python -m labforge controls apply output/new-lab --clear --select firewall=fw-basic-segmentation --select ids=ids-east-west --profile protected

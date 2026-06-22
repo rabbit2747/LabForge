@@ -8,7 +8,7 @@ from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_a
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
-from .intake import create_intake_template
+from .intake import create_intake_template, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
 from .agent_orchestration import (
     append_agent_decision,
@@ -89,6 +89,17 @@ def command_intake_template(args: argparse.Namespace) -> int:
         force=args.force,
     )
     print(f"Rendered scenario intake template: {Path(args.out).resolve()}")
+    if written:
+        for path in written:
+            print(f"- {path}")
+    else:
+        print("No files written. Existing files were left unchanged. Use --force to overwrite.")
+    return 0
+
+
+def command_intake_scaffold(args: argparse.Namespace) -> int:
+    written = scaffold_lab_from_intake(Path(args.from_file), Path(args.out), force=args.force)
+    print(f"Scaffolded LabForge lab from intake: {Path(args.out).resolve()}")
     if written:
         for path in written:
             print(f"- {path}")
@@ -466,6 +477,11 @@ def main(argv: list[str] | None = None) -> int:
     intake_template_parser.add_argument("--title", required=True)
     intake_template_parser.add_argument("--force", action="store_true")
     intake_template_parser.set_defaults(func=command_intake_template)
+    intake_scaffold_parser = intake_sub.add_parser("scaffold", help="Create a LabForge draft from scenario-intake.yaml")
+    intake_scaffold_parser.add_argument("--from", dest="from_file", required=True)
+    intake_scaffold_parser.add_argument("--out", required=True)
+    intake_scaffold_parser.add_argument("--force", action="store_true")
+    intake_scaffold_parser.set_defaults(func=command_intake_scaffold)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")
