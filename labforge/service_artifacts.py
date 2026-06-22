@@ -599,6 +599,11 @@ def render_labforge_service_yaml(artifact) -> str:
         "service": artifact.service,
         "runtime": artifact.runtime,
         "purpose": artifact.purpose,
+        "template_policy": {
+            "role": "infrastructure-part",
+            "puzzle_logic": "scenario-specific",
+            "rule": "Reusable templates may provide runtime structure, healthcheck, reset, logging, and seed/noise loaders, but must not hard-code the learner solution path.",
+        },
         "attack_surface": artifact.attack_surface,
         "seed_inputs": artifact.seed_inputs,
         "noise_inputs": artifact.noise_inputs,

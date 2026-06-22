@@ -64,6 +64,13 @@ it can work across different learner, supervisor, and infrastructure machines.
     on private repositories, local reference folders, proprietary services, or a
     single operating system.
 
+11. Templates are infrastructure parts, not puzzles.
+
+    Reusable service templates may provide runtime skeletons, healthchecks,
+    reset hooks, seed/noise loaders, logging, and safety boundaries. They must
+    not hard-code final answers, exact exploit commands, magic scoring strings,
+    or one fixed learner solution path.
+
 ## Review Checklist
 
 Before merging a change, check:
@@ -75,5 +82,6 @@ Before merging a change, check:
 - Can a supervisor understand the generated architecture and required hardware?
 - Are security controls documented and reflected in generated outputs where
   applicable?
+- Do templates provide reusable infrastructure parts rather than reusable
+  puzzle answers?
 - Are local-only reference materials excluded from commits?
-

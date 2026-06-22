@@ -37,6 +37,16 @@ PLACEHOLDER_MARKERS = (
     "generated-placeholder",
 )
 
+TEMPLATE_PUZZLE_MARKERS = (
+    "answer_key",
+    "ctf_flag",
+    "exploit_command",
+    "final_flag",
+    "hardcoded_payload",
+    "magic_string",
+    "solution_path",
+)
+
 
 def verify_services(spec: LabSpec) -> ServiceVerificationReport:
     findings: list[ServiceVerificationFinding] = []
@@ -68,6 +78,7 @@ def verify_services(spec: LabSpec) -> ServiceVerificationReport:
         verify_runtime_files(findings, artifact.service, service_root, artifact.source_path)
         verify_seed_noise_tests(findings, artifact, service_root, artifact.source_path)
         verify_contract_depth(findings, artifact, service_root, artifact.source_path)
+        verify_template_boundaries(findings, artifact, service_root, artifact.source_path)
 
     status: Literal["passed", "warning", "failed"]
     if any(item.severity == "error" for item in findings):
@@ -180,6 +191,49 @@ def verify_contract_depth(findings: list[ServiceVerificationFinding], artifact, 
                 message="Service artifact has no safety boundaries.",
             )
         )
+
+
+def verify_template_boundaries(findings: list[ServiceVerificationFinding], artifact, service_root: Path, source_path: str) -> None:
+    extra = getattr(artifact, "model_extra", None) or {}
+    template_fields = {
+        key: value
+        for key, value in extra.items()
+        if "template" in str(key).lower() or "solution" in str(key).lower() or "answer" in str(key).lower()
+    }
+    serialized = json.dumps(template_fields, ensure_ascii=False).lower()
+    marker = first_template_puzzle_marker(serialized)
+    if marker:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=artifact.service,
+                category="template-boundary",
+                path=f"{source_path}/labforge-service.yaml",
+                message=(
+                    f"Template metadata contains puzzle-like marker `{marker}`. "
+                    "Templates should generate reusable infrastructure parts, not fixed solution paths."
+                ),
+            )
+        )
+
+    contract_path = service_root / "labforge-service.yaml"
+    if not contract_path.exists():
+        return
+    text = read_text(contract_path).lower()
+    marker = first_template_puzzle_marker(text)
+    if marker:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=artifact.service,
+                category="template-boundary",
+                path=f"{source_path}/labforge-service.yaml",
+                message=(
+                    f"Service contract contains puzzle-like marker `{marker}`. "
+                    "Move answer keys, exact exploit commands, and final-object values to instructor-only artifacts."
+                ),
+            )
+        )
     if not artifact.evidence_logs:
         findings.append(
             ServiceVerificationFinding(
@@ -211,6 +265,13 @@ def first_placeholder_marker(text: str) -> str:
     lowered = text.lower()
     for marker in PLACEHOLDER_MARKERS:
         if marker in lowered:
+            return marker
+    return ""
+
+
+def first_template_puzzle_marker(text: str) -> str:
+    for marker in TEMPLATE_PUZZLE_MARKERS:
+        if marker in text:
             return marker
     return ""
 
