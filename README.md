@@ -51,6 +51,7 @@ cd <LabForge repository root>
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
+python -m labforge package examples/scenario-02-ad-domain-compromise --out output/scenario-02-package --provider docker-compose --profile protected --materialize --force
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
 python -m labforge services scaffold examples/scenario-02-ad-domain-compromise

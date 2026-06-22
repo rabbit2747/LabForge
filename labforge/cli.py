@@ -7,6 +7,7 @@ from .model import LabSpec
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .packaging import create_supervisor_package
 from .agent_orchestration import (
     append_agent_decision,
     create_agent_execution_packages,
@@ -142,6 +143,23 @@ def command_plan(args: argparse.Namespace) -> int:
     else:
         print(plan_to_markdown(plan))
     return 0
+
+
+def command_package(args: argparse.Namespace) -> int:
+    report = create_supervisor_package(
+        Path(args.lab),
+        Path(args.out),
+        provider=args.provider,
+        profile=args.profile,
+        materialize=args.materialize,
+        force=args.force,
+    )
+    print(f"Package status: {report.status}")
+    print(f"- {(Path(args.out) / 'package-report.md').resolve()}")
+    print(f"- {(Path(args.out) / 'generated').resolve()}")
+    print(f"- {(Path(args.out) / 'reports').resolve()}")
+    print(f"- {(Path(args.out) / 'qa').resolve()}")
+    return 0 if report.status in {"passed", "warning"} else 1
 
 
 def command_agents_list(args: argparse.Namespace) -> int:
@@ -428,6 +446,15 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     plan_parser.add_argument("--format", choices=["text", "json"], default="text")
     plan_parser.set_defaults(func=command_plan)
+
+    package_parser = sub.add_parser("package", help="Create a supervisor-ready design, provider, and QA package")
+    package_parser.add_argument("lab")
+    package_parser.add_argument("--out", required=True)
+    package_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    package_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
+    package_parser.add_argument("--materialize", action="store_true")
+    package_parser.add_argument("--force", action="store_true")
+    package_parser.set_defaults(func=command_package)
 
     agents_parser = sub.add_parser("agents", help="Agent orchestration utilities")
     agents_sub = agents_parser.add_subparsers(dest="agents_command", required=True)
