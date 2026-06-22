@@ -182,6 +182,11 @@ findings: []
 open_questions: []
 ```
 
+`services agent-packages` creates initial service-builder result stubs in this
+shape with `status: needs-review`, the target `service`, and an empty
+`service_changes` list. A service result becomes applyable only after the
+builder changes `status` to `complete` and provides concrete `service_changes`.
+
 Apply the result:
 
 ```powershell

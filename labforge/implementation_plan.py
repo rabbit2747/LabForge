@@ -10,6 +10,7 @@ from .agent_orchestration import AgentExecutionPackageSpec
 from .io import dump_yaml, write_text
 from .model import LabSpec
 from .service_artifacts import declared_service_artifacts
+from .vulnerability_plugins import declared_vulnerability_plugins, get_vulnerability_plugin, normalize_template_id
 
 
 class ImplementationModel(BaseModel):
@@ -31,6 +32,44 @@ class ServiceImplementationPlan(ImplementationModel):
     title: str
     service_count: int
     tasks: list[ServiceImplementationTask] = Field(default_factory=list)
+
+
+def vulnerability_plugin_contract_paths(artifact: Any) -> list[str]:
+    paths: list[str] = []
+    for item in declared_vulnerability_plugins(artifact):
+        plugin_id = str(item.get("id", "")).strip()
+        if plugin_id:
+            paths.append(f"{artifact.source_path}/plugins/{normalize_template_id(plugin_id)}.contract.yaml")
+    return paths
+
+
+def vulnerability_plugin_context(artifact: Any) -> list[dict[str, Any]]:
+    context: list[dict[str, Any]] = []
+    for item in declared_vulnerability_plugins(artifact):
+        plugin_id = str(item.get("id", "")).strip()
+        plugin = get_vulnerability_plugin(plugin_id) if plugin_id else None
+        if plugin:
+            context.append(
+                {
+                    "id": plugin.plugin_id,
+                    "description": plugin.description,
+                    "mitre_tactics": list(plugin.mitre_tactics),
+                    "mitre_techniques": list(plugin.mitre_techniques),
+                    "scenario_must_define": list(plugin.scenario_must_define),
+                    "safety_boundaries": list(plugin.safety_boundaries),
+                    "configured_by_scenario": item,
+                }
+            )
+        elif plugin_id:
+            context.append(
+                {
+                    "id": plugin_id,
+                    "description": "Unknown vulnerability plugin. Supervisor review required.",
+                    "configured_by_scenario": item,
+                    "review_required": True,
+                }
+            )
+    return context
 
 
 def create_service_implementation_plan(spec: LabSpec, out: Path | None = None) -> ServiceImplementationPlan:
@@ -184,9 +223,10 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
     for artifact in declared_service_artifacts(spec):
         task_id = f"service-build-{normalize_task_prefix(artifact.service)}"
         output_file = f".ai/outputs/{task_id}.result.yaml"
+        plugin_contracts = vulnerability_plugin_contract_paths(artifact)
         missing_context_files = [
             item
-            for item in [*context_files, artifact.source_path]
+            for item in [*context_files, artifact.source_path, *plugin_contracts]
             if not (spec.root / item).exists()
         ]
         task_manifest = {
@@ -197,9 +237,10 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             "lab_id": spec.lab_id,
             "service": artifact.service,
             "mission": f"Implement the `{artifact.service}` service according to its LabForge service artifact contract.",
-            "context_files": [*context_files, artifact.source_path],
+            "context_files": [*context_files, artifact.source_path, *plugin_contracts],
             "inputs": [
                 "service artifact contract",
+                "vulnerability plugin contracts",
                 "stage requirements",
                 "seed and noise requirements",
                 "safety boundaries",
@@ -221,6 +262,7 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             "assigned_runtime": adapter,
             "output_file": output_file,
             "implementation_tasks": [task.model_dump() for task in tasks_by_service.get(artifact.service, [])],
+            "vulnerability_plugins": vulnerability_plugin_context(artifact),
         }
         package = AgentExecutionPackageSpec(
             task_id=task_id,
@@ -234,7 +276,11 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             context_files=task_manifest["context_files"],
             missing_context_files=missing_context_files,
             system_prompt=render_service_builder_system_prompt(),
-            task_prompt=render_service_builder_task_prompt(artifact, tasks_by_service.get(artifact.service, [])),
+            task_prompt=render_service_builder_task_prompt(
+                artifact,
+                tasks_by_service.get(artifact.service, []),
+                vulnerability_plugin_context(artifact),
+            ),
             task_manifest=task_manifest,
         )
         package_path = run_dir / f"{task_id}.package.yaml"
@@ -250,10 +296,11 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             dump_yaml(
                 {
                     "task_id": task_id,
-                    "status": "not-started",
+                    "status": "needs-review",
+                    "service": artifact.service,
                     "summary": "",
+                    "service_changes": [],
                     "findings": [],
-                    "artifacts": [],
                     "open_questions": [],
                 }
             ),
@@ -282,13 +329,18 @@ def render_service_builder_system_prompt() -> str:
             "",
             "## Output Contract",
             "",
-            "Write a LabForge agent result YAML containing summary, findings, artifacts, and open questions.",
+            "Write a LabForge service result YAML containing task_id, status, service, summary, service_changes, findings, and open_questions.",
             "",
         ]
     )
 
 
-def render_service_builder_task_prompt(artifact: Any, tasks: list[ServiceImplementationTask]) -> str:
+def render_service_builder_task_prompt(
+    artifact: Any,
+    tasks: list[ServiceImplementationTask],
+    vulnerability_plugins: list[dict[str, Any]] | None = None,
+) -> str:
+    vulnerability_plugins = vulnerability_plugins or []
     lines = [
         "## Task",
         "",
@@ -300,6 +352,48 @@ def render_service_builder_task_prompt(artifact: Any, tasks: list[ServiceImpleme
         f"- Runtime: `{artifact.runtime}`",
         f"- Purpose: {artifact.purpose}",
         "",
+        "## Vulnerability Plugin Contracts",
+        "",
+    ]
+    if vulnerability_plugins:
+        for plugin in vulnerability_plugins:
+            lines += [
+                f"### `{plugin.get('id')}`",
+                "",
+                plugin.get("description", ""),
+                "",
+                "MITRE mapping:",
+                "",
+            ]
+            lines.extend(f"- {item}" for item in plugin.get("mitre_techniques", []) or ["Review required."])
+            lines += [
+                "",
+                "Scenario must define:",
+                "",
+            ]
+            lines.extend(f"- {item}" for item in plugin.get("scenario_must_define", []) or ["Review required."])
+            lines += [
+                "",
+                "Safety boundaries:",
+                "",
+            ]
+            lines.extend(f"- {item}" for item in plugin.get("safety_boundaries", []) or ["Review required."])
+            if plugin.get("configured_by_scenario"):
+                lines += [
+                    "",
+                    "Configured by scenario:",
+                    "",
+                    "```yaml",
+                    dump_yaml(plugin["configured_by_scenario"]).rstrip(),
+                    "```",
+                    "",
+                ]
+    else:
+        lines += [
+            "No vulnerability plugin contracts were declared for this service.",
+            "",
+        ]
+    lines += [
         "## Implementation Tasks",
         "",
     ]
@@ -344,7 +438,7 @@ def render_service_agent_manual_invocation(package: AgentExecutionPackageSpec, p
             "2. Paste the system prompt below as the agent's system/developer instruction.",
             "3. Paste the task prompt and task manifest below as the user task context.",
             f"4. Implement or review only the service described by `{package.task_id}`.",
-            f"5. Write the result summary to `{package.output_file}` using the LabForge agent result schema.",
+            f"5. Write the result summary and service_changes to `{package.output_file}` using the LabForge service result schema.",
             "6. Run service checks and QA smoke after implementation changes are applied.",
             "",
             "## Context Status",
