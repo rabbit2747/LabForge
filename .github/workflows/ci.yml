@@ -75,6 +75,11 @@ jobs:
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
           python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual
           grep -q "service_changes:" output/starter-service-agents/.ai/outputs/service-build-entry-service.result.yaml
+          if python -m labforge services review-results output/starter-lab --results output/starter-service-agents/.ai/outputs --force --out output/starter-service-batch-review.md; then
+            echo "batch review unexpectedly ready for empty service-builder stubs"
+            exit 1
+          fi
+          grep -q "Needs review" output/starter-service-batch-review.md
 
       - name: Validate service infrastructure templates
         run: |

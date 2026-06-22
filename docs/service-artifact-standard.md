@@ -191,6 +191,7 @@ Apply the result:
 
 ```powershell
 python -m labforge services review-result <lab-root> --result service-build-entry-service.result.yaml
+python -m labforge services review-results <lab-root> --results <service-agent-output-dir> --force
 python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --dry-run
 python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --force
 ```
@@ -219,3 +220,8 @@ python -m labforge qa release-gate <lab-root> --out output/release-gate --provid
 does not modify files. It checks the result schema, service name, completion
 status, open questions, target paths, source files, and overwrite risk. It
 returns success only when the result is ready to apply.
+
+`review-results` performs the same review across a directory of
+`*.result.yaml` files and reports how many services are ready, still need review,
+or failed validation. It is intended for supervisor batch review before applying
+service-builder outputs.

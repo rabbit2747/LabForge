@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "ServiceResultReviewItem": {
+      "additionalProperties": true,
+      "properties": {
+        "target_path": {
+          "title": "Target Path",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "warning",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_path",
+        "status",
+        "message"
+      ],
+      "title": "ServiceResultReviewItem",
+      "type": "object"
+    },
+    "ServiceResultReviewReport": {
+      "additionalProperties": true,
+      "properties": {
+        "lab_id": {
+          "title": "Lab Id",
+          "type": "string"
+        },
+        "service": {
+          "default": "",
+          "title": "Service",
+          "type": "string"
+        },
+        "result_file": {
+          "title": "Result File",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "needs-review",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "ready_to_apply": {
+          "default": false,
+          "title": "Ready To Apply",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ServiceResultReviewItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "open_questions": {
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Open Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lab_id",
+        "result_file",
+        "status"
+      ],
+      "title": "ServiceResultReviewReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "result_dir": {
+      "title": "Result Dir",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "needs-review",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "ready_count": {
+      "default": 0,
+      "title": "Ready Count",
+      "type": "integer"
+    },
+    "needs_review_count": {
+      "default": 0,
+      "title": "Needs Review Count",
+      "type": "integer"
+    },
+    "failed_count": {
+      "default": 0,
+      "title": "Failed Count",
+      "type": "integer"
+    },
+    "missing_service_results": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Service Results",
+      "type": "array"
+    },
+    "reviews": {
+      "items": {
+        "$ref": "#/$defs/ServiceResultReviewReport"
+      },
+      "title": "Reviews",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "result_dir",
+    "status"
+  ],
+  "title": "ServiceResultBatchReviewReport",
+  "type": "object"
+}

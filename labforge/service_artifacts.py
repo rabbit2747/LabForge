@@ -97,6 +97,17 @@ class ServiceResultReviewReport(ServiceArtifactModel):
     open_questions: list[dict | str] = Field(default_factory=list)
 
 
+class ServiceResultBatchReviewReport(ServiceArtifactModel):
+    lab_id: str
+    result_dir: str
+    status: Literal["ready", "needs-review", "failed"]
+    ready_count: int = 0
+    needs_review_count: int = 0
+    failed_count: int = 0
+    missing_service_results: list[str] = Field(default_factory=list)
+    reviews: list[ServiceResultReviewReport] = Field(default_factory=list)
+
+
 def declared_service_artifacts(spec: LabSpec):
     if not spec.artifacts_model:
         return []
@@ -373,7 +384,13 @@ def review_service_result(spec: LabSpec, result_file: Path, *, force: bool = Fal
         )
 
     if result.status != "complete":
-        errors.append(f"result status must be complete before apply, got: {result.status}")
+        items.append(
+            ServiceResultReviewItem(
+                target_path="-",
+                status="warning",
+                message=f"result status must be complete before apply, got: {result.status}",
+            )
+        )
 
     if result.open_questions:
         items.append(
@@ -388,7 +405,16 @@ def review_service_result(spec: LabSpec, result_file: Path, *, force: bool = Fal
     if not service_root.exists() or not service_root.is_dir():
         errors.append(f"service source_path does not exist: {artifact.source_path}")
     if not result.service_changes:
-        errors.append("result contains no service_changes")
+        if result.status == "complete":
+            errors.append("result contains no service_changes")
+        else:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path="-",
+                    status="warning",
+                    message="result contains no service_changes yet",
+                )
+            )
 
     for change in result.service_changes:
         target, target_error = resolve_service_target(service_root, change.target_path)
@@ -432,6 +458,41 @@ def review_service_result(spec: LabSpec, result_file: Path, *, force: bool = Fal
         items=items,
         errors=errors,
         open_questions=result.open_questions,
+    )
+
+
+def review_service_results(
+    spec: LabSpec,
+    result_dir: Path,
+    *,
+    force: bool = False,
+) -> ServiceResultBatchReviewReport:
+    resolved = result_dir.resolve()
+    reviews: list[ServiceResultReviewReport] = []
+    for result_file in sorted(resolved.glob("*.result.yaml")):
+        reviews.append(review_service_result(spec, result_file, force=force))
+
+    reviewed_services = {review.service for review in reviews if review.service}
+    declared_services = {artifact.service for artifact in declared_service_artifacts(spec)}
+    missing = sorted(declared_services - reviewed_services)
+    ready_count = sum(1 for review in reviews if review.status == "ready")
+    needs_review_count = sum(1 for review in reviews if review.status == "needs-review")
+    failed_count = sum(1 for review in reviews if review.status == "failed") + len(missing)
+    if failed_count:
+        status: Literal["ready", "needs-review", "failed"] = "failed"
+    elif needs_review_count:
+        status = "needs-review"
+    else:
+        status = "ready"
+    return ServiceResultBatchReviewReport(
+        lab_id=spec.lab_id,
+        result_dir=str(resolved),
+        status=status,
+        ready_count=ready_count,
+        needs_review_count=needs_review_count,
+        failed_count=failed_count,
+        missing_service_results=missing,
+        reviews=reviews,
     )
 
 
@@ -533,6 +594,61 @@ def service_result_review_to_markdown(report: ServiceResultReviewReport) -> str:
             "",
         ]
         lines.extend(f"- {question}" for question in report.open_questions)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def service_result_batch_review_to_markdown(report: ServiceResultBatchReviewReport) -> str:
+    lines = [
+        f"# Service Result Batch Review - {report.lab_id}",
+        "",
+        f"- Result directory: `{report.result_dir}`",
+        f"- Status: `{report.status}`",
+        f"- Ready: `{report.ready_count}`",
+        f"- Needs review: `{report.needs_review_count}`",
+        f"- Failed: `{report.failed_count}`",
+        "",
+        "| Service | Status | Ready To Apply | Result File | Errors | Open Questions |",
+        "|---|---|---|---|---:|---:|",
+    ]
+    if not report.reviews:
+        lines.append("| - | failed | false | - | 1 | 0 |")
+    for review in report.reviews:
+        lines.append(
+            f"| `{review.service or 'unknown'}` | `{review.status}` | `{str(review.ready_to_apply).lower()}` | "
+            f"`{review.result_file}` | {len(review.errors)} | {len(review.open_questions)} |"
+        )
+    if report.missing_service_results:
+        lines += [
+            "",
+            "## Missing Service Results",
+            "",
+        ]
+        lines.extend(f"- `{service}`" for service in report.missing_service_results)
+    failed_reviews = [review for review in report.reviews if review.errors]
+    if failed_reviews:
+        lines += [
+            "",
+            "## Errors",
+            "",
+        ]
+        for review in failed_reviews:
+            lines.append(f"### `{review.service or 'unknown'}`")
+            lines.append("")
+            lines.extend(f"- {error}" for error in review.errors)
+            lines.append("")
+    open_question_reviews = [review for review in report.reviews if review.open_questions]
+    if open_question_reviews:
+        lines += [
+            "",
+            "## Open Questions",
+            "",
+        ]
+        for review in open_question_reviews:
+            lines.append(f"### `{review.service or 'unknown'}`")
+            lines.append("")
+            lines.extend(f"- {question}" for question in review.open_questions)
+            lines.append("")
     lines.append("")
     return "\n".join(lines)
 
@@ -741,4 +857,5 @@ SERVICE_ARTIFACT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "service-result.schema.json": ServiceResultSpec,
     "service-result-apply-report.schema.json": ServiceResultApplyReport,
     "service-result-review-report.schema.json": ServiceResultReviewReport,
+    "service-result-batch-review-report.schema.json": ServiceResultBatchReviewReport,
 }
