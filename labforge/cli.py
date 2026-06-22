@@ -34,6 +34,7 @@ from .service_artifacts import (
     scaffold_service_artifacts,
     service_check,
 )
+from .starter import init_lab
 from .validate import validate_lab
 
 
@@ -45,6 +46,17 @@ def command_validate(args: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     print("Validation passed")
+    return 0
+
+
+def command_init(args: argparse.Namespace) -> int:
+    written = init_lab(Path(args.out), lab_id=args.lab_id, title=args.title, force=args.force)
+    print(f"Initialized LabForge scenario template: {Path(args.out).resolve()}")
+    if written:
+        for path in written:
+            print(f"- {path}")
+    else:
+        print("No files written. Existing files were left unchanged. Use --force to overwrite.")
     return 0
 
 
@@ -351,6 +363,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser = sub.add_parser("validate", help="Validate a lab spec")
     validate_parser.add_argument("lab")
     validate_parser.set_defaults(func=command_validate)
+
+    init_parser = sub.add_parser("init", help="Create a new LabForge scenario template")
+    init_parser.add_argument("--out", required=True)
+    init_parser.add_argument("--lab-id", required=True)
+    init_parser.add_argument("--title", required=True)
+    init_parser.add_argument("--force", action="store_true")
+    init_parser.set_defaults(func=command_init)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")
