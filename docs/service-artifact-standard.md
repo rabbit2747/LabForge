@@ -83,6 +83,19 @@ Create placeholder service directories and hooks:
 python -m labforge services scaffold <lab-root>
 ```
 
+Create safe runnable Docker placeholder runtimes from service contracts:
+
+```powershell
+python -m labforge services materialize <lab-root>
+python -m labforge services materialize <lab-root> --force
+```
+
+`services materialize` writes `Dockerfile`, `app.py`, and `seed/metadata.json`
+files for each declared service artifact. These files are intentionally safe
+placeholder runtimes. They expose `/`, `/metadata`, and `/healthz` so provider
+engineers and QA agents can validate build contexts before real service code is
+implemented.
+
 Validate that every declared service artifact has a matching implementation
 directory and required files:
 
@@ -104,9 +117,10 @@ python -m labforge services reset <lab-root>
 python -m labforge services reset <lab-root> --service hr-portal
 ```
 
-The scaffold command is intentionally conservative. It does not generate real
-vulnerable service code. It creates the contract files that service builders and
-agents replace with actual implementation.
+The scaffold and materialize commands are intentionally conservative. They do
+not generate real vulnerable service code. They create contract files and safe
+runtime placeholders that service builders and agents replace with actual
+implementation.
 
 Docker Compose provider outputs also include:
 

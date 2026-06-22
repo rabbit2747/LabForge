@@ -124,9 +124,11 @@ PowerShell scripts automatically detect whether Docker is available in the
 current shell or in any WSL distro on Windows, then run through the first usable
 runtime. The provider also consumes `service_artifacts` contracts to document
 service build contexts, reset behavior, healthchecks, evidence logs, and safety
-boundaries. It does not yet generate full vulnerable service source code, VM infrastructure, Ansible
-roles, Terraform modules, Ludus range files, or production-grade enforcement
-logic for WAF, IDS, SIEM, or EDR controls.
+boundaries. `services materialize` can generate safe runnable placeholder
+Docker service runtimes from those contracts, but LabForge does not yet generate
+full vulnerable service source code, production VM infrastructure, complete
+Ansible roles, complete Terraform modules, or production-grade enforcement logic
+for WAF, IDS, SIEM, or EDR controls.
 
 The `doctor` command now detects whether the current machine should run lab
 work directly from the host shell, from WSL, or through a VM/hybrid provider.

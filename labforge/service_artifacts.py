@@ -13,6 +13,7 @@ from .model import LabSpec
 
 RECOMMENDED_DIRECTORIES = ("seed", "noise", "tests")
 REQUIRED_FILES = ("README.md", "labforge-service.yaml", "healthcheck.sh", "reset.sh")
+RUNTIME_FILES = ("Dockerfile", "app.py")
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,38 @@ def scaffold_service_artifacts(spec: LabSpec, force: bool = False) -> list[Path]
             write_text(path, content)
             written.append(path)
     return written
+
+
+def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Path]:
+    written: list[Path] = []
+    services_by_name = {str(service.get("name")): service for service in spec.services}
+    for artifact in declared_service_artifacts(spec):
+        service_root = spec.root / artifact.source_path
+        service_root.mkdir(parents=True, exist_ok=True)
+        service = services_by_name.get(artifact.service, {})
+        port = service_runtime_port(service)
+        files = {
+            "Dockerfile": render_runtime_dockerfile(artifact, port),
+            "app.py": render_runtime_app(artifact, port),
+            "seed/metadata.json": render_runtime_metadata(artifact, port),
+        }
+        for filename, content in files.items():
+            path = service_root / filename
+            if path.exists() and not force:
+                continue
+            write_text(path, content)
+            written.append(path)
+    return written
+
+
+def service_runtime_port(service: dict) -> int:
+    exposed = service.get("expose") or []
+    if exposed:
+        return int(str(exposed[0]).split(":", maxsplit=1)[-1])
+    ports = service.get("ports") or []
+    if ports:
+        return int(str(ports[0]).split(":")[-1])
+    return 8080
 
 
 def run_service_hooks(
@@ -254,3 +287,96 @@ def render_reset_script(artifact) -> str:
             "",
         ]
     )
+
+
+def render_runtime_dockerfile(artifact, port: int) -> str:
+    return "\n".join(
+        [
+            "FROM python:3.12-alpine",
+            "",
+            "WORKDIR /app",
+            f"ENV LABFORGE_SERVICE={artifact.service}",
+            f"ENV PORT={port}",
+            "COPY app.py /app/app.py",
+            "COPY seed /app/seed",
+            "RUN mkdir -p /home/attacker /var/log/labforge && chmod -R 755 /app /home/attacker /var/log/labforge",
+            f"EXPOSE {port}",
+            "CMD [\"python\", \"/app/app.py\"]",
+            "",
+        ]
+    )
+
+
+def render_runtime_app(artifact, port: int) -> str:
+    service = str(artifact.service)
+    purpose = str(artifact.purpose).replace("\\", "\\\\").replace('"', '\\"')
+    runtime = str(artifact.runtime).replace("\\", "\\\\").replace('"', '\\"')
+    return "\n".join(
+        [
+            "from __future__ import annotations",
+            "",
+            "import json",
+            "import os",
+            "from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer",
+            "",
+            f"SERVICE = {service!r}",
+            f"PURPOSE = \"{purpose}\"",
+            f"RUNTIME = \"{runtime}\"",
+            f"DEFAULT_PORT = {port}",
+            "",
+            "",
+            "class Handler(BaseHTTPRequestHandler):",
+            "    def do_GET(self):",
+            "        if self.path in {'/', '/metadata'}:",
+            "            self.write_json({",
+            "                'service': SERVICE,",
+            "                'purpose': PURPOSE,",
+            "                'runtime': RUNTIME,",
+            "                'status': 'placeholder-runtime',",
+            "                'endpoints': ['/', '/metadata', '/healthz'],",
+            "            })",
+            "            return",
+            "        if self.path == '/healthz':",
+            "            self.send_response(200)",
+            "            self.end_headers()",
+            "            self.wfile.write(b'ok\\n')",
+            "            return",
+            "        self.send_response(404)",
+            "        self.end_headers()",
+            "",
+            "    def log_message(self, fmt, *args):",
+            "        return",
+            "",
+            "    def write_json(self, value):",
+            "        data = json.dumps(value, indent=2).encode('utf-8')",
+            "        self.send_response(200)",
+            "        self.send_header('Content-Type', 'application/json')",
+            "        self.send_header('Content-Length', str(len(data)))",
+            "        self.end_headers()",
+            "        self.wfile.write(data)",
+            "",
+            "",
+            "def main():",
+            "    port = int(os.environ.get('PORT', DEFAULT_PORT))",
+            "    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()",
+            "",
+            "",
+            "if __name__ == '__main__':",
+            "    main()",
+            "",
+        ]
+    )
+
+
+def render_runtime_metadata(artifact, port: int) -> str:
+    import json
+
+    data = {
+        "service": artifact.service,
+        "runtime": artifact.runtime,
+        "purpose": artifact.purpose,
+        "port": port,
+        "status": "placeholder-runtime",
+        "safety_boundaries": artifact.safety_boundaries,
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"

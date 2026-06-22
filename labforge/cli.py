@@ -25,7 +25,12 @@ from .io import write_text
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
 from .schema import export_schemas
-from .service_artifacts import run_service_hooks, scaffold_service_artifacts, service_check
+from .service_artifacts import (
+    materialize_service_runtimes,
+    run_service_hooks,
+    scaffold_service_artifacts,
+    service_check,
+)
 from .validate import validate_lab
 
 
@@ -256,6 +261,18 @@ def command_services_scaffold(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_materialize(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    written = materialize_service_runtimes(spec, force=args.force)
+    print(f"Materialized service runtime placeholders under: {Path(args.lab).resolve()}")
+    if written:
+        for path in written:
+            print(f"- {path}")
+    else:
+        print("No files written. Existing files were left unchanged. Use --force to overwrite.")
+    return 0
+
+
 def command_services_hook(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     runs, errors = run_service_hooks(
@@ -369,6 +386,10 @@ def main(argv: list[str] | None = None) -> int:
     services_scaffold_parser.add_argument("lab")
     services_scaffold_parser.add_argument("--force", action="store_true", help="Overwrite existing scaffold files")
     services_scaffold_parser.set_defaults(func=command_services_scaffold)
+    services_materialize_parser = services_sub.add_parser("materialize", help="Create safe runnable placeholder service runtimes")
+    services_materialize_parser.add_argument("lab")
+    services_materialize_parser.add_argument("--force", action="store_true", help="Overwrite existing runtime placeholder files")
+    services_materialize_parser.set_defaults(func=command_services_materialize)
     for hook_name in ("healthcheck", "reset"):
         hook_parser = services_sub.add_parser(hook_name, help=f"Run service {hook_name}.sh hooks")
         hook_parser.add_argument("lab")
