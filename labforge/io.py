@@ -10,7 +10,7 @@ def load_yaml(path: Path) -> dict[str, Any]:
         import yaml
     except ImportError as exc:
         raise SystemExit(
-            "PyYAML is required. Install with: pip install -e C:\\dev\\LabForge"
+            "PyYAML is required. From the LabForge repository root, run: pip install -e ."
         ) from exc
 
     with path.open("r", encoding="utf-8") as handle:
@@ -25,7 +25,7 @@ def dump_yaml(data: dict[str, Any]) -> str:
         import yaml
     except ImportError as exc:
         raise SystemExit(
-            "PyYAML is required. Install with: pip install -e C:\\dev\\LabForge"
+            "PyYAML is required. From the LabForge repository root, run: pip install -e ."
         ) from exc
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
@@ -41,4 +41,3 @@ def load_json(path: Path) -> dict[str, Any]:
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8", newline="\n")
-

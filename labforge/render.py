@@ -239,7 +239,7 @@ def render_deployment_requirements(spec: LabSpec) -> str:
             "",
             "| Role | Count | OS | CPU | Memory | Storage | Software |",
             "|---|---:|---|---|---|---|---|",
-            "| training-host | 1 | Windows 11 or Linux | 8 cores recommended | 16 GB minimum | 80 GB free | Docker, Python 3.11+, Git |",
+            "| training-host | 1 | Windows, Linux, or macOS with a Docker-capable runtime | 8 cores recommended | 16 GB minimum | 80 GB free | Docker-compatible runtime, Python 3.11+, Git |",
             "",
         ]
 

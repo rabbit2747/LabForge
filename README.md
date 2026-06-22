@@ -45,7 +45,7 @@ LabForge can also inspect the local build host before real deployment work:
 ## Quick Start
 
 ```powershell
-cd C:\dev\LabForge
+cd <LabForge repository root>
 
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
@@ -63,10 +63,10 @@ Expected result:
 Validation passed
 # LabForge Host Doctor
 # Execution Plan - Scenario 02 - Active Directory Domain Compromise
-Scaffolded agent workspace: C:\dev\LabForge\output\scenario-02-agents\.ai
+Scaffolded agent workspace: <repo>\output\scenario-02-agents\.ai
 Agent workspace validation passed
-Built lab scaffold with provider docker-compose and profile unprotected: C:\dev\LabForge\output\scenario-02
-Rendered docs with profile protected: C:\dev\LabForge\output\scenario-02-docs
+Built lab scaffold with provider docker-compose and profile unprotected: <repo>\output\scenario-02
+Rendered docs with profile protected: <repo>\output\scenario-02-docs
 ```
 
 ## Detailed Review Guide
@@ -75,6 +75,11 @@ For the complete explanation, usage model, file format, generated outputs,
 security-control concept, and current limitations, see:
 
 [`docs/labforge-review-guide-ko.md`](docs/labforge-review-guide-ko.md)
+
+For the portability and open-source design rules that every LabForge change
+must follow, see:
+
+[`docs/open-source-constitution.md`](docs/open-source-constitution.md)
 
 For a broader catalog of Docker, VM, AD, Proxmox, IDS, SIEM, Kubernetes, and
 hybrid deployment environment requirements, see:

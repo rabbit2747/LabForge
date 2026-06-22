@@ -27,12 +27,12 @@ deployment:
     hosts:
       - role: training-host
         count: 1
-        os: Windows 11 or Linux
+        os: Windows, Linux, or macOS with a Docker-capable runtime
         cpu: 8 cores recommended
         memory: 16 GB minimum, 32 GB recommended
         storage: 80 GB free
         software:
-          - Docker Desktop or Docker Engine
+          - Docker Desktop, Docker Engine, or an equivalent Docker-compatible runtime
           - Python 3.11+
           - Git
   realistic_environment:

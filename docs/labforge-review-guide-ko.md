@@ -114,7 +114,7 @@ LabForge는 다음 원칙을 따른다.
 ## 5. 현재 디렉토리 구조
 
 ```text
-C:\dev\LabForge
+<LabForge repository root>
 |-- README.md
 |-- pyproject.toml
 |-- docs/
@@ -237,12 +237,12 @@ deployment:
     hosts:
       - role: training-host
         count: 1
-        os: Windows 11 or Linux
+        os: Windows, Linux, or macOS with a Docker-capable runtime
         cpu: 8 cores recommended
         memory: 16 GB minimum, 32 GB recommended
         storage: 80 GB free
         software:
-          - Docker Desktop or Docker Engine
+          - Docker Desktop, Docker Engine, or an equivalent Docker-compatible runtime
           - Python 3.11+
           - Git
   realistic_environment:
@@ -353,7 +353,7 @@ stages:
 ### 7.1 검증
 
 ```powershell
-cd C:\dev\LabForge
+cd <LabForge repository root>
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 ```
 

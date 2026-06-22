@@ -105,7 +105,7 @@ python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 Windows 소스 경로와 WSL 실행 경로가 분리되는 경우:
 
 ```text
-Windows source: C:\dev\LabForge
+Windows source: <Windows path to LabForge repository>
 WSL execution: /home/<user>/LabForge
 ```
 
