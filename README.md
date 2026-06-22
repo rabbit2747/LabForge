@@ -1,68 +1,62 @@
 # LabForge
 
-LabForge is a small framework for building ROOT14-style hands-on security labs
-from declarative scenario specifications.
+LabForge is a declarative framework for designing, reviewing, and generating
+ROOT14-style hands-on security lab infrastructure.
 
-The goal is to let authors describe:
+It is not intended to be only a Docker Compose generator. Docker Compose is the
+first implemented provider, but the framework is being shaped so that future
+labs can target Docker, virtual machines, Ansible, Terraform, Vagrant, Proxmox,
+VMware, or hybrid environments.
 
-- scenario story and final objective
-- infrastructure topology
-- services and networks
-- MITRE ATT&CK stage mappings
-- seed artifacts and noise data
-- reset/build/documentation behavior
+## What It Does
 
-Then LabForge generates a repeatable lab scaffold:
+LabForge lets an author describe a lab as structured scenario files:
+
+- the story and final objective
+- the logical infrastructure and network zones
+- services, exposed entry points, and internal assets
+- stage-by-stage learner flow
+- MITRE ATT&CK tactic and technique mappings
+- selectable security controls such as firewall, WAF, IDS, logging, and EDR
+- supervisor-facing architecture diagrams
+
+From those files, LabForge currently generates:
 
 - `docker-compose.yml`
-- generated documentation
-- stage/MITRE report
-- supervisor architecture diagrams
-- reset notes
+- student/supervisor README
+- MITRE mapping report
 - implementation checklist
+- Mermaid architecture diagrams
+- raw `.mmd` diagram files for rendering or review
 
-LabForge intentionally does not replace Docker Compose, Ansible, or Terraform.
-It sits above them as a lab-specific content and topology layer.
-
-## MVP Commands
+## Quick Start
 
 ```powershell
+cd C:\dev\LabForge
+
 python -m labforge validate examples/scenario-02-ad-domain-compromise
-python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02
+python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs
 ```
 
-Generated documentation includes Mermaid diagrams:
-
-- `docs/architecture-diagrams.md`
-- `diagrams/topology.mmd`
-- `diagrams/attack-flow.mmd`
-- `diagrams/security-controls.mmd`
-
-## Scenario Layout
+Expected result:
 
 ```text
-scenario-root/
-|-- scenario.yaml
-|-- topology.yaml
-|-- stages.yaml
-|-- artifacts/
-`-- services/
+Validation passed
+Built lab scaffold: C:\dev\LabForge\output\scenario-02
+Rendered docs: C:\dev\LabForge\output\scenario-02-docs
 ```
 
-## Required Design Principles
+## Detailed Review Guide
 
-- External exposure must be explicit.
-- Internal services must not be directly exposed by default.
-- Attacker Workstation should be present for interactive learner work.
-- Reset behavior must be planned.
-- MITRE tactic and technique mapping is required for each stage.
-- Seed data and noise data should be separated.
-- Health checks are required for generated services.
-- Dangerous behavior must be constrained to the lab network.
+For the complete explanation, usage model, file format, generated outputs,
+security-control concept, and current limitations, see:
+
+[`docs/labforge-review-guide-ko.md`](docs/labforge-review-guide-ko.md)
 
 ## Current Status
 
-This is an MVP scaffold. It can validate a scenario bundle and generate a Docker
-Compose scaffold plus documentation. It does not yet generate full vulnerable
-service source code.
+LabForge is currently an MVP. It can validate a scenario bundle and generate
+Docker Compose scaffolding plus documentation. It does not yet generate full
+vulnerable service source code, VM infrastructure, Ansible roles, Terraform
+modules, or final production-grade protected/unprotected architecture variants.

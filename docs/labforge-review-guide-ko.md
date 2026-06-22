@@ -1,0 +1,659 @@
+# LabForge 검토용 설명서
+
+## 1. LabForge란 무엇인가
+
+LabForge는 보안 교육용 hands-on lab을 선언형 파일로 정의하고, 그 정의를 바탕으로 인프라 산출물과 문서를 생성하는 프레임워크다.
+
+현재 목표는 단순히 `docker-compose.yml`을 만드는 도구가 아니다. 최종 목표는 다음과 같다.
+
+```text
+시나리오를 입력하면
+1. 학습자 공격 흐름
+2. MITRE ATT&CK 매핑
+3. 보안 미적용 인프라 아키텍처
+4. 보안 적용 인프라 아키텍처
+5. 감독자가 선택 가능한 보안장치 목록
+6. 실제 배포 가능한 IaC / Compose / Ansible / Terraform 산출물
+7. 학생용 문서
+8. 강사용 문서
+9. 감독자용 구성도
+를 일관된 형식으로 생성하는 프레임워크
+```
+
+즉 LabForge는 실습 문제를 만드는 도구이면서 동시에 보안 실습 인프라 설계 문서 생성기다.
+
+## 2. 왜 필요한가
+
+ROOT14 교육 플랫폼에서는 단순 CTF식 문제보다 실제 기업망에 가까운 red-team 실습 환경이 필요하다.
+
+기존 방식으로는 각 시나리오마다 다음 작업을 수작업으로 반복해야 한다.
+
+- Docker Compose 작성
+- 네트워크 분리 설계
+- 공격자 워크스테이션 구성
+- 취약 서비스 배치
+- 내부 서비스 배치
+- 학습 단계별 문서 작성
+- MITRE ATT&CK 매핑 작성
+- 보안장치 적용 여부 문서화
+- 감독자용 아키텍처 구성도 작성
+- 실습 초기화 및 검증 절차 작성
+
+LabForge는 이 반복 작업을 시나리오 정의 파일 중심으로 표준화하려는 프레임워크다.
+
+## 3. 핵심 설계 원칙
+
+LabForge는 다음 원칙을 따른다.
+
+1. 시나리오와 인프라 구현을 분리한다.
+
+   예를 들어 "Active Directory 침투 시나리오"는 Docker로만 구현하기 어렵다. 따라서 시나리오 파일은 논리적 자산과 흐름을 정의하고, 실제 구현은 Docker, VM, Ansible, Terraform 같은 provider가 담당해야 한다.
+
+2. Docker Compose는 여러 provider 중 하나다.
+
+   Orion Echo 같은 Linux 웹/API 중심 공급망 실습은 Docker Compose로 적합하다. 반면 Active Directory, Windows Event Forwarding, GPO(Group Policy Object), Kerberos, SMB(Server Message Block), RDP(Remote Desktop Protocol) 같은 요소가 필요한 실습은 VM 또는 hybrid provider가 필요하다.
+
+3. 보안장치가 없는 구조와 보안장치가 있는 구조를 모두 다룬다.
+
+   같은 시나리오라도 학습 목적에 따라 방화벽, WAF(Web Application Firewall), IDS(Intrusion Detection System), SIEM(Security Information and Event Management), EDR(Endpoint Detection and Response) 적용 여부가 달라진다.
+
+4. 감독자가 이해하기 쉬운 도식화를 생성한다.
+
+   실습을 운영하는 사람은 전체 인프라, 외부 노출 지점, 내부망, 공격 흐름, 보안장치 배치 위치를 빠르게 파악해야 한다. LabForge는 Mermaid 기반 구성도를 자동 생성한다.
+
+5. 모든 stage는 MITRE ATT&CK Matrix for Enterprise의 tactic과 technique에 매핑되어야 한다.
+
+   이 프레임워크는 단순 문제 제작기가 아니라 MITRE 기반 교육 콘텐츠 제작 도구다.
+
+## 4. 현재 구현 범위
+
+현재 구현된 MVP 기능은 다음과 같다.
+
+- `scenario.yaml`, `topology.yaml`, `stages.yaml` 로딩
+- 필수 필드 검증
+- MITRE ATT&CK Enterprise tactic 검증
+- 각 stage의 technique ID/name 존재 여부 검증
+- 서비스별 healthcheck 존재 여부 검증
+- exposed service 명시 여부 검증
+- attacker-workstation 존재 여부 검증
+- Docker Compose scaffold 생성
+- README 생성
+- MITRE mapping report 생성
+- implementation checklist 생성
+- 감독자용 Mermaid architecture diagram 생성
+
+현재 아직 구현되지 않은 기능은 다음과 같다.
+
+- 실제 취약 서비스 코드 자동 생성
+- Ansible provider
+- Terraform provider
+- Vagrant provider
+- Proxmox / VMware provider
+- protected / unprotected profile 분리 출력
+- 감독자 interactive security-control 선택
+- reset snapshot 자동화
+- 학생용 guide와 강사용 answer key 분리
+- PNG/SVG 다이어그램 렌더링
+
+## 5. 현재 디렉토리 구조
+
+```text
+C:\dev\LabForge
+|-- README.md
+|-- pyproject.toml
+|-- docs/
+|   `-- labforge-review-guide-ko.md
+|-- labforge/
+|   |-- __init__.py
+|   |-- __main__.py
+|   |-- cli.py
+|   |-- diagrams.py
+|   |-- io.py
+|   |-- model.py
+|   |-- render.py
+|   `-- validate.py
+|-- schemas/
+|   |-- scenario.schema.json
+|   |-- stages.schema.json
+|   `-- topology.schema.json
+|-- templates/
+|   `-- README.md
+`-- examples/
+    `-- scenario-02-ad-domain-compromise/
+        |-- scenario.yaml
+        |-- topology.yaml
+        |-- stages.yaml
+        |-- artifacts/
+        |   `-- README.md
+        `-- services/
+            `-- README.md
+```
+
+## 6. LabForge 입력 파일
+
+현재 MVP에서 하나의 lab은 다음 3개 파일을 필수로 가진다.
+
+```text
+scenario-root/
+|-- scenario.yaml
+|-- topology.yaml
+`-- stages.yaml
+```
+
+향후에는 아래 파일들이 추가될 예정이다.
+
+```text
+scenario-root/
+|-- lab.yaml
+|-- scenario.yaml
+|-- environment.yaml
+|-- stages.yaml
+|-- mitre.yaml
+|-- artifacts.yaml
+|-- security-controls.yaml
+|-- supervisor-selection.yaml
+`-- providers/
+    |-- docker-compose.yaml
+    |-- ansible.yaml
+    `-- terraform.yaml
+```
+
+### 6.1 scenario.yaml
+
+`scenario.yaml`은 실습의 정체성을 정의한다.
+
+예시:
+
+```yaml
+id: scenario-02-ad-domain-compromise
+title: Scenario 02 - Active Directory Domain Compromise
+summary: >
+  External HR portal compromise leads to Active Directory discovery,
+  service account abuse, lateral movement, and final board strategy
+  archive collection.
+final_objective: >
+  Obtain board_strategy_archive_2026.zip from the internal fileserver
+  and submit a manifest to controlled-drop.
+```
+
+필드 설명:
+
+| 필드 | 의미 |
+|---|---|
+| `id` | 실습의 고유 ID |
+| `title` | 문서와 산출물에 표시될 제목 |
+| `summary` | 실습 전체 요약 |
+| `final_objective` | 학습자가 최종적으로 달성해야 하는 목표 |
+
+### 6.2 topology.yaml
+
+`topology.yaml`은 네트워크, 서비스, 보안장치 후보를 정의한다.
+
+예시:
+
+```yaml
+networks:
+  - name: public_net
+  - name: dmz_net
+    internal: true
+  - name: corp_net
+    internal: true
+  - name: drop_net
+    internal: true
+
+security_controls:
+  recommended:
+    - Firewall / Segmentation
+    - WAF on HR Portal
+    - IDS East-West Sensor
+    - Central Log Collection
+    - Windows Event Forwarding
+    - EDR Lite Process Monitor
+
+services:
+  - name: attacker-workstation
+    role: learner attack workstation
+    exposed: true
+    networks: [public_net, dmz_net, drop_net]
+    ports: ["2222:22"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "test -d /home/attacker"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+```
+
+필드 설명:
+
+| 필드 | 의미 |
+|---|---|
+| `networks` | 논리 네트워크 구역 |
+| `internal: true` | 외부 직접 접근이 불가능한 내부망 표시 |
+| `security_controls.recommended` | 감독자가 선택할 수 있는 보안장치 후보 |
+| `services` | 실습에 등장하는 서비스/서버/자산 |
+| `exposed: true` | 학습자가 외부에서 직접 접근 가능한 서비스 |
+| `ports` | host에 publish되는 포트 |
+| `expose` | 내부 컨테이너 네트워크에만 노출되는 포트 |
+| `healthcheck` | 서비스 정상 여부 확인 명령 |
+
+중요 원칙:
+
+- 외부 노출 서비스는 반드시 `exposed: true`로 표시한다.
+- 내부 서비스는 기본적으로 직접 노출하지 않는다.
+- 학습자용 공격자 환경은 `attacker-workstation`으로 정의한다.
+- 보안장치는 현재 문서/다이어그램 생성에 사용되며, 향후 protected profile 생성에 사용된다.
+
+### 6.3 stages.yaml
+
+`stages.yaml`은 학습자가 수행할 공격 흐름과 MITRE 매핑을 정의한다.
+
+예시:
+
+```yaml
+stages:
+  - id: stage-01
+    title: External HR portal discovery
+    procedure: Observe profile preview requests and confirm server-side rendering behavior.
+    mitre:
+      tactic: Initial Access
+      techniques:
+        - id: T1190
+          name: Exploit Public-Facing Application
+```
+
+필드 설명:
+
+| 필드 | 의미 |
+|---|---|
+| `id` | stage 고유 ID |
+| `title` | stage 이름 |
+| `procedure` | 학습자가 해당 단계에서 수행해야 하는 절차 요약 |
+| `mitre.tactic` | MITRE ATT&CK Matrix for Enterprise tactic |
+| `mitre.techniques` | 해당 단계의 technique ID와 이름 |
+
+현재 validator는 tactic이 Enterprise 14 tactic 중 하나인지 확인한다.
+
+지원되는 tactic:
+
+- Reconnaissance
+- Resource Development
+- Initial Access
+- Execution
+- Persistence
+- Privilege Escalation
+- Defense Evasion
+- Credential Access
+- Discovery
+- Lateral Movement
+- Collection
+- Command and Control
+- Exfiltration
+- Impact
+
+## 7. 명령어 사용법
+
+현재 LabForge는 Python module 방식으로 실행할 수 있다.
+
+### 7.1 검증
+
+```powershell
+cd C:\dev\LabForge
+python -m labforge validate examples/scenario-02-ad-domain-compromise
+```
+
+성공 시:
+
+```text
+Validation passed
+```
+
+실패 시:
+
+```text
+Validation failed:
+- scenario.yaml missing required field: title
+- stage stage-03 has invalid MITRE tactic: ...
+```
+
+검증 항목:
+
+- 필수 파일 존재 여부
+- `scenario.yaml` 필수 필드
+- topology network 존재 여부
+- services 목록 존재 여부
+- `attacker-workstation` 존재 여부
+- 외부 노출 서비스 존재 여부
+- 각 서비스 healthcheck 존재 여부
+- stage별 title/procedure 존재 여부
+- stage별 MITRE tactic 유효성
+- stage별 technique ID/name 존재 여부
+
+### 7.2 전체 lab scaffold 생성
+
+```powershell
+python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --force
+```
+
+생성 결과:
+
+```text
+output/scenario-02/
+|-- docker-compose.yml
+|-- README.md
+|-- docs/
+|   |-- architecture-diagrams.md
+|   |-- implementation-checklist.md
+|   `-- mitre-mapping.md
+`-- diagrams/
+    |-- attack-flow.mmd
+    |-- security-controls.mmd
+    `-- topology.mmd
+```
+
+`--force` 옵션:
+
+- validation error가 있어도 산출물을 생성한다.
+- 검토 중인 초안 시나리오를 문서화할 때 사용할 수 있다.
+- 실제 배포 전에는 `--force` 없이 통과하는 상태가 되어야 한다.
+
+### 7.3 문서만 생성
+
+```powershell
+python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs
+```
+
+생성 결과:
+
+```text
+output/scenario-02-docs/
+|-- README.md
+|-- architecture-diagrams.md
+|-- implementation-checklist.md
+|-- mitre-mapping.md
+`-- diagrams/
+    |-- attack-flow.mmd
+    |-- security-controls.mmd
+    `-- topology.mmd
+```
+
+이 명령은 인프라 파일 없이 검토용 문서만 보고 싶을 때 사용한다.
+
+## 8. 생성되는 문서 설명
+
+### 8.1 README.md
+
+해당 실습의 요약 문서다.
+
+포함 내용:
+
+- Summary
+- Final Objective
+- Exposed Services
+- Stages
+- 각 stage의 procedure
+- 각 stage의 MITRE tactic/technique
+
+### 8.2 docs/mitre-mapping.md
+
+stage별 MITRE 매핑표다.
+
+포함 내용:
+
+- Stage ID
+- Stage title
+- Procedure
+- MITRE tactic
+- MITRE technique ID/name
+
+검토자는 이 문서를 보고 교육 커리큘럼 관점에서 각 단계가 어떤 ATT&CK 행위를 다루는지 확인할 수 있다.
+
+### 8.3 docs/implementation-checklist.md
+
+개발자가 실제 실습 환경을 구현할 때 확인해야 할 체크리스트다.
+
+포함 내용:
+
+- 외부 노출 서비스 명시 여부
+- 내부 서비스 직접 노출 방지
+- attacker workstation 존재 여부
+- reset strategy 필요 여부
+- seed/noise data 분리
+- 서비스별 healthcheck
+- stage별 구현 여부
+
+### 8.4 docs/architecture-diagrams.md
+
+감독자용 도식화 문서다.
+
+현재 3개 Mermaid diagram을 포함한다.
+
+1. Infrastructure Topology
+
+   네트워크 구역, 서비스, 외부 노출 여부, 학습자 연결점을 보여준다.
+
+2. Learner Attack Flow
+
+   Stage 1부터 최종 목표까지 학습자가 진행하는 순서를 보여준다.
+
+3. Protected Architecture Control Overlay
+
+   방화벽, WAF, IDS, 중앙 로그 수집, EDR 같은 보안장치가 어디에 배치될 수 있는지 보여준다.
+
+### 8.5 diagrams/*.mmd
+
+Mermaid 원본 파일이다.
+
+생성 파일:
+
+- `topology.mmd`
+- `attack-flow.mmd`
+- `security-controls.mmd`
+
+이 파일들은 GitHub, Mermaid Live Editor, VS Code Mermaid extension, Mermaid CLI 등으로 렌더링할 수 있다.
+
+## 9. 보안장치 모델
+
+LabForge는 최종적으로 같은 시나리오에 대해 두 가지 아키텍처를 생성하는 것을 목표로 한다.
+
+### 9.1 Unprotected Architecture
+
+보안장치가 거의 없는 기본 실습 구조다.
+
+목적:
+
+- 공격 흐름 자체를 이해하기 쉽게 만든다.
+- 초기 교육 단계에서 실습자의 시행착오를 줄인다.
+- 취약점, 내부 이동, 정보 수집, 최종 목표 달성 과정을 직관적으로 보여준다.
+
+예상 문서 내용:
+
+- 외부 노출 서비스
+- 내부 서비스
+- 의도된 취약점
+- 공격 경로
+- 네트워크 접근 가능성
+- 보안장치가 없을 때 가능한 행동
+
+### 9.2 Protected Architecture
+
+실제 기업망에 더 가까운 보안장치 적용 구조다.
+
+목적:
+
+- 공격이 어떤 보안장치에 탐지될 수 있는지 보여준다.
+- 방화벽 정책, IDS 탐지, WAF alert, 로그 수집, EDR 이벤트를 교육에 포함한다.
+- Red Team, Blue Team, Purple Team 관점으로 확장할 수 있다.
+
+예상 문서 내용:
+
+- 방화벽 정책
+- 허용/차단 트래픽
+- IDS 센서 위치
+- WAF 적용 위치
+- 로그 수집 대상
+- EDR 적용 범위
+- stage별 탐지 가능성
+- 학생에게 보여줄 로그와 강사만 볼 로그의 분리
+
+### 9.3 Supervisor Selection
+
+향후 LabForge는 감독자가 보안장치를 선택할 수 있게 할 예정이다.
+
+예시:
+
+```yaml
+selected_controls:
+  firewall:
+    - fw-basic-segmentation
+    - fw-egress-restrict
+  waf:
+    - waf-support-portal
+  ids:
+    - ids-east-west
+  siem:
+    - siem-central-logs
+  edr:
+    - edr-lite-process-monitor
+
+training_mode:
+  mode: red-team
+  detection_feedback: instructor_only
+  allow_student_log_access: false
+```
+
+이 선택값을 기반으로 LabForge는 protected architecture 문서와 최종 provider 산출물을 생성하게 된다.
+
+## 10. Provider 설계 방향
+
+현재 provider는 Docker Compose만 구현되어 있다.
+
+하지만 장기적으로 LabForge는 다음 provider를 지원해야 한다.
+
+| Provider | 목적 |
+|---|---|
+| `docker-compose` | 웹/API/서비스 중심의 빠른 실습 환경 |
+| `ansible` | 이미 존재하는 VM 또는 서버에 서비스와 설정 배포 |
+| `terraform` | VM, 네트워크, 보안그룹, 스토리지 같은 인프라 생성 |
+| `vagrant` | 로컬 교육장용 VM 기반 실습 구성 |
+| `proxmox` | 사내 또는 교육 플랫폼 서버 기반 VM 실습 |
+| `hybrid` | Docker와 VM을 함께 사용하는 혼합 실습 |
+
+시나리오별 권장 provider 예:
+
+| 시나리오 유형 | 권장 provider |
+|---|---|
+| 공급망 공격 | Docker Compose 또는 Hybrid |
+| Active Directory 침투 | Terraform + Ansible 또는 Vagrant + Ansible |
+| Exchange/Webmail 침투 | Hybrid |
+| VPN appliance 침투 | Hybrid |
+| Ransomware prepositioning | Windows VM + Ansible |
+| ICS/OT 침투 | Docker Compose + OT simulator 또는 Hybrid |
+
+## 11. 현재 예제 시나리오
+
+현재 포함된 예제는 다음이다.
+
+```text
+examples/scenario-02-ad-domain-compromise
+```
+
+이 예제는 Active Directory Domain Compromise를 모델링한다.
+
+주의:
+
+- 현재 예제는 아직 실제 AD VM을 생성하지 않는다.
+- MVP에서는 AD-like LDAP 서비스로 표현되어 있다.
+- 실제 AD 실습으로 발전시키려면 VM/Ansible provider가 필요하다.
+
+예제 stage 요약:
+
+| Stage | 내용 |
+|---|---|
+| stage-01 | 외부 HR portal discovery |
+| stage-02 | HR server foothold |
+| stage-03 | credential/config discovery |
+| stage-04 | Active Directory discovery |
+| stage-05 | Kerberoasting |
+| stage-06 | lateral movement |
+| stage-07 | backup operator escalation |
+| stage-08 | fileserver collection |
+| stage-09 | internal staging |
+| stage-10 | controlled drop submission |
+
+## 12. 검토자가 확인해야 할 포인트
+
+검토자는 다음 질문을 기준으로 LabForge를 보면 된다.
+
+1. 시나리오 정의와 인프라 정의가 충분히 분리되어 있는가?
+2. Docker에만 종속되지 않는 구조로 확장 가능한가?
+3. MITRE ATT&CK 기반 교육 콘텐츠 제작에 적합한가?
+4. 보안장치가 없는 구조와 보안장치가 있는 구조를 모두 표현할 수 있는가?
+5. 감독자가 이해할 수 있는 구성도와 문서가 생성되는가?
+6. 향후 Ansible/Terraform/VM provider를 붙일 수 있는가?
+7. Orion Echo 같은 기존 Docker lab을 이 구조로 변환할 수 있는가?
+8. AD/Windows/ICS처럼 Docker만으로 부족한 실습도 표현 가능한가?
+
+## 13. 현재 한계
+
+현재 LabForge는 설계 방향을 검증하기 위한 초기 MVP다.
+
+한계:
+
+- 실제 취약 서비스 자동 생성은 하지 않는다.
+- Docker Compose 외 provider는 아직 없다.
+- protected/unprotected profile이 완전히 분리되어 있지 않다.
+- security control은 현재 diagram overlay와 문서화 수준이다.
+- JSON Schema 파일은 존재하지만 Python validator가 모든 schema 규칙을 완전히 사용하지는 않는다.
+- generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
+
+## 14. 다음 개발 단계 제안
+
+우선순위는 다음과 같다.
+
+1. 입력 스펙 v0.2 정리
+
+   `lab.yaml`, `environment.yaml`, `security-controls.yaml`, `providers/*.yaml` 구조를 추가한다.
+
+2. protected/unprotected architecture 분리
+
+   같은 시나리오에서 보안장치 미적용 문서와 보안장치 적용 문서를 각각 생성한다.
+
+3. supervisor selection 기능 추가
+
+   감독자가 WAF, IDS, firewall, SIEM, EDR 등을 선택하면 해당 선택이 문서와 provider 산출물에 반영되게 한다.
+
+4. 10개 시나리오 YAML 변환
+
+   Orion Echo와 scenario 02-10을 LabForge 포맷으로 정의한다.
+
+5. provider interface 분리
+
+   Docker Compose renderer를 provider plugin처럼 분리하고 Ansible/Terraform skeleton을 추가한다.
+
+6. Orion Echo 변환
+
+   기존 Orion Docker lab을 LabForge 정의 파일로 변환하고, generated output과 기존 compose를 비교한다.
+
+7. AD provider proof-of-concept
+
+   Windows Server Domain Controller, Windows workstation, Linux attacker를 포함한 hybrid provider 실험을 진행한다.
+
+## 15. 사용 예시 전체 흐름
+
+새로운 시나리오를 만들 때의 예상 흐름은 다음과 같다.
+
+```text
+1. scenario.yaml 작성
+2. topology.yaml 작성
+3. stages.yaml 작성
+4. python -m labforge validate <scenario-root>
+5. validation error 수정
+6. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+7. 감독자가 문서와 다이어그램 검토
+8. 보안장치 선택
+9. python -m labforge build <scenario-root> --out output/<scenario>
+10. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+```
+
+현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
+
