@@ -16,10 +16,30 @@ class DockerComposeProvider(Provider):
         profile = str(kwargs.get("profile", "unprotected"))
         write_text(out / "docker-compose.yml", render_compose(spec, profile=profile))
         write_text(out / "docs" / "provider-security-plan.md", render_security_plan(spec, profile))
+        write_text(out / "docs" / "provider-service-plan.md", render_provider_service_plan(spec))
         write_runtime_scripts(out)
 
 
+def service_artifact_map(spec: LabSpec) -> dict[str, Any]:
+    if not spec.artifacts_model:
+        return {}
+    return {artifact.service: artifact for artifact in spec.artifacts_model.service_artifacts}
+
+
+def service_build_context(spec: LabSpec, service: dict[str, Any], artifacts: dict[str, Any]) -> str:
+    name = str(service["name"])
+    if service.get("build"):
+        return str(service["build"])
+    artifact = artifacts.get(name)
+    if artifact:
+        source = spec.root / artifact.source_path
+        if source.exists():
+            return f"./{artifact.source_path}"
+    return f"./services/{name}"
+
+
 def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
+    artifacts = service_artifact_map(spec)
     compose: dict[str, Any] = {
         "name": spec.lab_id,
         "networks": {},
@@ -40,8 +60,9 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
 
     for service in spec.services:
         name = str(service["name"])
+        artifact = artifacts.get(name)
         entry: dict[str, Any] = {
-            "build": service.get("build", f"./services/{name}"),
+            "build": service_build_context(spec, service, artifacts),
             "networks": service.get("networks", []),
             "restart": "unless-stopped",
             "security_opt": ["no-new-privileges:true"],
@@ -52,6 +73,14 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
                 f"labforge.role={service.get('role', 'service')}",
             ],
         }
+        if artifact:
+            entry["labels"].extend(
+                [
+                    f"labforge.service.source={artifact.source_path}",
+                    f"labforge.service.runtime={artifact.runtime}",
+                    "labforge.service.contract=docs/service-artifact-contract.md",
+                ]
+            )
         if profile == "protected":
             entry["labels"].append("labforge.security-controls=enabled")
             if has_selected_category(spec, "siem"):
@@ -168,6 +197,49 @@ def render_security_plan(spec: LabSpec, profile: str) -> str:
         "- Adds safe control placeholder services for selected controls.",
         "- Adds `labforge_logs` volume when selected controls need central log collection.",
         "- Adds Docker json-file log rotation when SIEM collection is selected.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def render_provider_service_plan(spec: LabSpec) -> str:
+    artifacts = service_artifact_map(spec)
+    lines = [
+        f"# Docker Compose Provider Service Plan - {spec.title}",
+        "",
+        "This document explains how the Docker Compose provider uses service artifact contracts.",
+        "",
+        "## Provider Rules",
+        "",
+        "- If `topology.yaml` defines an explicit `build`, that build context wins.",
+        "- Otherwise, if the service has a `service_artifacts` entry and its `source_path` exists, the provider uses that path as the build context.",
+        "- If the source path does not exist yet, the provider keeps the conventional `./services/<service-name>` build context so the scaffold remains predictable.",
+        "- Healthcheck and reset contracts are emitted in documentation. Compose labels point back to `docs/service-artifact-contract.md`.",
+        "- Compose healthcheck commands still come from `topology.yaml`.",
+        "",
+        "## Services",
+        "",
+        "| Service | Build Context | Artifact Source | Runtime | Healthcheck Contract | Reset Contract | Evidence Logs |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for service in spec.services:
+        name = str(service["name"])
+        artifact = artifacts.get(name)
+        context = service_build_context(spec, service, artifacts)
+        source = artifact.source_path if artifact else ""
+        runtime = artifact.runtime if artifact else ""
+        healthcheck = artifact.healthcheck if artifact else ""
+        reset = artifact.reset if artifact else ""
+        logs = "<br>".join(artifact.evidence_logs) if artifact and artifact.evidence_logs else ""
+        lines.append(
+            f"| `{name}` | `{context}` | `{source}` | `{runtime}` | {healthcheck} | {reset} | {logs} |"
+        )
+    lines += [
+        "",
+        "## Reset Notes",
+        "",
+        "The generated `scripts/reset.*` currently performs a Compose volume reset.",
+        "Service-specific reset behavior declared in `artifacts.yaml` should be implemented inside service reset hooks or future provider-specific reset orchestration.",
         "",
     ]
     return "\n".join(lines)

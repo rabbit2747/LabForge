@@ -96,6 +96,7 @@ LabForge는 다음 원칙을 따른다.
 - Docker Compose 서비스/네트워크에 `labforge.*` 라벨과 SIEM 로그 설정 반영
 - Docker Compose provider에서 validate/start/stop/reset PowerShell 및 shell script 생성
 - PowerShell runtime script에서 현재 shell Docker가 없으면 Docker server가 보이는 WSL 배포판을 자동 탐지해 위임
+- Docker Compose provider에서 `service_artifacts` 계약을 읽어 build context, service labels, provider service plan 문서에 반영
 - `ansible`, `terraform`, `ludus`, `hybrid` provider skeleton 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
@@ -505,7 +506,9 @@ output/scenario-02/
 |   |-- implementation-checklist.md
 |   |-- mitre-mapping.md
 |   |-- provider-security-plan.md
-|   `-- security-control-selection.md
+|   |-- provider-service-plan.md
+|   |-- security-control-selection.md
+|   `-- service-artifact-contract.md
 `-- diagrams/
     |-- attack-flow.mmd
     |-- security-controls.mmd
@@ -535,6 +538,7 @@ output/scenario-02-docs/
 |-- deployment-requirements.md
 |-- implementation-checklist.md
 |-- mitre-mapping.md
+|-- service-artifact-contract.md
 |-- security-control-selection.md
 `-- diagrams/
     |-- attack-flow.mmd
@@ -899,5 +903,6 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - scenario-02 예제를 v0.2 구조로 확장
 - `artifacts.yaml`의 `service_artifacts` 계약 추가
 - 서비스 구현 표준 문서와 생성 산출물 `docs/service-artifact-contract.md` 추가
+- Docker Compose provider가 `service_artifacts` 계약을 읽어 build context, service labels, `docs/provider-service-plan.md`에 반영
 
-다음 구현 우선순위는 service artifact 계약을 provider 산출물에 더 깊게 반영하고, Hybrid/Ludus/Ansible/Terraform provider를 고도화하는 것이다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.
+다음 구현 우선순위는 Hybrid/Ludus/Ansible/Terraform provider 고도화와 service artifact reset/healthcheck hook의 실제 실행 연결이다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.
