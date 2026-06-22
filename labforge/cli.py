@@ -20,6 +20,7 @@ from .agent_orchestration import (
     scaffold_agent_workspace,
     validate_agent_workspace,
     write_agent_review,
+    write_agent_result_stub,
 )
 from .io import write_text
 from .providers.factory import list_providers
@@ -235,6 +236,21 @@ def command_agents_decide(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_agents_result_stub(args: argparse.Namespace) -> int:
+    try:
+        path = write_agent_result_stub(
+            Path(args.workspace),
+            task_id=args.task_id,
+            status=args.status,
+            summary=args.summary,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        print(str(exc))
+        return 1
+    print(f"Updated agent result: {path.resolve()}")
+    return 0
+
+
 def command_services_check(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     result = service_check(spec)
@@ -407,6 +423,12 @@ def main(argv: list[str] | None = None) -> int:
     agents_decide_parser.add_argument("--task-id", required=True)
     agents_decide_parser.add_argument("--reason", required=True)
     agents_decide_parser.set_defaults(func=command_agents_decide)
+    agents_result_stub_parser = agents_sub.add_parser("result-stub", help="Update an agent result YAML with a schema-valid status and summary")
+    agents_result_stub_parser.add_argument("workspace")
+    agents_result_stub_parser.add_argument("--task-id", required=True)
+    agents_result_stub_parser.add_argument("--status", choices=["not-started", "draft", "complete", "blocked", "needs-review"], required=True)
+    agents_result_stub_parser.add_argument("--summary", required=True)
+    agents_result_stub_parser.set_defaults(func=command_agents_result_stub)
 
     services_parser = sub.add_parser("services", help="Service artifact utilities")
     services_sub = services_parser.add_subparsers(dest="services_command", required=True)

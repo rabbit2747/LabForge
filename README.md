@@ -151,6 +151,7 @@ python -m labforge agents validate output/scenario-02-agents
 python -m labforge agents adapters
 python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
 python -m labforge agents review output/scenario-02-agents --write
 python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
 ```
@@ -165,8 +166,9 @@ live execution yet.
 
 `agents review` aggregates `.ai/outputs/*.result.yaml` files into
 `.ai/reviews/agent-review.{yaml,md}` and returns a non-zero status when the
-workspace is not ready for supervisor approval. `agents decide` appends explicit
-supervisor decisions to `.ai/decisions/`.
+workspace is not ready for supervisor approval. `agents result-stub` helps
+manual workflows write schema-valid result files. `agents decide` appends
+explicit supervisor decisions to `.ai/decisions/`.
 
 Non-Docker providers currently generate deterministic scaffold artifacts rather
 than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and

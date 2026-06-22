@@ -881,6 +881,31 @@ def append_agent_decision(
     return decision_path
 
 
+def write_agent_result_stub(
+    path: Path,
+    *,
+    task_id: str,
+    status: Literal["not-started", "draft", "complete", "blocked", "needs-review"],
+    summary: str,
+) -> Path:
+    root = agent_workspace_root(path)
+    task_path = root / "tasks" / f"{task_id}.yaml"
+    if not task_path.exists():
+        raise FileNotFoundError(f"unknown task id or missing task manifest: {task_id}")
+    task = AgentTaskSpec.model_validate(load_yaml(task_path))
+    output_path = root.parent / task.output_file
+    existing = load_yaml(output_path) if output_path.exists() else {"task_id": task_id}
+    existing["task_id"] = task_id
+    existing["status"] = status
+    existing["summary"] = summary
+    existing.setdefault("findings", [])
+    existing.setdefault("artifacts", [])
+    existing.setdefault("open_questions", [])
+    result = AgentResultSpec.model_validate(existing)
+    write_text(output_path, dump_yaml(result.model_dump()))
+    return output_path
+
+
 def validate_agent_workspace(path: Path) -> list[str]:
     errors: list[str] = []
     root = agent_workspace_root(path)

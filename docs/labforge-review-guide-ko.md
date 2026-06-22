@@ -859,16 +859,17 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 11. python -m labforge services reset <scenario-root> --service <service-name>
 12. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
 13. python -m labforge agents run output/<scenario>-agents --dry-run --adapter manual --context-root <scenario-root>
-14. python -m labforge agents review output/<scenario>-agents --write
-15. python -m labforge agents decide output/<scenario>-agents --decision accepted --task-id <task-id> --reason "<reason>"
-16. validation error, host 환경 문제, service artifact 문제, hook 문제, agent task 설계 문제 수정
-17. python -m labforge schema export --out schemas
-18. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-19. 감독자가 문서, 다이어그램, service artifact, agent task를 검토
-20. 보안장치 선택
-21. python -m labforge qa smoke <scenario-root> --out output/<scenario>-qa --provider <provider> --profile <profile> --materialize --force
-22. python -m labforge build <scenario-root> --out output/<scenario>
-23. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+14. python -m labforge agents result-stub output/<scenario>-agents --task-id <task-id> --status needs-review --summary "<summary>"
+15. python -m labforge agents review output/<scenario>-agents --write
+16. python -m labforge agents decide output/<scenario>-agents --decision accepted --task-id <task-id> --reason "<reason>"
+17. validation error, host 환경 문제, service artifact 문제, hook 문제, agent task 설계 문제 수정
+18. python -m labforge schema export --out schemas
+19. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+20. 감독자가 문서, 다이어그램, service artifact, agent task를 검토
+21. 보안장치 선택
+22. python -m labforge qa smoke <scenario-root> --out output/<scenario>-qa --provider <provider> --profile <profile> --materialize --force
+23. python -m labforge build <scenario-root> --out output/<scenario>
+24. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
 현재 MVP는 이 흐름 중 실제 LLM live execution, 실제 취약 서비스 구현, 실제 VM/AD provisioning을 제외한 대부분의 검증/문서화/스캐폴드 단계를 제공한다.
@@ -918,6 +919,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - agent 관련 JSON Schema export 추가
 - `python -m labforge agents adapters` 명령과 `manual` adapter 추가
 - `python -m labforge agents plan-run`, `agents run --dry-run`, `agents review`, `agents decide` 명령 추가
+- `python -m labforge agents result-stub` 명령으로 manual workflow의 schema-valid result 작성 지원
 - `python -m labforge qa smoke` 명령으로 schema/service/provider smoke gate 추가
 - scenario-02 예제를 v0.2 구조로 확장
 - `artifacts.yaml`의 `service_artifacts` 계약 추가

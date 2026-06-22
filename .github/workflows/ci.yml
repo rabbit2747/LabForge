@@ -44,6 +44,8 @@ jobs:
           python -m labforge agents validate output/scenario-02-agents
           python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise --format json > output/agent-run-plan.json
           python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise --agent mitre-mapper
+          python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
+          python -m labforge agents validate output/scenario-02-agents
 
       - name: Run QA smoke
         run: python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force
