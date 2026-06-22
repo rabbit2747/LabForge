@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from .model import LabSpec
+from .adapter_smoke import adapter_smoke_to_json, adapter_smoke_to_markdown, run_adapter_smoke
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
@@ -361,6 +362,26 @@ def command_agents_run(args: argparse.Namespace) -> int:
         if result.transcript_file:
             print(f"  transcript: {result.transcript_file}")
     return 1 if failed else 0
+
+
+def command_agents_smoke_adapters(args: argparse.Namespace) -> int:
+    adapters = args.adapter or None
+    report = run_adapter_smoke(
+        Path(args.lab),
+        Path(args.out),
+        adapters=adapters,
+        agent_id=args.agent,
+        force=args.force,
+    )
+    if args.report:
+        report_path = Path(args.report)
+        write_text(report_path, adapter_smoke_to_json(report) if args.format == "json" else adapter_smoke_to_markdown(report))
+        print(f"Rendered adapter smoke report: {report_path.resolve()}")
+    elif args.format == "json":
+        print(adapter_smoke_to_json(report))
+    else:
+        print(adapter_smoke_to_markdown(report))
+    return 0 if report.status == "passed" else 1
 
 
 def command_agents_review(args: argparse.Namespace) -> int:
@@ -797,6 +818,15 @@ def main(argv: list[str] | None = None) -> int:
     agents_run_parser.add_argument("--agent", help="Only package one agent_id")
     agents_run_parser.add_argument("--context-root", help="Scenario directory used to resolve task context files")
     agents_run_parser.set_defaults(func=command_agents_run)
+    agents_smoke_parser = agents_sub.add_parser("smoke-adapters", help="Smoke-test agent adapters without live LLM calls")
+    agents_smoke_parser.add_argument("lab")
+    agents_smoke_parser.add_argument("--out", required=True, help="Temporary agent workspace output directory")
+    agents_smoke_parser.add_argument("--adapter", action="append", help="Adapter to test. Can be repeated. Defaults to all adapters.")
+    agents_smoke_parser.add_argument("--agent", default="scenario-designer", help="Agent id used for package generation")
+    agents_smoke_parser.add_argument("--force", action="store_true", help="Replace the smoke workspace output directory")
+    agents_smoke_parser.add_argument("--format", choices=["text", "json"], default="text")
+    agents_smoke_parser.add_argument("--report", help="Write the smoke report to a file")
+    agents_smoke_parser.set_defaults(func=command_agents_smoke_adapters)
     agents_review_parser = agents_sub.add_parser("review", help="Review agent result outputs")
     agents_review_parser.add_argument("workspace")
     agents_review_parser.add_argument("--format", choices=["text", "json"], default="text")

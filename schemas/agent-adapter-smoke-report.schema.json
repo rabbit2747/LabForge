@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "AdapterSmokeCheck": {
+      "additionalProperties": true,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "adapter",
+        "check",
+        "status"
+      ],
+      "title": "AdapterSmokeCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "context_root": {
+      "title": "Context Root",
+      "type": "string"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "adapters": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Adapters",
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/AdapterSmokeCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "status",
+    "workspace",
+    "context_root",
+    "agent_id"
+  ],
+  "title": "AdapterSmokeReport",
+  "type": "object"
+}

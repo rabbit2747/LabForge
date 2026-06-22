@@ -188,6 +188,7 @@ python -m labforge services apply-result output/new-lab --result output/new-lab-
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
 python -m labforge agents adapters
+python -m labforge agents smoke-adapters examples/scenario-02-ad-domain-compromise --out output/scenario-02-adapter-smoke --force --report output/scenario-02-adapter-smoke.md
 python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter openai --agent scenario-designer --context-root examples/scenario-02-ad-domain-compromise

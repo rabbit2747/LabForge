@@ -25,6 +25,16 @@ python -m labforge agents run output/my-lab-agents --adapter openai --dry-run --
 
 Dry-run mode writes files under `.ai/run/` but does not call an LLM.
 
+Run a full adapter smoke test without live LLM calls:
+
+```powershell
+python -m labforge agents smoke-adapters examples/my-lab --out output/my-lab-adapter-smoke --force --report output/my-lab-adapter-smoke.md
+```
+
+The smoke test checks dry-run handoff generation for all adapters and verifies
+that live-execution guards fail safely when credentials or executable support
+are unavailable.
+
 ## OpenAI Adapter
 
 Requirements:
