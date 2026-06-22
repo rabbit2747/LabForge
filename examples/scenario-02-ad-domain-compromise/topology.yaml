@@ -16,6 +16,55 @@ security_controls:
     - Windows Event Forwarding
     - EDR Lite Process Monitor
 
+deployment:
+  recommended_model: hybrid
+  docker_only_supported: false
+  docker_only_notes: >
+    The MVP scaffold can model this scenario with LDAP-like services, but a
+    realistic Active Directory lab requires Windows Server domain services.
+  minimum_environment:
+    description: Single training PC for Docker-only prototype mode.
+    hosts:
+      - role: training-host
+        count: 1
+        os: Windows 11 or Linux
+        cpu: 8 cores recommended
+        memory: 16 GB minimum, 32 GB recommended
+        storage: 80 GB free
+        software:
+          - Docker Desktop or Docker Engine
+          - Python 3.11+
+          - Git
+  realistic_environment:
+    description: Proxmox or equivalent hypervisor host for Windows AD realism.
+    hosts:
+      - role: hypervisor-host
+        count: 1
+        os: Proxmox VE or VMware/Hyper-V equivalent
+        cpu: 12 cores recommended
+        memory: 64 GB recommended
+        storage: 300 GB SSD free
+        software:
+          - Proxmox VE
+          - Windows Server ISO
+          - Windows client ISO
+          - Linux attacker image
+      - role: learner-pc
+        count: 1
+        os: Windows 10/11, macOS, or Linux
+        cpu: 4 cores recommended
+        memory: 8 GB minimum
+        storage: 20 GB free
+        software:
+          - SSH client
+          - Web browser
+          - Optional Burp Suite Community
+  required_platforms:
+    - Docker Compose for prototype services
+    - Windows Server for real Domain Controller
+    - Ansible for repeatable Windows/Linux configuration
+    - Proxmox, VMware, Hyper-V, or equivalent hypervisor for realistic mode
+
 services:
   - name: edge-proxy
     role: external ingress

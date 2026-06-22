@@ -81,6 +81,7 @@ LabForge는 다음 원칙을 따른다.
 - MITRE mapping report 생성
 - implementation checklist 생성
 - 감독자용 Mermaid architecture diagram 생성
+- 감독자용 deployment requirements 문서 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
 
@@ -187,7 +188,7 @@ final_objective: >
 
 ### 6.2 topology.yaml
 
-`topology.yaml`은 네트워크, 서비스, 보안장치 후보를 정의한다.
+`topology.yaml`은 네트워크, 서비스, 보안장치 후보, 실제 구축에 필요한 환경 요구사항을 정의한다.
 
 예시:
 
@@ -210,6 +211,40 @@ security_controls:
     - Windows Event Forwarding
     - EDR Lite Process Monitor
 
+deployment:
+  recommended_model: hybrid
+  docker_only_supported: false
+  docker_only_notes: >
+    Docker-only mode can model the scenario, but realistic Active Directory
+    requires Windows Server domain services.
+  minimum_environment:
+    description: Single training PC for Docker-only prototype mode.
+    hosts:
+      - role: training-host
+        count: 1
+        os: Windows 11 or Linux
+        cpu: 8 cores recommended
+        memory: 16 GB minimum, 32 GB recommended
+        storage: 80 GB free
+        software:
+          - Docker Desktop or Docker Engine
+          - Python 3.11+
+          - Git
+  realistic_environment:
+    description: Proxmox or equivalent hypervisor host for Windows AD realism.
+    hosts:
+      - role: hypervisor-host
+        count: 1
+        os: Proxmox VE or VMware/Hyper-V equivalent
+        cpu: 12 cores recommended
+        memory: 64 GB recommended
+        storage: 300 GB SSD free
+        software:
+          - Proxmox VE
+          - Windows Server ISO
+          - Windows client ISO
+          - Linux attacker image
+
 services:
   - name: attacker-workstation
     role: learner attack workstation
@@ -230,6 +265,11 @@ services:
 | `networks` | 논리 네트워크 구역 |
 | `internal: true` | 외부 직접 접근이 불가능한 내부망 표시 |
 | `security_controls.recommended` | 감독자가 선택할 수 있는 보안장치 후보 |
+| `deployment.recommended_model` | 권장 구축 모델. 예: docker-compose, vm, hybrid |
+| `deployment.docker_only_supported` | Docker만으로 현실적인 구축이 가능한지 여부 |
+| `deployment.minimum_environment` | 최소 실습 환경 |
+| `deployment.realistic_environment` | 실제 기업망 재현에 가까운 권장 환경 |
+| `deployment.required_platforms` | 필요한 플랫폼과 도구 |
 | `services` | 실습에 등장하는 서비스/서버/자산 |
 | `exposed: true` | 학습자가 외부에서 직접 접근 가능한 서비스 |
 | `ports` | host에 publish되는 포트 |
@@ -242,6 +282,7 @@ services:
 - 내부 서비스는 기본적으로 직접 노출하지 않는다.
 - 학습자용 공격자 환경은 `attacker-workstation`으로 정의한다.
 - 보안장치는 현재 문서/다이어그램 생성에 사용되며, 향후 protected profile 생성에 사용된다.
+- AD, Windows Server, ICS/OT, VPN appliance처럼 Docker만으로 부족한 실습은 `deployment` 섹션에 VM 또는 hypervisor 요구사항을 명시한다.
 
 ### 6.3 stages.yaml
 
@@ -342,6 +383,7 @@ output/scenario-02/
 |-- README.md
 |-- docs/
 |   |-- architecture-diagrams.md
+|   |-- deployment-requirements.md
 |   |-- implementation-checklist.md
 |   `-- mitre-mapping.md
 `-- diagrams/
@@ -368,6 +410,7 @@ python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/s
 output/scenario-02-docs/
 |-- README.md
 |-- architecture-diagrams.md
+|-- deployment-requirements.md
 |-- implementation-checklist.md
 |-- mitre-mapping.md
 `-- diagrams/
@@ -450,6 +493,28 @@ Mermaid 원본 파일이다.
 - `security-controls.mmd`
 
 이 파일들은 GitHub, Mermaid Live Editor, VS Code Mermaid extension, Mermaid CLI 등으로 렌더링할 수 있다.
+
+### 8.6 docs/deployment-requirements.md
+
+실제 실습 환경을 구성하기 위해 필요한 물리/가상 환경 요구사항 문서다.
+
+포함 내용:
+
+- 권장 구축 모델
+- Docker-only 구성 가능 여부
+- Docker prototype mode에서 필요한 PC 사양
+- realistic mode에서 필요한 hypervisor, VM, Windows Server, learner PC 요구사항
+- Proxmox, VMware, Hyper-V, Ansible, Terraform 같은 필요 도구
+- 감독자가 구축 전 확인해야 할 질문 목록
+
+예를 들어 AD 기반 실습은 Docker만으로는 충분하지 않으므로 다음과 같은 요구사항이 문서에 포함되어야 한다.
+
+- Windows Server Domain Controller용 VM
+- Windows client 또는 member server VM
+- Linux attacker VM 또는 attacker workstation
+- Proxmox, VMware, Hyper-V 같은 hypervisor
+- 각 VM을 초기화하기 위한 snapshot 기능
+- Windows Event Forwarding, Sysmon, Wazuh 같은 보안 로그 구성 가능성
 
 ## 9. 보안장치 모델
 
@@ -656,4 +721,3 @@ examples/scenario-02-ad-domain-compromise
 ```
 
 현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
-

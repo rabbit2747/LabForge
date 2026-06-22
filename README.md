@@ -19,6 +19,7 @@ LabForge lets an author describe a lab as structured scenario files:
 - MITRE ATT&CK tactic and technique mappings
 - selectable security controls such as firewall, WAF, IDS, logging, and EDR
 - supervisor-facing architecture diagrams
+- deployment requirements for Docker, VM, Proxmox, and hybrid lab models
 
 From those files, LabForge currently generates:
 
@@ -27,6 +28,7 @@ From those files, LabForge currently generates:
 - MITRE mapping report
 - implementation checklist
 - Mermaid architecture diagrams
+- deployment requirements for supervisors
 - raw `.mmd` diagram files for rendering or review
 
 ## Quick Start
