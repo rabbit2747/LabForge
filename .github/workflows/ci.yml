@@ -155,8 +155,17 @@ jobs:
         run: |
           python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
           python -m labforge agents validate output/scenario-02-agents
+          python -m labforge agents adapters
           python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise --format json > output/agent-run-plan.json
           python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise --agent mitre-mapper
+          python -m labforge agents run output/scenario-02-agents --dry-run --adapter openai --context-root examples/scenario-02-ad-domain-compromise --agent scenario-designer
+          test -f output/scenario-02-agents/.ai/run/01-scenario-designer.package.openai.json
+          python -m labforge agents run output/scenario-02-agents --dry-run --adapter mcp --context-root examples/scenario-02-ad-domain-compromise --agent scenario-designer
+          test -f output/scenario-02-agents/.ai/run/01-scenario-designer.package.mcp.json
+          if python -m labforge agents run output/scenario-02-agents --execute --adapter manual --context-root examples/scenario-02-ad-domain-compromise --agent scenario-designer; then
+            echo "manual adapter unexpectedly allowed live execution"
+            exit 1
+          fi
           python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
           python -m labforge agents validate output/scenario-02-agents
 

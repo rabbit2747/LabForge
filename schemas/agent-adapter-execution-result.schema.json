@@ -1,0 +1,63 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "adapter": {
+      "title": "Adapter",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "failed",
+        "not-implemented"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "package_file": {
+      "title": "Package File",
+      "type": "string"
+    },
+    "output_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output File"
+    },
+    "transcript_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transcript File"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter",
+    "task_id",
+    "status",
+    "package_file",
+    "message"
+  ],
+  "title": "AgentAdapterExecutionResult",
+  "type": "object"
+}

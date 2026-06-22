@@ -318,8 +318,8 @@ def command_agents_run(args: argparse.Namespace) -> int:
     if adapter.status != "available":
         print(f"Agent adapter `{args.adapter}` is registered but not implemented yet.")
         return 1
-    if not args.dry_run:
-        print("Agent execution currently supports --dry-run only. Configure an adapter before live LLM execution.")
+    if args.execute and not adapter.live_execution:
+        print(f"Agent adapter `{args.adapter}` does not support live execution.")
         return 1
     errors = validate_agent_workspace(Path(args.workspace))
     if errors:
@@ -338,17 +338,29 @@ def command_agents_run(args: argparse.Namespace) -> int:
         print(str(exc))
         return 1
     prepared = []
+    executed = []
     for path in written:
         if path.name == "run-plan.yaml":
             continue
-        prepared.append(adapter.prepare(path))
-    print(f"Created dry-run agent execution packages under: {(Path(args.workspace) / '.ai' / 'run').resolve() if Path(args.workspace).name != '.ai' else (Path(args.workspace) / 'run').resolve()}")
+        if args.execute:
+            executed.append(adapter.execute(path))
+        else:
+            prepared.append(adapter.prepare(path))
+    mode = "live" if args.execute else "dry-run"
+    print(f"Created {mode} agent execution packages under: {(Path(args.workspace) / '.ai' / 'run').resolve() if Path(args.workspace).name != '.ai' else (Path(args.workspace) / 'run').resolve()}")
     for path in written:
         print(f"- {path}")
     for result in prepared:
         if result.invocation_file:
             print(f"- {result.invocation_file}")
-    return 0
+    failed = [result for result in executed if result.status != "complete"]
+    for result in executed:
+        print(f"- {result.task_id}: {result.status} ({result.message})")
+        if result.output_file:
+            print(f"  output: {result.output_file}")
+        if result.transcript_file:
+            print(f"  transcript: {result.transcript_file}")
+    return 1 if failed else 0
 
 
 def command_agents_review(args: argparse.Namespace) -> int:
@@ -776,9 +788,11 @@ def main(argv: list[str] | None = None) -> int:
     agents_plan_run_parser.add_argument("--format", choices=["text", "json"], default="text")
     agents_plan_run_parser.add_argument("--out")
     agents_plan_run_parser.set_defaults(func=command_agents_plan_run)
-    agents_run_parser = agents_sub.add_parser("run", help="Create dry-run agent execution packages")
+    agents_run_parser = agents_sub.add_parser("run", help="Create or execute agent execution packages")
     agents_run_parser.add_argument("workspace")
-    agents_run_parser.add_argument("--dry-run", action="store_true", help="Create execution packages without calling an LLM")
+    agents_run_mode = agents_run_parser.add_mutually_exclusive_group()
+    agents_run_mode.add_argument("--dry-run", action="store_true", help="Create execution packages without calling an LLM. This is the default.")
+    agents_run_mode.add_argument("--execute", action="store_true", help="Call the selected live adapter and write agent result files.")
     agents_run_parser.add_argument("--adapter", default="manual")
     agents_run_parser.add_argument("--agent", help="Only package one agent_id")
     agents_run_parser.add_argument("--context-root", help="Scenario directory used to resolve task context files")

@@ -190,6 +190,7 @@ python -m labforge agents validate output/scenario-02-agents
 python -m labforge agents adapters
 python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents run output/scenario-02-agents --dry-run --adapter openai --agent scenario-designer --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
 python -m labforge agents review output/scenario-02-agents --write
 python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
@@ -198,10 +199,11 @@ python -m labforge agents decide output/scenario-02-agents --decision accepted -
 `agents plan-run` reports execution readiness without calling an LLM.
 `agents run --dry-run` writes `.ai/run/*.package.yaml` files that bundle the
 system prompt, task prompt, task manifest, output contract, and context status
-for each specialist agent. The first available adapter is `manual`, which also
-writes `.manual.md` invocation files for human-operated LLM sessions. `openai`,
-`claude-cli`, and `mcp` are registered as future adapter slots but do not perform
-live execution yet.
+for each specialist agent. The `manual` adapter writes `.manual.md` invocation
+files for human-operated LLM sessions. The `openai` and `claude-cli` adapters
+support live execution only when `--execute` is explicitly provided. The `mcp`
+adapter writes a JSON handoff file for an external MCP-capable orchestrator. See
+`docs/live-agent-adapters.md`.
 
 `agents review` aggregates `.ai/outputs/*.result.yaml` files into
 `.ai/reviews/agent-review.{yaml,md}` and returns a non-zero status when the
