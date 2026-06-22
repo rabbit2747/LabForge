@@ -98,14 +98,14 @@ def detect_shell_hint() -> str:
     return shell or "sh"
 
 
-def docker_status(command_prefix: list[str] | None = None) -> tuple[bool, bool, str]:
+def docker_status(command_prefix: list[str] | None = None, timeout: int = 12) -> tuple[bool, bool, str]:
     prefix = command_prefix or []
-    cli = run_command(prefix + ["docker", "--version"], timeout=8)
+    cli = run_command(prefix + ["docker", "--version"], timeout=timeout)
     if not cli.available or cli.returncode != 0:
         return False, False, ""
     server = run_command(
         prefix + ["docker", "version", "--format", "{{.Server.Version}}"],
-        timeout=12,
+        timeout=timeout,
     )
     if server.returncode == 0 and server.stdout:
         return True, True, server.stdout.strip()
@@ -136,7 +136,8 @@ def detect_wsl_distros() -> tuple[bool, list[WslDistro]]:
     distros: list[WslDistro] = []
     for name, state, version in parse_wsl_list(wsl.stdout):
         docker_cli, docker_server, docker_version = docker_status(
-            ["wsl.exe", "-d", name, "--"]
+            ["wsl.exe", "-d", name, "--"],
+            timeout=90,
         )
         distros.append(
             WslDistro(
