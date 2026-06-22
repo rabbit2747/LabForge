@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate LabForge
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install LabForge
+        run: python -m pip install -e .
+
+      - name: Compile Python modules
+        run: python -m compileall -q labforge
+
+      - name: Validate example scenario
+        run: python -m labforge validate examples/scenario-02-ad-domain-compromise
+
+      - name: Export schemas
+        run: python -m labforge schema export --out output/schemas
+
+      - name: Validate agent scaffold
+        run: |
+          python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
+          python -m labforge agents validate output/scenario-02-agents
+          python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise --format json > output/agent-run-plan.json
+          python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise --agent mitre-mapper
+
+      - name: Run QA smoke
+        run: python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force
+
+      - name: Build non-Docker provider scaffolds
+        run: |
+          python -m labforge build examples/scenario-02-ad-domain-compromise --provider ansible --profile protected --out output/provider-ansible --force
+          python -m labforge build examples/scenario-02-ad-domain-compromise --provider terraform --profile protected --out output/provider-terraform --force
+          python -m labforge build examples/scenario-02-ad-domain-compromise --provider ludus --profile protected --out output/provider-ludus --force
+          python -m labforge build examples/scenario-02-ad-domain-compromise --provider hybrid --profile protected --out output/provider-hybrid --force
