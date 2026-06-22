@@ -41,7 +41,7 @@ LabForge can also inspect the local build host before real deployment work:
 - recommended execution location such as host shell, WSL, or VM/hybrid prerequisites
 - host-aware execution plans that combine lab requirements, provider choice, profile, and local runtime state
 - dry-run agent orchestration scaffolds for future Orchestrator LLM and specialist agents
-- generated system prompts for the Orchestrator and specialist agents
+- generated system prompts and per-agent task prompts for future LLM execution
 
 ## Quick Start
 
@@ -140,5 +140,5 @@ name.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system
-prompts, task contracts, output contracts, and decision logs first, then later
-adapters can connect OpenAI, Claude CLI, or MCP.
+prompts, per-agent task prompts, task contracts, output contracts, and decision
+logs first, then later adapters can connect OpenAI, Claude CLI, or MCP.

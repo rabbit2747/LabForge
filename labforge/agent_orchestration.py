@@ -157,13 +157,23 @@ DEFAULT_AGENT_ROLES: list[AgentRole] = [
 ]
 
 
-PROMPT_REQUIRED_SECTIONS = (
+SYSTEM_PROMPT_REQUIRED_SECTIONS = (
     "## Role",
     "## Mission",
     "## Inputs",
     "## Outputs",
     "## Guardrails",
     "## Validation Checklist",
+)
+
+TASK_PROMPT_REQUIRED_SECTIONS = (
+    "## Task",
+    "## Context Files",
+    "## Inputs",
+    "## Expected Outputs",
+    "## Guardrails",
+    "## Output Contract",
+    "## Done Criteria",
 )
 
 
@@ -217,11 +227,12 @@ def orchestration_manifest(spec: LabSpec) -> dict[str, Any]:
         ],
         "artifact_contract": {
             "prompts_dir": ".ai/prompts",
+            "task_prompts_dir": ".ai/prompts/tasks",
             "tasks_dir": ".ai/tasks",
             "outputs_dir": ".ai/outputs",
             "decisions_dir": ".ai/decisions",
             "llm_runtime": "not-configured",
-            "rule": "Dry-run scaffolds tasks only. LLM adapters must be explicitly configured later.",
+            "rule": "Dry-run scaffolds prompts, tasks, and output contracts only. LLM adapters must be explicitly configured later.",
         },
     }
 
@@ -258,6 +269,7 @@ def scaffold_agent_workspace(spec: LabSpec, out: Path) -> list[Path]:
     written: list[Path] = []
     base = out / ".ai"
     prompts = base / "prompts"
+    task_prompts = prompts / "tasks"
     tasks = base / "tasks"
     outputs = base / "outputs"
     decisions = base / "decisions"
@@ -278,6 +290,10 @@ def scaffold_agent_workspace(spec: LabSpec, out: Path) -> list[Path]:
         prompt_path = prompts / f"{order:02d}-{role.agent_id}.system.md"
         write_text(prompt_path, render_agent_system_prompt(spec, role))
         written.append(prompt_path)
+
+        task_prompt_path = task_prompts / f"{order:02d}-{role.agent_id}.task.md"
+        write_text(task_prompt_path, render_agent_task_prompt(spec, role, order))
+        written.append(task_prompt_path)
 
         task_path = tasks / f"{order:02d}-{role.agent_id}.yaml"
         write_text(task_path, dump_yaml(task_manifest(spec, role, order)))
@@ -319,6 +335,7 @@ def render_agent_workspace_readme(spec: LabSpec) -> str:
             "",
             "- `orchestration-plan.yaml`: orchestrator-level phase plan",
             "- `prompts/`: system prompts for the orchestrator and specialist agents",
+            "- `prompts/tasks/`: task prompts for specialist agent execution",
             "- `tasks/`: specialist agent task manifests",
             "- `outputs/`: placeholder result files each agent must fill",
             "- `decisions/`: accepted, rejected, and open decision records",
@@ -453,6 +470,69 @@ def render_agent_system_prompt(spec: LabSpec, role: AgentRole) -> str:
     return "\n".join(lines)
 
 
+def render_agent_task_prompt(spec: LabSpec, role: AgentRole, order: int) -> str:
+    task_id = f"{order:02d}-{role.agent_id}"
+    task_file = f".ai/tasks/{task_id}.yaml"
+    output_file = f".ai/outputs/{task_id}.result.yaml"
+    lines = [
+        f"# {role.name} Task Prompt",
+        "",
+        "## Task",
+        "",
+        f"Complete task `{task_id}` for lab `{spec.lab_id}`.",
+        role.mission,
+        "",
+        "Use this task prompt together with the matching system prompt and task manifest.",
+        "",
+        "## Context Files",
+        "",
+        f"- Task manifest: `{task_file}`",
+        "- Scenario definition files in the LabForge scenario directory",
+        "- Provider, environment, security-control, and artifact definitions when present",
+        "- Existing generated outputs only when the orchestrator explicitly marks them as inputs",
+        "",
+        "## Inputs",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in role.inputs)
+    lines += [
+        "",
+        "## Expected Outputs",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in role.outputs)
+    lines += [
+        "",
+        "## Guardrails",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in role.guardrails)
+    lines += [
+        "- Preserve the approved scenario objective, final target, and safety boundary.",
+        "- Keep assumptions explicit and route unresolved decisions to the human supervisor.",
+        "- Do not introduce host-specific paths, private infrastructure names, or fixed local runtime assumptions.",
+        "- Keep generated internal contracts, prompts, schemas, and code in English.",
+        "",
+        "## Output Contract",
+        "",
+        f"- Write the primary result to `{output_file}`.",
+        "- Keep `task_id` unchanged.",
+        "- Set `status` to one of `not-started`, `in-progress`, `blocked`, or `complete`.",
+        "- Put reviewable evidence, generated files, and open questions in the matching YAML fields.",
+        "- Do not write directly to LabForge core files unless the orchestrator asks for a patch.",
+        "",
+        "## Done Criteria",
+        "",
+        "- Required inputs were read or explicitly marked unavailable.",
+        "- Expected outputs are complete enough for human review.",
+        "- Safety, portability, and provider constraints are preserved.",
+        "- Any ambiguity is captured in `open_questions`.",
+        "- The output validates against the LabForge agent result schema.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def agent_workspace_root(path: Path) -> Path:
     path = path.resolve()
     return path if path.name == ".ai" else path / ".ai"
@@ -484,9 +564,10 @@ def validate_agent_workspace(path: Path) -> list[str]:
 
     task_dir = root / "tasks"
     prompt_dir = root / "prompts"
+    task_prompt_dir = prompt_dir / "tasks"
     output_dir = root / "outputs"
     decision_dir = root / "decisions"
-    for directory in (prompt_dir, task_dir, output_dir, decision_dir):
+    for directory in (prompt_dir, task_prompt_dir, task_dir, output_dir, decision_dir):
         if not directory.exists():
             errors.append(f"missing directory: {directory}")
 
@@ -501,9 +582,22 @@ def validate_agent_workspace(path: Path) -> list[str]:
             errors.append(f"missing agent prompt: {prompt_dir / name}")
         for prompt_path in sorted(prompt_dir.glob("*.md")):
             text = prompt_path.read_text(encoding="utf-8")
-            for section in PROMPT_REQUIRED_SECTIONS:
+            for section in SYSTEM_PROMPT_REQUIRED_SECTIONS:
                 if section not in text:
                     errors.append(f"{prompt_path}: missing prompt section {section}")
+    expected_task_prompts = {
+        f"{order:02d}-{role.agent_id}.task.md"
+        for order, role in enumerate(DEFAULT_AGENT_ROLES, start=1)
+    }
+    if task_prompt_dir.exists():
+        found_task_prompts = {path.name for path in task_prompt_dir.glob("*.md")}
+        for name in sorted(expected_task_prompts - found_task_prompts):
+            errors.append(f"missing agent task prompt: {task_prompt_dir / name}")
+        for prompt_path in sorted(task_prompt_dir.glob("*.md")):
+            text = prompt_path.read_text(encoding="utf-8")
+            for section in TASK_PROMPT_REQUIRED_SECTIONS:
+                if section not in text:
+                    errors.append(f"{prompt_path}: missing task prompt section {section}")
 
     task_ids: set[str] = set()
     if task_dir.exists():
