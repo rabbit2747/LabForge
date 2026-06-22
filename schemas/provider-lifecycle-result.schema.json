@@ -1,0 +1,74 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "deploy",
+        "destroy",
+        "status"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "dry-run",
+        "execute"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "planned",
+        "completed",
+        "failed",
+        "not-implemented"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "output_dir": {
+      "title": "Output Dir",
+      "type": "string"
+    },
+    "commands": {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Commands",
+      "type": "array"
+    },
+    "stdout": {
+      "default": "",
+      "title": "Stdout",
+      "type": "string"
+    },
+    "stderr": {
+      "default": "",
+      "title": "Stderr",
+      "type": "string"
+    },
+    "message": {
+      "default": "",
+      "title": "Message",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "action",
+    "mode",
+    "status",
+    "output_dir"
+  ],
+  "title": "ProviderLifecycleResult",
+  "type": "object"
+}

@@ -23,6 +23,7 @@ from .agent_orchestration import (
 )
 from .io import write_text
 from .providers.factory import list_providers
+from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
 from .qa import run_qa_smoke
 from .render import build_lab, render_docs
 from .schema import export_schemas
@@ -313,6 +314,20 @@ def command_qa_smoke(args: argparse.Namespace) -> int:
     return 0 if report.status in {"passed", "warning"} else 1
 
 
+def command_provider_lifecycle(args: argparse.Namespace) -> int:
+    result = provider_lifecycle(
+        Path(args.output),
+        provider=args.provider,
+        action=args.lifecycle_action,
+        execute=args.execute,
+        remove_volumes=args.volumes,
+    )
+    print(render_lifecycle_result(result))
+    if result.status in {"planned", "completed", "not-implemented"}:
+        return 0 if result.status != "not-implemented" else 1
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -423,6 +438,19 @@ def main(argv: list[str] | None = None) -> int:
     qa_smoke_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize placeholder runtimes before building")
     qa_smoke_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
     qa_smoke_parser.set_defaults(func=command_qa_smoke)
+
+    provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
+    provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)
+    for action in ("deploy", "destroy", "status"):
+        lifecycle_parser = provider_sub.add_parser(action, help=f"{action.title()} generated provider output")
+        lifecycle_parser.add_argument("output", help="Generated provider output directory")
+        lifecycle_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+        lifecycle_parser.add_argument("--execute", action="store_true", help="Execute the provider lifecycle command. Default is dry-run.")
+        if action == "destroy":
+            lifecycle_parser.add_argument("--volumes", action="store_true", help="Remove Docker Compose volumes during destroy")
+        else:
+            lifecycle_parser.add_argument("--volumes", action="store_false", help=argparse.SUPPRESS)
+        lifecycle_parser.set_defaults(func=command_provider_lifecycle, lifecycle_action=action)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
