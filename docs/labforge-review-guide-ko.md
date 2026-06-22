@@ -90,6 +90,8 @@ LabForge는 다음 원칙을 따른다.
 - 감독자용 deployment requirements 문서 생성
 - provider interface 1차 분리
 - `docker-compose` provider 실제 생성
+- protected profile에서 선택된 보안장치를 Docker Compose control scaffold 서비스로 생성
+- Docker Compose 서비스/네트워크에 `labforge.*` 라벨과 SIEM 로그 설정 반영
 - `ansible`, `terraform`, `ludus`, `hybrid` provider skeleton 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
@@ -99,7 +101,7 @@ LabForge는 다음 원칙을 따른다.
 - Terraform provider
 - Vagrant provider
 - Proxmox / VMware provider
-- supervisor 선택값을 provider 산출물에 실제 방화벽/센서 구성으로 반영
+- supervisor 선택값을 Ansible/Terraform/Ludus/Hybrid provider 산출물에 실제 방화벽/센서 구성으로 반영
 - 감독자 interactive security-control 선택 UI
 - reset snapshot 자동화
 - 학생용 guide와 강사용 answer key 분리
@@ -381,7 +383,7 @@ Validation failed:
 ### 7.2 전체 lab scaffold 생성
 
 ```powershell
-python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --force
+python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile protected --force
 ```
 
 생성 결과:
@@ -392,9 +394,13 @@ output/scenario-02/
 |-- README.md
 |-- docs/
 |   |-- architecture-diagrams.md
+|   |-- architecture-protected.md
+|   |-- architecture-unprotected.md
 |   |-- deployment-requirements.md
 |   |-- implementation-checklist.md
-|   `-- mitre-mapping.md
+|   |-- mitre-mapping.md
+|   |-- provider-security-plan.md
+|   `-- security-control-selection.md
 `-- diagrams/
     |-- attack-flow.mmd
     |-- security-controls.mmd
@@ -410,7 +416,7 @@ output/scenario-02/
 ### 7.3 문서만 생성
 
 ```powershell
-python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs
+python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 ```
 
 생성 결과:
@@ -419,9 +425,12 @@ python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/s
 output/scenario-02-docs/
 |-- README.md
 |-- architecture-diagrams.md
+|-- architecture-protected.md
+|-- architecture-unprotected.md
 |-- deployment-requirements.md
 |-- implementation-checklist.md
 |-- mitre-mapping.md
+|-- security-control-selection.md
 `-- diagrams/
     |-- attack-flow.mmd
     |-- security-controls.mmd
@@ -679,8 +688,8 @@ examples/scenario-02-ad-domain-compromise
 
 - 실제 취약 서비스 자동 생성은 하지 않는다.
 - Docker Compose 외 provider는 skeleton만 있고, 아직 실제 산출물을 생성하지 않는다.
-- protected/unprotected profile은 문서 수준으로 분리되었지만, provider 산출물의 네트워크 정책/센서 배치까지 완전히 분리되지는 않았다.
-- security control은 현재 diagram overlay와 문서화 수준이며, 실제 WAF/IDS/SIEM/EDR 구동 설정은 아직 생성하지 않는다.
+- protected/unprotected profile은 문서와 Docker Compose scaffold 수준으로 분리되었지만, Ansible/Terraform/Ludus/Hybrid provider에는 아직 깊게 반영되지 않았다.
+- security control은 현재 diagram overlay, 문서화, Docker Compose placeholder 서비스 수준이며, 실제 WAF/IDS/SIEM/EDR 엔진 구성은 아직 생성하지 않는다.
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
 - generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
 
@@ -688,9 +697,9 @@ examples/scenario-02-ad-domain-compromise
 
 우선순위는 다음과 같다.
 
-1. supervisor selection provider 반영
+1. supervisor selection provider 반영 고도화
 
-   감독자가 WAF, IDS, firewall, SIEM, EDR 등을 선택하면 해당 선택이 문서뿐 아니라 Docker Compose, Ansible, Terraform, Ludus, hybrid provider 산출물에도 반영되게 한다.
+   감독자가 WAF, IDS, firewall, SIEM, EDR 등을 선택하면 해당 선택이 Docker Compose placeholder를 넘어 Ansible, Terraform, Ludus, hybrid provider 산출물에도 실제 방화벽/센서/로그 수집 구성으로 반영되게 한다.
 
 2. Jinja2 템플릿 범위 확장
 
@@ -762,6 +771,7 @@ examples/scenario-02-ad-domain-compromise
 - `python -m labforge build <lab> --provider docker-compose --profile unprotected --out <out>` 명령 추가
 - `python -m labforge docs <lab> --profile protected --out <out>` 명령 추가
 - `architecture-unprotected.md`, `architecture-protected.md`, `security-control-selection.md` 생성 추가
+- protected profile의 Docker Compose 산출물에 선택된 보안장치 scaffold 서비스 생성 추가
 - scenario-02 예제를 v0.2 구조로 확장
 
-다음 구현 우선순위는 supervisor 선택값을 provider 산출물에 실제로 반영하는 작업과 남은 문서 렌더러의 Jinja2 템플릿화다.
+다음 구현 우선순위는 supervisor 선택값을 Docker Compose placeholder가 아닌 실제 WAF/IDS/SIEM/EDR 구현으로 확장하는 작업과, Ansible/Terraform/Ludus/Hybrid provider 반영이다.

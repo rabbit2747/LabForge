@@ -24,6 +24,7 @@ LabForge lets an author describe a lab as structured scenario files:
 From those files, LabForge currently generates:
 
 - `docker-compose.yml`
+- Docker Compose security-control scaffolds for selected protected controls
 - student/supervisor README
 - MITRE mapping report
 - implementation checklist
@@ -75,6 +76,8 @@ validated through pydantic and can export JSON Schema files. The provider
 interface has a working `docker-compose` provider plus skeleton `ansible`,
 `terraform`, `ludus`, and `hybrid` providers. Documentation rendering now uses
 Jinja2 templates and can emit `unprotected` and `protected` architecture views.
-It does not yet generate full vulnerable service source code, VM infrastructure,
-Ansible roles, Terraform modules, Ludus range files, or production-grade
-security-control enforcement in provider outputs.
+The Docker Compose provider can materialize selected protected controls as safe
+control scaffold services with labels, networks, and log volumes. It does not
+yet generate full vulnerable service source code, VM infrastructure, Ansible
+roles, Terraform modules, Ludus range files, or production-grade enforcement
+logic for WAF, IDS, SIEM, or EDR controls.

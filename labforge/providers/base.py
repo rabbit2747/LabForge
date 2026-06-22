@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 from labforge.model import LabSpec
 
@@ -13,7 +14,7 @@ class Provider(ABC):
         return []
 
     @abstractmethod
-    def generate(self, spec: LabSpec, out: Path) -> None:
+    def generate(self, spec: LabSpec, out: Path, **kwargs: Any) -> None:
         """Generate provider-specific infrastructure artifacts."""
 
     def plan(self, spec: LabSpec, out: Path) -> None:
@@ -24,4 +25,3 @@ class Provider(ABC):
 
     def destroy(self, spec: LabSpec, out: Path) -> None:
         raise NotImplementedError(f"{self.name} destroy is not implemented yet")
-

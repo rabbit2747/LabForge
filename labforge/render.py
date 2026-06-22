@@ -34,7 +34,7 @@ def build_lab(
     if provider_errors:
         joined = "\n".join(f"- {error}" for error in provider_errors)
         raise ValueError(f"Provider validation failed for {provider_name}:\n{joined}")
-    provider.generate(spec, out)
+    provider.generate(spec, out, profile=profile)
     render_common_outputs(spec, out, profile=profile)
 
 
