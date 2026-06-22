@@ -149,6 +149,8 @@ python -m labforge agents validate output/scenario-02-agents
 python -m labforge agents adapters
 python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents review output/scenario-02-agents --write
+python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
 ```
 
 `agents plan-run` reports execution readiness without calling an LLM.
@@ -158,3 +160,8 @@ for each specialist agent. The first available adapter is `manual`, which also
 writes `.manual.md` invocation files for human-operated LLM sessions. `openai`,
 `claude-cli`, and `mcp` are registered as future adapter slots but do not perform
 live execution yet.
+
+`agents review` aggregates `.ai/outputs/*.result.yaml` files into
+`.ai/reviews/agent-review.{yaml,md}` and returns a non-zero status when the
+workspace is not ready for supervisor approval. `agents decide` appends explicit
+supervisor decisions to `.ai/decisions/`.

@@ -44,6 +44,27 @@ class AgentDecisionLog(AgentModel):
     items: list[dict[str, Any] | str] = Field(default_factory=list)
 
 
+class AgentReviewItem(AgentModel):
+    task_id: str
+    agent_id: str
+    phase: str
+    status: str
+    summary: str = ""
+    findings_count: int = 0
+    artifacts_count: int = 0
+    open_questions_count: int = 0
+    output_file: str
+
+
+class AgentReviewSpec(AgentModel):
+    workspace: str
+    ready_for_supervisor: bool
+    totals: dict[str, int] = Field(default_factory=dict)
+    items: list[AgentReviewItem] = Field(default_factory=list)
+    validation_errors: list[str] = Field(default_factory=list)
+    open_questions: list[dict[str, Any] | str] = Field(default_factory=list)
+
+
 class OrchestrationPlanSpec(AgentModel):
     lab_id: str
     title: str
@@ -727,6 +748,139 @@ def create_agent_execution_packages(
     return written
 
 
+def create_agent_review(path: Path) -> AgentReviewSpec:
+    root = agent_workspace_root(path)
+    validation_errors = validate_agent_workspace(root)
+    tasks: dict[str, AgentTaskSpec] = {}
+    for task_path in sorted((root / "tasks").glob("*.yaml")):
+        try:
+            task = AgentTaskSpec.model_validate(load_yaml(task_path))
+        except (ValidationError, ValueError):
+            continue
+        tasks[task.task_id] = task
+
+    items: list[AgentReviewItem] = []
+    open_questions: list[dict[str, Any] | str] = []
+    totals: dict[str, int] = {}
+    for output_path in sorted((root / "outputs").glob("*.result.yaml")):
+        try:
+            result = AgentResultSpec.model_validate(load_yaml(output_path))
+        except (ValidationError, ValueError):
+            continue
+        task = tasks.get(result.task_id)
+        status = result.status
+        totals[status] = totals.get(status, 0) + 1
+        open_questions.extend(result.open_questions)
+        items.append(
+            AgentReviewItem(
+                task_id=result.task_id,
+                agent_id=task.agent_id if task else "unknown",
+                phase=task.phase if task else "unknown",
+                status=status,
+                summary=result.summary,
+                findings_count=len(result.findings),
+                artifacts_count=len(result.artifacts),
+                open_questions_count=len(result.open_questions),
+                output_file=workspace_relative(root, output_path),
+            )
+        )
+
+    blocking_statuses = {"not-started", "blocked"}
+    ready_for_supervisor = (
+        not validation_errors
+        and bool(items)
+        and all(item.status not in blocking_statuses for item in items)
+    )
+    return AgentReviewSpec(
+        workspace=str(root),
+        ready_for_supervisor=ready_for_supervisor,
+        totals=totals,
+        items=items,
+        validation_errors=validation_errors,
+        open_questions=open_questions,
+    )
+
+
+def review_to_json(review: AgentReviewSpec) -> str:
+    return json.dumps(review.model_dump(), ensure_ascii=False, indent=2) + "\n"
+
+
+def review_to_markdown(review: AgentReviewSpec) -> str:
+    lines = [
+        "# Agent Review",
+        "",
+        f"- Workspace: `{review.workspace}`",
+        f"- Ready for supervisor: `{str(review.ready_for_supervisor).lower()}`",
+        "",
+        "## Totals",
+        "",
+    ]
+    if review.totals:
+        for status, count in sorted(review.totals.items()):
+            lines.append(f"- `{status}`: {count}")
+    else:
+        lines.append("- No agent result files found.")
+    lines += [
+        "",
+        "## Results",
+        "",
+        "| Task | Agent | Phase | Status | Findings | Artifacts | Open Questions |",
+        "|---|---|---|---|---:|---:|---:|",
+    ]
+    for item in review.items:
+        lines.append(
+            f"| `{item.task_id}` | `{item.agent_id}` | {item.phase} | {item.status} | "
+            f"{item.findings_count} | {item.artifacts_count} | {item.open_questions_count} |"
+        )
+    if review.validation_errors:
+        lines += [
+            "",
+            "## Validation Errors",
+            "",
+        ]
+        lines.extend(f"- {error}" for error in review.validation_errors)
+    if review.open_questions:
+        lines += [
+            "",
+            "## Open Questions",
+            "",
+        ]
+        lines.extend(f"- {question}" for question in review.open_questions)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_agent_review(path: Path) -> list[Path]:
+    root = agent_workspace_root(path)
+    review = create_agent_review(root)
+    review_dir = root / "reviews"
+    yaml_path = review_dir / "agent-review.yaml"
+    markdown_path = review_dir / "agent-review.md"
+    write_text(yaml_path, dump_yaml(review.model_dump()))
+    write_text(markdown_path, review_to_markdown(review))
+    return [yaml_path, markdown_path]
+
+
+def append_agent_decision(
+    path: Path,
+    *,
+    decision: Literal["accepted", "rejected", "open-questions"],
+    task_id: str,
+    reason: str,
+) -> Path:
+    root = agent_workspace_root(path)
+    decision_path = root / "decisions" / f"{decision}.yaml"
+    log = AgentDecisionLog.model_validate(load_yaml(decision_path))
+    log.items.append(
+        {
+            "task_id": task_id,
+            "reason": reason,
+        }
+    )
+    write_text(decision_path, dump_yaml(log.model_dump()))
+    return decision_path
+
+
 def validate_agent_workspace(path: Path) -> list[str]:
     errors: list[str] = []
     root = agent_workspace_root(path)
@@ -833,6 +987,7 @@ AGENT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "agent-task.schema.json": AgentTaskSpec,
     "agent-result.schema.json": AgentResultSpec,
     "agent-decision-log.schema.json": AgentDecisionLog,
+    "agent-review.schema.json": AgentReviewSpec,
     "orchestration-plan.schema.json": OrchestrationPlanSpec,
     "agent-run-plan.schema.json": AgentRunPlanSpec,
     "agent-execution-package.schema.json": AgentExecutionPackageSpec,

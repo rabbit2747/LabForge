@@ -8,13 +8,18 @@ from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_a
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .agent_orchestration import (
+    append_agent_decision,
     create_agent_execution_packages,
     create_agent_run_plan,
+    create_agent_review,
     render_agent_list,
+    review_to_json,
+    review_to_markdown,
     run_plan_to_json,
     run_plan_to_markdown,
     scaffold_agent_workspace,
     validate_agent_workspace,
+    write_agent_review,
 )
 from .io import write_text
 from .providers.factory import list_providers
@@ -193,6 +198,36 @@ def command_agents_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_agents_review(args: argparse.Namespace) -> int:
+    review = create_agent_review(Path(args.workspace))
+    if args.write:
+        written = write_agent_review(Path(args.workspace))
+        print("Wrote agent review files:")
+        for path in written:
+            print(f"- {path}")
+        return 0 if review.ready_for_supervisor else 1
+    if args.format == "json":
+        print(review_to_json(review))
+    else:
+        print(review_to_markdown(review))
+    return 0 if review.ready_for_supervisor else 1
+
+
+def command_agents_decide(args: argparse.Namespace) -> int:
+    try:
+        path = append_agent_decision(
+            Path(args.workspace),
+            decision=args.decision,
+            task_id=args.task_id,
+            reason=args.reason,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        print(str(exc))
+        return 1
+    print(f"Updated decision log: {path.resolve()}")
+    return 0
+
+
 def command_services_check(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     result = service_check(spec)
@@ -313,6 +348,17 @@ def main(argv: list[str] | None = None) -> int:
     agents_run_parser.add_argument("--agent", help="Only package one agent_id")
     agents_run_parser.add_argument("--context-root", help="Scenario directory used to resolve task context files")
     agents_run_parser.set_defaults(func=command_agents_run)
+    agents_review_parser = agents_sub.add_parser("review", help="Review agent result outputs")
+    agents_review_parser.add_argument("workspace")
+    agents_review_parser.add_argument("--format", choices=["text", "json"], default="text")
+    agents_review_parser.add_argument("--write", action="store_true", help="Write review files under .ai/reviews")
+    agents_review_parser.set_defaults(func=command_agents_review)
+    agents_decide_parser = agents_sub.add_parser("decide", help="Append a supervisor decision log item")
+    agents_decide_parser.add_argument("workspace")
+    agents_decide_parser.add_argument("--decision", choices=["accepted", "rejected", "open-questions"], required=True)
+    agents_decide_parser.add_argument("--task-id", required=True)
+    agents_decide_parser.add_argument("--reason", required=True)
+    agents_decide_parser.set_defaults(func=command_agents_decide)
 
     services_parser = sub.add_parser("services", help="Service artifact utilities")
     services_sub = services_parser.add_subparsers(dest="services_command", required=True)

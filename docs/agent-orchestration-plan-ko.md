@@ -149,6 +149,20 @@ output/<lab>/
 `manual` adapter는 사람이 직접 LLM 세션에 붙여넣을 수 있는 `.manual.md` invocation 파일을 추가로 만든다.
 이 단계까지는 여전히 dry-run이며, `openai`, `claude-cli`, `mcp` adapter는 registry에만 등록되어 있고 실제 실행은 다음 단계에서 붙인다.
 
+### Phase 3.3. Supervisor Review Gate
+
+agent가 `.ai/outputs/*.result.yaml`을 작성한 뒤에는 supervisor review gate를 통과해야 한다.
+
+```powershell
+python -m labforge agents review output/scenario-02-agents --write
+python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
+```
+
+`agents review`는 agent result를 모아 `.ai/reviews/agent-review.yaml`과 `.ai/reviews/agent-review.md`를 생성한다.
+결과가 `not-started` 또는 `blocked` 상태이면 supervisor 승인 준비가 되지 않은 것으로 보고 non-zero exit code를 반환한다.
+`agents decide`는 승인, 반려, 추가 질문을 `.ai/decisions/` 아래 decision log에 명시적으로 남긴다.
+이 gate를 통과하기 전에는 LabForge core가 agent 산출물을 source of truth로 취급하지 않는다.
+
 ### Phase 4. Provider Execution Layer
 
 - Docker Compose start/stop/reset script

@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "AgentReviewItem": {
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "findings_count": {
+          "default": 0,
+          "title": "Findings Count",
+          "type": "integer"
+        },
+        "artifacts_count": {
+          "default": 0,
+          "title": "Artifacts Count",
+          "type": "integer"
+        },
+        "open_questions_count": {
+          "default": 0,
+          "title": "Open Questions Count",
+          "type": "integer"
+        },
+        "output_file": {
+          "title": "Output File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "agent_id",
+        "phase",
+        "status",
+        "output_file"
+      ],
+      "title": "AgentReviewItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "ready_for_supervisor": {
+      "title": "Ready For Supervisor",
+      "type": "boolean"
+    },
+    "totals": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Totals",
+      "type": "object"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/AgentReviewItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "validation_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Errors",
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Open Questions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "ready_for_supervisor"
+  ],
+  "title": "AgentReviewSpec",
+  "type": "object"
+}
