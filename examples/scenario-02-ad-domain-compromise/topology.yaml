@@ -1,0 +1,94 @@
+networks:
+  - name: public_net
+  - name: dmz_net
+    internal: true
+  - name: corp_net
+    internal: true
+  - name: drop_net
+    internal: true
+
+services:
+  - name: edge-proxy
+    role: external ingress
+    exposed: true
+    networks: [public_net]
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: attacker-workstation
+    role: learner attack workstation
+    exposed: true
+    networks: [public_net, dmz_net, drop_net]
+    ports: ["2222:22"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "test -d /home/attacker"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: hr-portal
+    role: vulnerable external business app
+    exposed: true
+    networks: [public_net, dmz_net, corp_net]
+    expose: ["5000"]
+    user: "10001:10001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: ldap-ad
+    role: active-directory-like LDAP
+    networks: [corp_net]
+    expose: ["389"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: reporting-server
+    role: lateral movement target
+    networks: [corp_net]
+    expose: ["7001"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: backup-server
+    role: privilege escalation target
+    networks: [corp_net]
+    expose: ["7002"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: fileserver
+    role: final object store
+    networks: [corp_net]
+    expose: ["7003"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: controlled-drop
+    role: final submission service
+    networks: [drop_net]
+    expose: ["7502"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+

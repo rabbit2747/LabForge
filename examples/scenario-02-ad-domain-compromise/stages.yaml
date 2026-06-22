@@ -1,0 +1,120 @@
+stages:
+  - id: stage-01
+    title: External HR portal discovery
+    procedure: Observe profile preview requests and confirm server-side rendering behavior.
+    evidence:
+      - preview_request_captured
+      - template_probe_confirmed
+    mitre:
+      tactic: Initial Access
+      techniques:
+        - id: T1190
+          name: Exploit Public-Facing Application
+
+  - id: stage-02
+    title: HR server foothold
+    procedure: Obtain limited command execution and enumerate current user, hostname, and internal DNS.
+    evidence:
+      - command_execution_confirmed
+      - internal_dns_discovered
+    mitre:
+      tactic: Execution
+      techniques:
+        - id: T1059
+          name: Command and Scripting Interpreter
+
+  - id: stage-03
+    title: Credential and configuration discovery
+    procedure: Read deployment config and startup logs to recover LDAP bind information.
+    evidence:
+      - ldap_bind_account_found
+      - corp_domain_identified
+    mitre:
+      tactic: Credential Access
+      techniques:
+        - id: T1552.001
+          name: Credentials In Files
+
+  - id: stage-04
+    title: Active Directory discovery
+    procedure: Use LDAP bind to enumerate users, groups, computers, and SPN-enabled accounts.
+    evidence:
+      - domain_users_enumerated
+      - spn_accounts_identified
+    mitre:
+      tactic: Discovery
+      techniques:
+        - id: T1087.002
+          name: Domain Account
+        - id: T1069.002
+          name: Domain Groups
+
+  - id: stage-05
+    title: Kerberoasting
+    procedure: Request service tickets for SPN accounts and recover a weak service account credential in the lab simulator.
+    evidence:
+      - service_ticket_obtained
+      - service_account_password_recovered
+    mitre:
+      tactic: Credential Access
+      techniques:
+        - id: T1558.003
+          name: Kerberoasting
+
+  - id: stage-06
+    title: Lateral movement to reporting server
+    procedure: Use the recovered service account to access the reporting server.
+    evidence:
+      - reporting_server_accessed
+    mitre:
+      tactic: Lateral Movement
+      techniques:
+        - id: T1021
+          name: Remote Services
+
+  - id: stage-07
+    title: Backup operator escalation
+    procedure: Find backup operator token or delegated run-as credential in server-side maintenance scripts.
+    evidence:
+      - backup_operator_token_found
+    mitre:
+      tactic: Privilege Escalation
+      techniques:
+        - id: T1548
+          name: Abuse Elevation Control Mechanism
+
+  - id: stage-08
+    title: Fileserver collection
+    procedure: Enumerate file shares and locate the board strategy archive.
+    evidence:
+      - board_share_accessed
+      - final_archive_identified
+    mitre:
+      tactic: Collection
+      techniques:
+        - id: T1039
+          name: Data from Network Shared Drive
+
+  - id: stage-09
+    title: Internal staging
+    procedure: Stage the final archive internally and prepare a manifest with hash and source path.
+    evidence:
+      - archive_staged
+      - manifest_prepared
+    mitre:
+      tactic: Collection
+      techniques:
+        - id: T1074.002
+          name: Remote Data Staging
+
+  - id: stage-10
+    title: Controlled drop submission
+    procedure: Submit archive manifest to controlled-drop.
+    evidence:
+      - controlled_drop_accepted
+    mitre:
+      tactic: Exfiltration
+      techniques:
+        - id: T1041
+          name: Exfiltration Over C2 Channel
+

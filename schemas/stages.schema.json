@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LabForge Stages",
+  "type": "object",
+  "required": ["stages"],
+  "properties": {
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "procedure", "mitre"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "procedure": {"type": "string"},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "mitre": {
+            "type": "object",
+            "required": ["tactic", "techniques"],
+            "properties": {
+              "tactic": {"type": "string"},
+              "techniques": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "name"],
+                  "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

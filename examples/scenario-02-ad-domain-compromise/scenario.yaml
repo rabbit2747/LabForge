@@ -1,0 +1,15 @@
+id: scenario-02-ad-domain-compromise
+title: Scenario 02 - Active Directory Domain Compromise
+summary: >
+  External HR portal compromise leads to Active Directory discovery,
+  service account abuse, lateral movement, and final board strategy archive collection.
+final_objective: >
+  Obtain board_strategy_archive_2026.zip from the internal fileserver and submit
+  a manifest to controlled-drop.
+motivation:
+  - APT29-style enterprise domain discovery
+  - FIN7-style credential abuse and lateral movement
+safety:
+  egress: lab-internal-only
+  destructive_actions: disabled
+

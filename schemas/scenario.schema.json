@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LabForge Scenario",
+  "type": "object",
+  "required": ["id", "title", "summary", "final_objective"],
+  "properties": {
+    "id": {"type": "string"},
+    "title": {"type": "string"},
+    "summary": {"type": "string"},
+    "final_objective": {"type": "string"},
+    "motivation": {"type": "array", "items": {"type": "string"}},
+    "safety": {"type": "object"}
+  }
+}
+
