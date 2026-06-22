@@ -94,6 +94,8 @@ LabForge는 다음 원칙을 따른다.
 - `docker-compose` provider 실제 생성
 - protected profile에서 선택된 보안장치를 Docker Compose control scaffold 서비스로 생성
 - Docker Compose 서비스/네트워크에 `labforge.*` 라벨과 SIEM 로그 설정 반영
+- Docker Compose provider에서 validate/start/stop/reset PowerShell 및 shell script 생성
+- PowerShell runtime script에서 현재 shell Docker가 없으면 WSL로 자동 위임
 - `ansible`, `terraform`, `ludus`, `hybrid` provider skeleton 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
@@ -485,6 +487,16 @@ python -m labforge build examples/scenario-02-ad-domain-compromise --out output/
 output/scenario-02/
 |-- docker-compose.yml
 |-- README.md
+|-- scripts/
+|   |-- README.md
+|   |-- reset.ps1
+|   |-- reset.sh
+|   |-- start.ps1
+|   |-- start.sh
+|   |-- stop.ps1
+|   |-- stop.sh
+|   |-- validate.ps1
+|   `-- validate.sh
 |-- docs/
 |   |-- architecture-diagrams.md
 |   |-- architecture-protected.md
@@ -781,7 +793,7 @@ examples/scenario-02-ad-domain-compromise
 
 - 실제 취약 서비스 자동 생성은 하지 않는다.
 - Docker Compose 외 provider는 skeleton만 있고, 아직 실제 산출물을 생성하지 않는다.
-- protected/unprotected profile은 문서와 Docker Compose scaffold 수준으로 분리되었지만, Ansible/Terraform/Ludus/Hybrid provider에는 아직 깊게 반영되지 않았다.
+- protected/unprotected profile은 문서와 Docker Compose scaffold/runtime script 수준으로 분리되었지만, Ansible/Terraform/Ludus/Hybrid provider에는 아직 깊게 반영되지 않았다.
 - security control은 현재 diagram overlay, 문서화, Docker Compose placeholder 서비스 수준이며, 실제 WAF/IDS/SIEM/EDR 엔진 구성은 아직 생성하지 않는다.
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
 - generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
@@ -804,7 +816,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 
 4. Provider Execution Layer
 
-   Docker Compose start/stop/reset script를 만들고, Hybrid/Ludus/Ansible/Terraform provider를 고도화한다.
+   Docker Compose runtime script는 1차 구현되었다. 다음에는 Hybrid/Ludus/Ansible/Terraform provider를 고도화한다.
 
 5. Service Artifact Standard
 
@@ -873,6 +885,11 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge docs <lab> --profile protected --out <out>` 명령 추가
 - `architecture-unprotected.md`, `architecture-protected.md`, `security-control-selection.md` 생성 추가
 - protected profile의 Docker Compose 산출물에 선택된 보안장치 scaffold 서비스 생성 추가
+- Docker Compose provider runtime scripts 생성 추가:
+  - `scripts/validate.ps1`, `scripts/validate.sh`
+  - `scripts/start.ps1`, `scripts/start.sh`
+  - `scripts/stop.ps1`, `scripts/stop.sh`
+  - `scripts/reset.ps1`, `scripts/reset.sh`
 - `python -m labforge doctor --lab <lab>` 명령으로 host/WSL/Docker 실행 환경 진단 추가
 - `python -m labforge plan <lab>` 명령으로 host-aware execution plan 생성 추가
 - `python -m labforge agents list` 명령으로 기본 전문 agent 역할 목록 출력 추가
@@ -881,4 +898,4 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - agent 관련 JSON Schema export 추가
 - scenario-02 예제를 v0.2 구조로 확장
 
-다음 구현 우선순위는 provider 실행 스크립트 분리와 service artifact 표준화다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.
+다음 구현 우선순위는 service artifact 표준화와 Hybrid/Ludus/Ansible/Terraform provider 고도화다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.

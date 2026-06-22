@@ -16,6 +16,7 @@ class DockerComposeProvider(Provider):
         profile = str(kwargs.get("profile", "unprotected"))
         write_text(out / "docker-compose.yml", render_compose(spec, profile=profile))
         write_text(out / "docs" / "provider-security-plan.md", render_security_plan(spec, profile))
+        write_runtime_scripts(out)
 
 
 def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
@@ -170,3 +171,136 @@ def render_security_plan(spec: LabSpec, profile: str) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def write_runtime_scripts(out: Path) -> None:
+    scripts = {
+        "validate": ["config"],
+        "start": ["up", "--build", "-d"],
+        "stop": ["down"],
+        "reset": ["down", "-v", "&&", "up", "--build", "-d"],
+    }
+    for name, args in scripts.items():
+        write_text(out / "scripts" / f"{name}.sh", render_shell_script(args))
+        write_text(out / "scripts" / f"{name}.ps1", render_powershell_script(args))
+    write_text(out / "scripts" / "README.md", render_scripts_readme())
+
+
+def render_shell_script(compose_args: list[str]) -> str:
+    if "&&" in compose_args:
+        first = compose_args[: compose_args.index("&&")]
+        second = compose_args[compose_args.index("&&") + 1 :]
+        body = "\n".join(
+            [
+                f"docker compose -f docker-compose.yml {' '.join(first)}",
+                f"docker compose -f docker-compose.yml {' '.join(second)}",
+            ]
+        )
+    else:
+        body = f"docker compose -f docker-compose.yml {' '.join(compose_args)}"
+    return "\n".join(
+        [
+            "#!/usr/bin/env sh",
+            "set -eu",
+            'LAB_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"',
+            'cd "$LAB_ROOT"',
+            body,
+            "",
+        ]
+    )
+
+
+def render_powershell_script(compose_args: list[str]) -> str:
+    if "&&" in compose_args:
+        first = compose_args[: compose_args.index("&&")]
+        second = compose_args[compose_args.index("&&") + 1 :]
+        command_lines = [
+            f"Invoke-LabForgeCompose @({powershell_array(first)})",
+            f"Invoke-LabForgeCompose @({powershell_array(second)})",
+        ]
+    else:
+        command_lines = [f"Invoke-LabForgeCompose @({powershell_array(compose_args)})"]
+
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            "$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path",
+            "$LabRoot = (Resolve-Path (Join-Path $ScriptDir '..')).Path",
+            "",
+            "function Test-LabForgeDocker {",
+            "    try {",
+            "        docker compose version *> $null",
+            "        return $LASTEXITCODE -eq 0",
+            "    } catch {",
+            "        return $false",
+            "    }",
+            "}",
+            "",
+            "function ConvertTo-LabForgeWslPath([string]$Path) {",
+            "    $FullPath = (Resolve-Path $Path).Path",
+            "    if ($FullPath -match '^([A-Za-z]):\\\\(.*)$') {",
+            "        $Drive = $Matches[1].ToLowerInvariant()",
+            "        $Rest = $Matches[2] -replace '\\\\', '/'",
+            "        return \"/mnt/$Drive/$Rest\"",
+            "    }",
+            "    return ($FullPath -replace '\\\\', '/')",
+            "}",
+            "",
+            "function Join-LabForgeShellArgs([string[]]$Items) {",
+            "    return ($Items | ForEach-Object { \"'\" + ($_ -replace \"'\", \"'\\''\") + \"'\" }) -join ' '",
+            "}",
+            "",
+            "function Invoke-LabForgeCompose([string[]]$ComposeArgs) {",
+            "    if (Test-LabForgeDocker) {",
+            "        Push-Location $LabRoot",
+            "        try {",
+            "            & docker compose -f docker-compose.yml @ComposeArgs",
+            "            if ($LASTEXITCODE -ne 0) { throw \"docker compose failed with exit code $LASTEXITCODE\" }",
+            "        } finally {",
+            "            Pop-Location",
+            "        }",
+            "        return",
+            "    }",
+            "",
+            "    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {",
+            "        throw 'Docker is not available in this shell and wsl.exe was not found.'",
+            "    }",
+            "",
+            "    $Distro = $env:LABFORGE_WSL_DISTRO",
+            "    if (-not $Distro) { $Distro = 'Ubuntu-24.04' }",
+            "    $WslLabRoot = ConvertTo-LabForgeWslPath $LabRoot",
+            "    $ArgString = Join-LabForgeShellArgs $ComposeArgs",
+            "    $Command = \"cd '$WslLabRoot' && docker compose -f docker-compose.yml $ArgString\"",
+            "    wsl.exe -d $Distro -- bash -lc $Command",
+            "    if ($LASTEXITCODE -ne 0) { throw \"WSL docker compose failed with exit code $LASTEXITCODE\" }",
+            "}",
+            "",
+            *command_lines,
+            "",
+        ]
+    )
+
+
+def powershell_array(items: list[str]) -> str:
+    return ", ".join("'" + item.replace("'", "''") + "'" for item in items)
+
+
+def render_scripts_readme() -> str:
+    return "\n".join(
+        [
+            "# Runtime Scripts",
+            "",
+            "These scripts are generated by the Docker Compose provider.",
+            "",
+            "| Script | Purpose |",
+            "|---|---|",
+            "| `validate.ps1` / `validate.sh` | Run `docker compose config`. |",
+            "| `start.ps1` / `start.sh` | Build and start the lab. |",
+            "| `stop.ps1` / `stop.sh` | Stop the lab without deleting volumes. |",
+            "| `reset.ps1` / `reset.sh` | Delete volumes and rebuild the lab. |",
+            "",
+            "PowerShell scripts first try Docker in the current shell. If Docker is not available, they delegate to WSL.",
+            "Set `LABFORGE_WSL_DISTRO` to override the default WSL distro (`Ubuntu-24.04`).",
+            "",
+        ]
+    )

@@ -25,6 +25,7 @@ From those files, LabForge currently generates:
 
 - `docker-compose.yml`
 - Docker Compose security-control scaffolds for selected protected controls
+- Docker Compose runtime scripts for validate, start, stop, and reset
 - student/supervisor README
 - MITRE mapping report
 - implementation checklist
@@ -98,8 +99,10 @@ interface has a working `docker-compose` provider plus skeleton `ansible`,
 `terraform`, `ludus`, and `hybrid` providers. Documentation rendering now uses
 Jinja2 templates and can emit `unprotected` and `protected` architecture views.
 The Docker Compose provider can materialize selected protected controls as safe
-control scaffold services with labels, networks, and log volumes. It does not
-yet generate full vulnerable service source code, VM infrastructure, Ansible
+control scaffold services with labels, networks, and log volumes. It also emits
+PowerShell and shell runtime scripts for validation, start, stop, and reset;
+PowerShell scripts automatically delegate to WSL when Docker is not available in
+the current Windows shell. It does not yet generate full vulnerable service source code, VM infrastructure, Ansible
 roles, Terraform modules, Ludus range files, or production-grade enforcement
 logic for WAF, IDS, SIEM, or EDR controls.
 

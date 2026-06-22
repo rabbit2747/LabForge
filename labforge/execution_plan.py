@@ -94,10 +94,19 @@ def make_runtime_command(command: str, runtime_cwd: str | None) -> str:
     return command
 
 
+def make_script_command(out: Path, script_name: str, host_os: str, runtime_cwd: str | None) -> str:
+    if runtime_cwd:
+        return make_runtime_command(f"sh {out.as_posix()}/scripts/{script_name}.sh", runtime_cwd)
+    if host_os == "windows":
+        return f"& {out}\\scripts\\{script_name}.ps1"
+    return f"sh {out.as_posix()}/scripts/{script_name}.sh"
+
+
 def make_runtime_steps(
     out: Path,
     provider: str,
     location: str,
+    host_os: str,
     runtime_cwd: str | None = None,
 ) -> list[PlanStep]:
     if provider != "docker-compose":
@@ -118,24 +127,21 @@ def make_runtime_steps(
             5,
             "Compose Validation",
             location,
-            commands=[make_runtime_command(f"docker compose -f {compose_file.as_posix()} config", runtime_cwd)],
+            commands=[make_script_command(out, "validate", host_os, runtime_cwd)],
             notes=["Validates generated Compose syntax before starting services."],
         ),
         PlanStep(
             6,
             "Start Lab",
             location,
-            commands=[make_runtime_command(f"docker compose -f {compose_file.as_posix()} up --build -d", runtime_cwd)],
+            commands=[make_script_command(out, "start", host_os, runtime_cwd)],
             notes=["Starts or rebuilds the lab services."],
         ),
         PlanStep(
             7,
             "Reset Lab State",
             location,
-            commands=[
-                make_runtime_command(f"docker compose -f {compose_file.as_posix()} down -v", runtime_cwd),
-                make_runtime_command(f"docker compose -f {compose_file.as_posix()} up --build -d", runtime_cwd),
-            ],
+            commands=[make_script_command(out, "reset", host_os, runtime_cwd)],
             notes=["Prototype reset path for Docker-backed labs. VM/hybrid labs should use snapshot revert instead."],
         ),
     ]
@@ -233,7 +239,7 @@ def create_execution_plan(
             ],
         )
     )
-    steps.extend(make_runtime_steps(out, provider, runtime_location, runtime_cwd=runtime_cwd))
+    steps.extend(make_runtime_steps(out, provider, runtime_location, report.host_os, runtime_cwd=runtime_cwd))
 
     return ExecutionPlan(
         lab_id=spec.lab_id,
