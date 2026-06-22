@@ -62,6 +62,7 @@ python -m labforge services check examples/scenario-02-ad-domain-compromise
 python -m labforge services verify examples/scenario-02-ad-domain-compromise
 python -m labforge services plan examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-plan
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
+python -m labforge services review-result examples/scenario-02-ad-domain-compromise --result output/scenario-02-service-agents/.ai/outputs/service-build-<service>.result.yaml --force
 python -m labforge services apply-result examples/scenario-02-ad-domain-compromise --result output/scenario-02-service-agents/.ai/outputs/service-build-<service>.result.yaml --dry-run
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
 python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
@@ -165,6 +166,7 @@ python -m labforge services materialize output/new-lab --force
 python -m labforge services verify output/new-lab
 python -m labforge services plan output/new-lab --out output/new-lab-service-plan
 python -m labforge services agent-packages output/new-lab --out output/new-lab-service-agents --adapter manual
+python -m labforge services review-result output/new-lab --result output/new-lab-service-agents/.ai/outputs/service-build-entry-service.result.yaml --force
 python -m labforge services apply-result output/new-lab --result output/new-lab-service-agents/.ai/outputs/service-build-entry-service.result.yaml --dry-run
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
@@ -190,11 +192,12 @@ workspace is not ready for supervisor approval. `agents result-stub` helps
 manual workflows write schema-valid result files. `agents decide` appends
 explicit supervisor decisions to `.ai/decisions/`.
 
-`services apply-result` is the bridge from a completed service-builder result
-back into a LabForge lab directory. It accepts a schema-valid result YAML with
-`service_changes`, verifies that every target path stays inside the declared
-service directory, blocks overwrites unless `--force` is set, and can run in
-`--dry-run` mode before changing files.
+`services review-result` checks a completed service-builder result before any
+file is modified. `services apply-result` is the bridge from that reviewed
+result back into a LabForge lab directory. It accepts a schema-valid result YAML
+with `service_changes`, verifies that every target path stays inside the
+declared service directory, blocks overwrites unless `--force` is set, and can
+run in `--dry-run` mode before changing files.
 
 Non-Docker providers currently generate deterministic scaffold artifacts rather
 than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and

@@ -177,6 +177,7 @@ open_questions: []
 Apply the result:
 
 ```powershell
+python -m labforge services review-result <lab-root> --result service-build-entry-service.result.yaml
 python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --dry-run
 python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --force
 ```
@@ -195,7 +196,13 @@ This creates the missing link between manual or LLM-assisted service
 implementation and deterministic LabForge verification:
 
 ```powershell
+python -m labforge services review-result <lab-root> --result <agent-result.yaml> --force
 python -m labforge services apply-result <lab-root> --result <agent-result.yaml> --force
 python -m labforge services verify <lab-root> --strict
 python -m labforge qa release-gate <lab-root> --out output/release-gate --provider docker-compose --profile protected
 ```
+
+`review-result` should run before `apply-result` in supervised workflows. It
+does not modify files. It checks the result schema, service name, completion
+status, open questions, target paths, source files, and overwrite risk. It
+returns success only when the result is ready to apply.

@@ -68,6 +68,7 @@ jobs:
           findings: []
           open_questions: []
           YAML
+          python -m labforge services review-result output/starter-lab --result output/starter-entry-service.result.yaml --force --out output/starter-review-result.md
           python -m labforge services apply-result output/starter-lab --result output/starter-entry-service.result.yaml --force --out output/starter-apply-result.md
           python -m labforge services apply-result output/starter-lab --result output/starter-entry-service.result.yaml --dry-run --force --format json > output/starter-apply-result.json
           python -m labforge services verify output/starter-lab

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
@@ -76,6 +76,23 @@ class ServiceResultApplyReport(ServiceArtifactModel):
     dry_run: bool = False
     applied: list[ServiceResultApplyItem] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+class ServiceResultReviewItem(ServiceArtifactModel):
+    target_path: str
+    status: Literal["ok", "warning", "error"]
+    message: str
+
+
+class ServiceResultReviewReport(ServiceArtifactModel):
+    lab_id: str
+    service: str = ""
+    result_file: str
+    status: Literal["ready", "needs-review", "failed"]
+    ready_to_apply: bool = False
+    items: list[ServiceResultReviewItem] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    open_questions: list[dict | str] = Field(default_factory=list)
 
 
 def declared_service_artifacts(spec: LabSpec):
@@ -321,6 +338,100 @@ def apply_service_result(
     )
 
 
+def review_service_result(spec: LabSpec, result_file: Path, *, force: bool = False) -> ServiceResultReviewReport:
+    result_path = result_file.resolve()
+    try:
+        raw = load_yaml(result_path)
+        result = ServiceResultSpec.model_validate(raw)
+    except (OSError, ValueError, ValidationError) as exc:
+        return ServiceResultReviewReport(
+            lab_id=spec.lab_id,
+            result_file=str(result_path),
+            status="failed",
+            ready_to_apply=False,
+            errors=[f"invalid service result file: {exc}"],
+        )
+
+    artifacts = {artifact.service: artifact for artifact in declared_service_artifacts(spec)}
+    artifact = artifacts.get(result.service)
+    errors: list[str] = []
+    items: list[ServiceResultReviewItem] = []
+
+    if not artifact:
+        errors.append(f"result references unknown service or missing service_artifacts contract: {result.service}")
+        return ServiceResultReviewReport(
+            lab_id=spec.lab_id,
+            service=result.service,
+            result_file=str(result_path),
+            status="failed",
+            ready_to_apply=False,
+            errors=errors,
+            open_questions=result.open_questions,
+        )
+
+    if result.status != "complete":
+        errors.append(f"result status must be complete before apply, got: {result.status}")
+
+    if result.open_questions:
+        items.append(
+            ServiceResultReviewItem(
+                target_path="-",
+                status="warning",
+                message=f"result has {len(result.open_questions)} open question(s) for supervisor review",
+            )
+        )
+
+    service_root = (spec.root / artifact.source_path).resolve()
+    if not service_root.exists() or not service_root.is_dir():
+        errors.append(f"service source_path does not exist: {artifact.source_path}")
+    if not result.service_changes:
+        errors.append("result contains no service_changes")
+
+    for change in result.service_changes:
+        target, target_error = resolve_service_target(service_root, change.target_path)
+        if target_error:
+            errors.append(target_error)
+            items.append(ServiceResultReviewItem(target_path=change.target_path, status="error", message=target_error))
+            continue
+
+        assert target is not None
+        _, content_error = service_change_content(change, result_path.parent)
+        if content_error:
+            errors.append(f"{change.target_path}: {content_error}")
+            items.append(ServiceResultReviewItem(target_path=change.target_path, status="error", message=content_error))
+            continue
+
+        if target.exists() and not force:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path=change.target_path,
+                    status="warning",
+                    message="target exists and would require --force to overwrite",
+                )
+            )
+            continue
+
+        items.append(ServiceResultReviewItem(target_path=change.target_path, status="ok", message="ready to write"))
+
+    status: Literal["ready", "needs-review", "failed"]
+    if errors:
+        status = "failed"
+    elif any(item.status == "warning" for item in items):
+        status = "needs-review"
+    else:
+        status = "ready"
+    return ServiceResultReviewReport(
+        lab_id=spec.lab_id,
+        service=result.service,
+        result_file=str(result_path),
+        status=status,
+        ready_to_apply=status == "ready",
+        items=items,
+        errors=errors,
+        open_questions=result.open_questions,
+    )
+
+
 def resolve_service_target(service_root: Path, target_path: str) -> tuple[Path | None, str | None]:
     raw = Path(target_path)
     if raw.is_absolute():
@@ -385,6 +496,40 @@ def service_result_apply_to_markdown(report: ServiceResultApplyReport) -> str:
             "",
         ]
         lines.extend(f"- {error}" for error in report.errors)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def service_result_review_to_markdown(report: ServiceResultReviewReport) -> str:
+    lines = [
+        f"# Service Result Review Report - {report.service or 'unknown'}",
+        "",
+        f"- Lab ID: `{report.lab_id}`",
+        f"- Result file: `{report.result_file}`",
+        f"- Status: `{report.status}`",
+        f"- Ready to apply: `{str(report.ready_to_apply).lower()}`",
+        "",
+        "| Target | Status | Message |",
+        "|---|---|---|",
+    ]
+    if not report.items:
+        lines.append("| - | - | No review items were produced. |")
+    for item in report.items:
+        lines.append(f"| `{item.target_path}` | `{item.status}` | {item.message} |")
+    if report.errors:
+        lines += [
+            "",
+            "## Errors",
+            "",
+        ]
+        lines.extend(f"- {error}" for error in report.errors)
+    if report.open_questions:
+        lines += [
+            "",
+            "## Open Questions",
+            "",
+        ]
+        lines.extend(f"- {question}" for question in report.open_questions)
     lines.append("")
     return "\n".join(lines)
 
@@ -587,4 +732,5 @@ def render_runtime_metadata(artifact, port: int) -> str:
 SERVICE_ARTIFACT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "service-result.schema.json": ServiceResultSpec,
     "service-result-apply-report.schema.json": ServiceResultApplyReport,
+    "service-result-review-report.schema.json": ServiceResultReviewReport,
 }

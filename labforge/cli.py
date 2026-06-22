@@ -42,10 +42,12 @@ from .service_verification import service_verification_to_json, service_verifica
 from .service_artifacts import (
     apply_service_result,
     materialize_service_runtimes,
+    review_service_result,
     run_service_hooks,
     scaffold_service_artifacts,
     service_check,
     service_result_apply_to_markdown,
+    service_result_review_to_markdown,
 )
 from .starter import init_lab
 from .validate import validate_lab
@@ -443,6 +445,20 @@ def command_services_apply_result(args: argparse.Namespace) -> int:
     return 0 if report.status == "passed" else 1
 
 
+def command_services_review_result(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    report = review_service_result(spec, Path(args.result), force=args.force)
+    if args.out:
+        out = Path(args.out)
+        write_text(out, report.model_dump_json(indent=2) if args.format == "json" else service_result_review_to_markdown(report))
+        print(f"Rendered service result review: {out.resolve()}")
+    elif args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(service_result_review_to_markdown(report))
+    return 0 if report.status == "ready" else 1
+
+
 def command_services_scaffold(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     written = scaffold_service_artifacts(spec, force=args.force)
@@ -694,6 +710,13 @@ def main(argv: list[str] | None = None) -> int:
     services_agent_packages_parser.add_argument("--out", required=True)
     services_agent_packages_parser.add_argument("--adapter", default="manual")
     services_agent_packages_parser.set_defaults(func=command_services_agent_packages)
+    services_review_result_parser = services_sub.add_parser("review-result", help="Review a service-builder result before applying it")
+    services_review_result_parser.add_argument("lab")
+    services_review_result_parser.add_argument("--result", required=True, help="Path to a service result YAML file")
+    services_review_result_parser.add_argument("--force", action="store_true", help="Treat existing target files as overwrite-approved during review")
+    services_review_result_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_review_result_parser.add_argument("--out")
+    services_review_result_parser.set_defaults(func=command_services_review_result)
     services_apply_result_parser = services_sub.add_parser("apply-result", help="Apply a completed service-builder result to a service directory")
     services_apply_result_parser.add_argument("lab")
     services_apply_result_parser.add_argument("--result", required=True, help="Path to a service result YAML file")
