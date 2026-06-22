@@ -6,6 +6,7 @@ from pathlib import Path
 from .model import LabSpec
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .agent_orchestration import render_agent_list, scaffold_agent_workspace
 from .io import write_text
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
@@ -90,6 +91,21 @@ def command_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_agents_list(args: argparse.Namespace) -> int:
+    print(render_agent_list())
+    return 0
+
+
+def command_agents_scaffold(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    out = Path(args.out) if args.out else Path("output") / spec.lab_id
+    written = scaffold_agent_workspace(spec, out)
+    print(f"Scaffolded agent workspace: {(out / '.ai').resolve()}")
+    for path in written:
+        print(f"- {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -130,6 +146,15 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     plan_parser.add_argument("--format", choices=["text", "json"], default="text")
     plan_parser.set_defaults(func=command_plan)
+
+    agents_parser = sub.add_parser("agents", help="Agent orchestration utilities")
+    agents_sub = agents_parser.add_subparsers(dest="agents_command", required=True)
+    agents_list_parser = agents_sub.add_parser("list", help="List default specialist agent roles")
+    agents_list_parser.set_defaults(func=command_agents_list)
+    agents_scaffold_parser = agents_sub.add_parser("scaffold", help="Create a dry-run agent workspace")
+    agents_scaffold_parser.add_argument("lab")
+    agents_scaffold_parser.add_argument("--out")
+    agents_scaffold_parser.set_defaults(func=command_agents_scaffold)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -39,6 +39,7 @@ LabForge can also inspect the local build host before real deployment work:
 - Docker CLI/server reachability from host and WSL
 - recommended execution location such as host shell, WSL, or VM/hybrid prerequisites
 - host-aware execution plans that combine lab requirements, provider choice, profile, and local runtime state
+- dry-run agent orchestration scaffolds for future Orchestrator LLM and specialist agents
 
 ## Quick Start
 
@@ -48,6 +49,7 @@ cd C:\dev\LabForge
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
+python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -59,6 +61,7 @@ Expected result:
 Validation passed
 # LabForge Host Doctor
 # Execution Plan - Scenario 02 - Active Directory Domain Compromise
+Scaffolded agent workspace: C:\dev\LabForge\output\scenario-02-agents\.ai
 Built lab scaffold with provider docker-compose and profile unprotected: C:\dev\LabForge\output\scenario-02
 Rendered docs with profile protected: C:\dev\LabForge\output\scenario-02-docs
 ```
@@ -79,6 +82,10 @@ For an analysis of reusable open-source tools, MCP/Skill candidates, provider
 backends, and license risks from the local `reference/` directory, see:
 
 [`docs/reference-tooling-analysis-ko.md`](docs/reference-tooling-analysis-ko.md)
+
+For the revised Orchestrator LLM and specialist-agent development plan, see:
+
+[`docs/agent-orchestration-plan-ko.md`](docs/agent-orchestration-plan-ko.md)
 
 ## Current Status
 
@@ -102,3 +109,7 @@ WSL.
 The `plan` command turns that diagnosis into concrete execution steps. For
 example, on a Windows PC with Docker available in `Ubuntu-24.04`, the plan tells
 the supervisor to run Docker-backed build and runtime commands through WSL.
+
+The `agents` command creates a dry-run orchestration workspace. It does not call
+an LLM yet. It defines the future Orchestrator LLM and specialist agent task
+contracts first, then later adapters can connect OpenAI, Claude CLI, or MCP.

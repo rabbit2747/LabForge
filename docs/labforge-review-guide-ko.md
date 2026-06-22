@@ -786,37 +786,41 @@ examples/scenario-02-ad-domain-compromise
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
 - generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
 
-## 14. 다음 개발 단계 제안
+## 14. 수정된 개발 단계 제안
 
-우선순위는 다음과 같다.
+LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오 제작 방식 자체에 포함되어야 한다. 따라서 기존의 provider 고도화 중심 계획을 다음 순서로 재정렬한다.
 
-1. supervisor selection provider 반영 고도화
+1. Core Spec / Validation
 
-   감독자가 WAF, IDS, firewall, SIEM, EDR 등을 선택하면 해당 선택이 Docker Compose placeholder를 넘어 Ansible, Terraform, Ludus, hybrid provider 산출물에도 실제 방화벽/센서/로그 수집 구성으로 반영되게 한다.
+   `scenario.yaml`, `topology.yaml`, `stages.yaml`, v0.2 선택 파일, pydantic 검증, JSON Schema export를 안정화한다.
 
-2. Jinja2 템플릿 범위 확장
+2. Runtime Awareness
 
-   README, MITRE mapping, implementation checklist에 적용한 템플릿 구조를 architecture, deployment requirements, security-control 문서까지 확장한다.
+   `doctor`와 `plan`을 통해 Windows, WSL, Docker, VM, hybrid 실행 위치를 판단한다.
 
-3. 입력 스펙 v0.2 고도화
+3. Agent Orchestration Foundation
 
-   `lab.yaml`, `environment.yaml`, `security-controls.yaml`, `providers/*.yaml` 구조를 안정화하고 JSON Schema와 pydantic 검증 범위를 더 촘촘하게 맞춘다.
+   Orchestrator LLM과 전문 agent 구조를 도입하기 위한 dry-run 기반을 만든다. 실제 LLM 호출 전에도 agent role, task, output, decision artifact가 생성되어야 한다.
 
-4. 10개 시나리오 YAML 변환
+4. Provider Execution Layer
 
-   Orion Echo와 scenario 02-10을 LabForge 포맷으로 정의한다.
+   Docker Compose start/stop/reset script를 만들고, Hybrid/Ludus/Ansible/Terraform provider를 고도화한다.
 
-5. provider interface 분리
+5. Service Artifact Standard
 
-   Docker Compose renderer를 provider plugin처럼 분리하고 Ansible/Terraform skeleton을 추가한다. 현재 `docker-compose` provider와 `ansible`, `terraform`, `ludus`, `hybrid` skeleton은 1차 반영되어 있다.
+   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다.
 
-6. Orion Echo 변환
+6. LLM Adapter
 
-   기존 Orion Docker lab을 LabForge 정의 파일로 변환하고, generated output과 기존 compose를 비교한다.
+   OpenAI, Claude CLI, MCP adapter를 붙인다. 이 단계 전까지는 dry-run orchestration만 사용한다.
 
-7. AD provider proof-of-concept
+7. Scenario Production
 
-   Windows Server Domain Controller, Windows workstation, Linux attacker를 포함한 hybrid provider 실험을 진행한다.
+   scenario 02-10을 LabForge YAML로 변환하고 agent-assisted QA loop를 적용한다.
+
+8. Orion Echo Rebuild Verification
+
+   기존 Orion Echo 산출물을 그대로 복제하지 않는다. Orion Echo 시나리오와 학습 목표를 LabForge 방식으로 재제작하고, 실습 체인이 정확히 동작하는지 검증한다.
 
 ## 15. 사용 예시 전체 흐름
 
@@ -829,13 +833,14 @@ examples/scenario-02-ad-domain-compromise
 4. python -m labforge validate <scenario-root>
 5. python -m labforge doctor --lab <scenario-root>
 6. python -m labforge plan <scenario-root> --provider <provider> --profile <profile>
-7. validation error 또는 host 환경 문제 수정
-8. python -m labforge schema export --out schemas
-9. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-10. 감독자가 문서와 다이어그램 검토
-11. 보안장치 선택
-12. python -m labforge build <scenario-root> --out output/<scenario>
-13. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+7. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
+8. validation error, host 환경 문제, agent task 설계 문제 수정
+9. python -m labforge schema export --out schemas
+10. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+11. 감독자가 문서, 다이어그램, agent task를 검토
+12. 보안장치 선택
+13. python -m labforge build <scenario-root> --out output/<scenario>
+14. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
 현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
@@ -869,6 +874,8 @@ examples/scenario-02-ad-domain-compromise
 - protected profile의 Docker Compose 산출물에 선택된 보안장치 scaffold 서비스 생성 추가
 - `python -m labforge doctor --lab <lab>` 명령으로 host/WSL/Docker 실행 환경 진단 추가
 - `python -m labforge plan <lab>` 명령으로 host-aware execution plan 생성 추가
+- `python -m labforge agents list` 명령으로 기본 전문 agent 역할 목록 출력 추가
+- `python -m labforge agents scaffold <lab>` 명령으로 dry-run agent workspace 생성 추가
 - scenario-02 예제를 v0.2 구조로 확장
 
-다음 구현 우선순위는 supervisor 선택값을 Docker Compose placeholder가 아닌 실제 WAF/IDS/SIEM/EDR 구현으로 확장하는 작업과, Ansible/Terraform/Ludus/Hybrid provider 반영이다.
+다음 구현 우선순위는 agent output schema 검증, provider 실행 스크립트 분리, service artifact 표준화다. 실제 LLM adapter는 dry-run orchestration artifact가 안정화된 뒤 연결한다.
