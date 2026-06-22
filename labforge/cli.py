@@ -38,6 +38,7 @@ from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
 from .qa import run_qa_smoke
 from .render import build_lab, render_docs
 from .schema import export_schemas
+from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
 from .service_artifacts import (
     materialize_service_runtimes,
     run_service_hooks,
@@ -377,6 +378,24 @@ def command_services_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_verify(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    report = verify_services(spec)
+    if args.out:
+        out = Path(args.out)
+        write_text(out, service_verification_to_json(report) if args.format == "json" else service_verification_to_markdown(report))
+        print(f"Rendered service verification report: {out.resolve()}")
+    elif args.format == "json":
+        print(service_verification_to_json(report))
+    else:
+        print(service_verification_to_markdown(report))
+    if report.status == "failed":
+        return 1
+    if args.strict and report.status == "warning":
+        return 1
+    return 0
+
+
 def command_services_plan(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     plan = create_service_implementation_plan(spec, Path(args.out) if args.out else None)
@@ -623,6 +642,12 @@ def main(argv: list[str] | None = None) -> int:
     services_check_parser = services_sub.add_parser("check", help="Validate service artifact directories")
     services_check_parser.add_argument("lab")
     services_check_parser.set_defaults(func=command_services_check)
+    services_verify_parser = services_sub.add_parser("verify", help="Verify service implementation quality gates")
+    services_verify_parser.add_argument("lab")
+    services_verify_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_verify_parser.add_argument("--out")
+    services_verify_parser.add_argument("--strict", action="store_true", help="Return non-zero when warnings are present")
+    services_verify_parser.set_defaults(func=command_services_verify)
     services_plan_parser = services_sub.add_parser("plan", help="Create per-service implementation task plan")
     services_plan_parser.add_argument("lab")
     services_plan_parser.add_argument("--out")

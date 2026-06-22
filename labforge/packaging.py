@@ -15,6 +15,7 @@ from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .model import LabSpec
 from .qa import run_qa_smoke
 from .render import build_lab
+from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
 from .validate import validate_lab
 
 
@@ -104,11 +105,18 @@ def create_supervisor_package(
     write_text(reports_dir / "execution-plan.json", plan_to_json(plan))
     write_text(reports_dir / "lint-report.md", lint_report_to_markdown(lint_report))
     write_text(reports_dir / "lint-report.json", lint_report_to_json(lint_report))
+    service_verification = verify_services(spec)
+    write_text(reports_dir / "service-verification-report.md", service_verification_to_markdown(service_verification))
+    write_text(reports_dir / "service-verification-report.json", service_verification_to_json(service_verification))
     create_service_implementation_plan(spec, reports_dir)
 
     warnings = [
         *validation_errors,
         *[f"{finding.location}: {finding.message}" for finding in lint_report.findings],
+        *[
+            f"{finding.service}:{finding.category}:{finding.path}: {finding.message}"
+            for finding in service_verification.findings
+        ],
         *host_report.warnings,
         *build_warnings,
     ]
@@ -156,6 +164,11 @@ def create_supervisor_package(
                 name="service-implementation-plan",
                 path=str((reports_dir / "service-implementation-plan.md").resolve()),
                 purpose="Per-service implementation tasks for builders and agents.",
+            ),
+            PackageArtifact(
+                name="service-verification-report",
+                path=str((reports_dir / "service-verification-report.md").resolve()),
+                purpose="Service implementation quality gate findings.",
             ),
         ],
         warnings=warnings,

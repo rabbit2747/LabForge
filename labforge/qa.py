@@ -11,6 +11,7 @@ from .linting import lint_lab
 from .model import LabSpec
 from .render import build_lab
 from .service_artifacts import materialize_service_runtimes, service_check
+from .service_verification import verify_services
 from .validate import validate_lab
 
 
@@ -88,6 +89,18 @@ def run_qa_smoke(
             name="service-artifacts",
             status=service_status,
             messages=[*service_result.errors, *service_result.warnings],
+        )
+    )
+
+    service_verification = verify_services(spec)
+    checks.append(
+        QaCheck(
+            name="service-verification",
+            status="passed" if service_verification.status == "passed" else service_verification.status,
+            messages=[
+                f"{finding.service}:{finding.category}:{finding.path}: {finding.message}"
+                for finding in service_verification.findings
+            ],
         )
     )
 

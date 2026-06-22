@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "ServiceVerificationFinding": {
+      "additionalProperties": true,
+      "properties": {
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "title": "Path",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "service",
+        "category",
+        "message"
+      ],
+      "title": "ServiceVerificationFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "warning",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ServiceVerificationFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "status"
+  ],
+  "title": "ServiceVerificationReport",
+  "type": "object"
+}
