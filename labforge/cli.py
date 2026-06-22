@@ -15,6 +15,7 @@ from .io import write_text
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
 from .schema import export_schemas
+from .service_artifacts import scaffold_service_artifacts, service_check
 from .validate import validate_lab
 
 
@@ -121,6 +122,34 @@ def command_agents_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_check(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    result = service_check(spec)
+    if result.warnings:
+        print("Service artifact warnings:")
+        for warning in result.warnings:
+            print(f"- {warning}")
+    if result.errors:
+        print("Service artifact check failed:")
+        for error in result.errors:
+            print(f"- {error}")
+        return 1
+    print("Service artifact check passed")
+    return 0
+
+
+def command_services_scaffold(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    written = scaffold_service_artifacts(spec, force=args.force)
+    print(f"Scaffolded service artifact files under: {Path(args.lab).resolve()}")
+    if written:
+        for path in written:
+            print(f"- {path}")
+    else:
+        print("No files written. Existing files were left unchanged. Use --force to overwrite.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -173,6 +202,16 @@ def main(argv: list[str] | None = None) -> int:
     agents_validate_parser = agents_sub.add_parser("validate", help="Validate a dry-run agent workspace")
     agents_validate_parser.add_argument("workspace")
     agents_validate_parser.set_defaults(func=command_agents_validate)
+
+    services_parser = sub.add_parser("services", help="Service artifact utilities")
+    services_sub = services_parser.add_subparsers(dest="services_command", required=True)
+    services_check_parser = services_sub.add_parser("check", help="Validate service artifact directories")
+    services_check_parser.add_argument("lab")
+    services_check_parser.set_defaults(func=command_services_check)
+    services_scaffold_parser = services_sub.add_parser("scaffold", help="Create service artifact directories and hook placeholders")
+    services_scaffold_parser.add_argument("lab")
+    services_scaffold_parser.add_argument("--force", action="store_true", help="Overwrite existing scaffold files")
+    services_scaffold_parser.set_defaults(func=command_services_scaffold)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -52,6 +52,8 @@ python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
+python -m labforge services scaffold examples/scenario-02-ad-domain-compromise
+python -m labforge services check examples/scenario-02-ad-domain-compromise
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -65,6 +67,8 @@ Validation passed
 # Execution Plan - Scenario 02 - Active Directory Domain Compromise
 Scaffolded agent workspace: <repo>\output\scenario-02-agents\.ai
 Agent workspace validation passed
+Scaffolded service artifact files under: <repo>\examples\scenario-02-ad-domain-compromise
+Service artifact check passed
 Built lab scaffold with provider docker-compose and profile unprotected: <repo>\output\scenario-02
 Rendered docs with profile protected: <repo>\output\scenario-02-docs
 ```

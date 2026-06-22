@@ -1,0 +1,17 @@
+service: edge-proxy
+runtime: nginx or equivalent reverse proxy
+purpose: Public ingress that exposes only approved learner entrypoints.
+attack_surface:
+- HTTP routing and access logging
+- Optional WAF or reverse-proxy control placement
+seed_inputs: []
+noise_inputs: []
+healthcheck: GET /healthz must return 200 from inside the container.
+reset: Stateless; restart container and clear generated access logs when reset profile
+  requires it.
+evidence_logs:
+- access.log
+- error.log
+safety_boundaries:
+- Must not proxy arbitrary internal hostnames.
+- Must expose only topology-declared public ports.

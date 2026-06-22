@@ -1,0 +1,16 @@
+service: controlled-drop
+runtime: Submission API
+purpose: Receives the final object proof and records completion.
+attack_surface:
+- Final submission endpoint
+- Optional supervisor status endpoint
+seed_inputs: []
+noise_inputs: []
+healthcheck: GET /healthz or equivalent status endpoint must return ready.
+reset: Clear submissions and restore initial scoreboard state.
+evidence_logs:
+- submissions.log
+- completion-events.log
+safety_boundaries:
+- Must accept only lab-defined final object proofs.
+- Must not expose instructor-only answer data to learners.

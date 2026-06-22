@@ -1,0 +1,19 @@
+service: attacker-workstation
+runtime: Linux SSH workstation
+purpose: Learner-controlled workstation for authorized lab activity.
+attack_surface:
+- SSH access for learner terminal
+- Lab-scoped tools and handout files
+seed_inputs:
+- entrypoint
+noise_inputs: []
+healthcheck: SSH service or shell readiness check must confirm the attacker home exists.
+reset: Recreate learner home from baseline files and remove transient sessions, tunnels,
+  and callbacks.
+evidence_logs:
+- shell command transcript when training mode requires it
+- callback listener logs
+safety_boundaries:
+- Tools must be scoped to lab networks.
+- No privileged Docker socket mount.
+- No default route to unintended external targets unless explicitly selected by supervisor.

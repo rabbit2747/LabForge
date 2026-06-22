@@ -1,0 +1,20 @@
+service: hr-portal
+runtime: Python web application
+purpose: Externally reachable business application used for initial access.
+attack_surface:
+- Authenticated or unauthenticated web workflow
+- Deliberately vulnerable preview or business logic endpoint
+seed_inputs:
+- hr-portal-cases
+noise_inputs: []
+healthcheck: GET /healthz must return 200 and verify the application can read its
+  seed data.
+reset: Restore seeded cases and remove learner-created temporary files.
+evidence_logs:
+- application.log
+- access.log
+- security-audit.log
+safety_boundaries:
+- Vulnerable behavior must be lab-scoped and documented.
+- Outbound callbacks may reach only the attacker-workstation or declared internal
+  services.

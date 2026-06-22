@@ -75,6 +75,25 @@ use PowerShell DSC or Ansible tasks instead of a Dockerfile. The contract must
 still explain healthcheck, reset, seed/noise data, evidence logs, and safety
 boundaries.
 
+## CLI Workflow
+
+Create placeholder service directories and hooks:
+
+```powershell
+python -m labforge services scaffold <lab-root>
+```
+
+Validate that every declared service artifact has a matching implementation
+directory and required files:
+
+```powershell
+python -m labforge services check <lab-root>
+```
+
+The scaffold command is intentionally conservative. It does not generate real
+vulnerable service code. It creates the contract files that service builders and
+agents replace with actual implementation.
+
 ## Provider Expectations
 
 Docker Compose providers should:
@@ -94,4 +113,3 @@ Agent workflows should:
 - create or review service code against this contract
 - reject services that lack reset or safety boundaries
 - produce QA results tied to each `service_artifacts` entry
-

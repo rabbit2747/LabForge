@@ -97,6 +97,7 @@ LabForge는 다음 원칙을 따른다.
 - Docker Compose provider에서 validate/start/stop/reset PowerShell 및 shell script 생성
 - PowerShell runtime script에서 현재 shell Docker가 없으면 Docker server가 보이는 WSL 배포판을 자동 탐지해 위임
 - Docker Compose provider에서 `service_artifacts` 계약을 읽어 build context, service labels, provider service plan 문서에 반영
+- service artifact 구현 디렉토리 scaffold/check 명령 생성
 - `ansible`, `terraform`, `ludus`, `hybrid` provider skeleton 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
@@ -849,15 +850,17 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 4. python -m labforge validate <scenario-root>
 5. python -m labforge doctor --lab <scenario-root>
 6. python -m labforge plan <scenario-root> --provider <provider> --profile <profile>
-7. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
-8. python -m labforge agents validate output/<scenario>-agents
-9. validation error, host 환경 문제, agent task 설계 문제 수정
-10. python -m labforge schema export --out schemas
-11. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-12. 감독자가 문서, 다이어그램, agent task를 검토
-13. 보안장치 선택
-14. python -m labforge build <scenario-root> --out output/<scenario>
-15. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+7. python -m labforge services scaffold <scenario-root>
+8. python -m labforge services check <scenario-root>
+9. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
+10. python -m labforge agents validate output/<scenario>-agents
+11. validation error, host 환경 문제, service artifact 문제, agent task 설계 문제 수정
+12. python -m labforge schema export --out schemas
+13. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+14. 감독자가 문서, 다이어그램, service artifact, agent task를 검토
+15. 보안장치 선택
+16. python -m labforge build <scenario-root> --out output/<scenario>
+17. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
 현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
@@ -899,6 +902,8 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge agents list` 명령으로 기본 전문 agent 역할 목록 출력 추가
 - `python -m labforge agents scaffold <lab>` 명령으로 dry-run agent workspace 생성 추가
 - `python -m labforge agents validate <workspace>` 명령으로 agent task/output/decision artifact 검증 추가
+- `python -m labforge services scaffold <lab>` 명령으로 service artifact 구현 디렉토리와 hook placeholder 생성 추가
+- `python -m labforge services check <lab>` 명령으로 service artifact 구현 디렉토리 검증 추가
 - agent 관련 JSON Schema export 추가
 - scenario-02 예제를 v0.2 구조로 확장
 - `artifacts.yaml`의 `service_artifacts` 계약 추가

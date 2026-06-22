@@ -1,0 +1,17 @@
+service: backup-server
+runtime: Internal backup service prototype
+purpose: Privilege escalation and sensitive operations target.
+attack_surface:
+- Backup metadata
+- Restore workflow or credential handling path
+seed_inputs: []
+noise_inputs:
+- old-backup-runbooks
+healthcheck: Backup API or local status command must report ready.
+reset: Restore backup catalog and delete learner-generated restore jobs.
+evidence_logs:
+- backup-audit.log
+- restore-jobs.log
+safety_boundaries:
+- Restore operations must not write outside declared lab volumes.
+- Credentials must be synthetic lab secrets only.
