@@ -95,7 +95,7 @@ LabForge는 다음 원칙을 따른다.
 - protected profile에서 선택된 보안장치를 Docker Compose control scaffold 서비스로 생성
 - Docker Compose 서비스/네트워크에 `labforge.*` 라벨과 SIEM 로그 설정 반영
 - Docker Compose provider에서 validate/start/stop/reset PowerShell 및 shell script 생성
-- PowerShell runtime script에서 현재 shell Docker가 없으면 WSL로 자동 위임
+- PowerShell runtime script에서 현재 shell Docker가 없으면 Docker server가 보이는 WSL 배포판을 자동 탐지해 위임
 - `ansible`, `terraform`, `ludus`, `hybrid` provider skeleton 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
@@ -473,7 +473,7 @@ execution plan에 포함되는 정보:
 - supervisor gate에서 확인할 항목
 - Docker Compose validation/start/reset 명령
 
-예를 들어 Windows host에서 Docker가 직접 보이지 않고 `Ubuntu-24.04` WSL 안에서만 Docker server가 확인되면, plan은 `wsl.exe -d Ubuntu-24.04 -- bash -lc ...` 형태의 명령을 제안한다. 이때 빠른 검증은 `/mnt/c/...` Windows mount 경로에서 가능하지만, Docker volume이 많아지는 실제 lab 제작에서는 WSL ext4 파일시스템 안에 repo를 clone하거나 sync해서 실행하는 것을 권장한다.
+예를 들어 Windows host에서 Docker가 직접 보이지 않고 특정 WSL 배포판 안에서만 Docker server가 확인되면, plan은 감지된 배포판 이름을 사용해 `wsl.exe -d <detected-distro> -- bash -lc ...` 형태의 명령을 제안한다. 이때 빠른 검증은 `/mnt/c/...` Windows mount 경로에서 가능하지만, Docker volume이 많아지는 실제 lab 제작에서는 WSL ext4 파일시스템 안에 repo를 clone하거나 sync해서 실행하는 것을 권장한다.
 
 ### 7.2 전체 lab scaffold 생성
 

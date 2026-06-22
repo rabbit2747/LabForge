@@ -16,7 +16,7 @@
 | 환경 유형 | 사용 목적 | 적합한 시나리오 | 대표 요구사항 |
 |---|---|---|---|
 | Docker-only | 웹/API/DB 중심 실습을 빠르게 실행 | 공급망, 웹메일, 업무 API, 단순 내부망 | PC 1대, Docker Engine/Desktop, 충분한 RAM |
-| Docker + WSL | Windows PC에서 Linux 기반 Docker lab 실행 | 로컬 개발/검증 | Windows 11, WSL2, Ubuntu, Docker Desktop |
+| Docker + WSL | Windows PC에서 Linux 기반 Docker lab 실행 | 로컬 개발/검증 | Windows 11, WSL2, Docker가 동작하는 Linux 배포판, Docker Desktop 또는 WSL Docker Engine |
 | Local VM | 소규모 Windows/Linux VM 실습 | AD 입문, Windows endpoint, VPN appliance | PC 1대, Hyper-V/VMware Workstation/VirtualBox |
 | Bare-metal Hypervisor | 여러 VM을 안정적으로 운영 | AD, Exchange, EDR, SOC, ICS/OT | Proxmox/ESXi/Hyper-V 서버, 충분한 CPU/RAM/SSD |
 | Hybrid | Docker 서비스와 VM을 함께 사용 | Orion 확장형, AD+웹, VPN+내부망 | Docker host + VM host 또는 같은 hypervisor |
@@ -82,7 +82,7 @@ Windows 사용자 PC에서 Linux 기반 실습을 개발하거나 검증할 때 
 | 항목 | 권장 |
 |---|---|
 | Host | Windows 11 |
-| Runtime | WSL2 + Ubuntu 22.04/24.04 |
+| Runtime | WSL2 + Docker가 동작하는 Linux 배포판. Ubuntu 22.04/24.04는 권장 예시 |
 | CPU | 8 cores 이상 |
 | RAM | 16 GB 최소, 32 GB 권장 |
 | Software | Docker Desktop WSL integration, Git, Python 3.11+ |
@@ -98,7 +98,7 @@ python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 | doctor 결과 | 의미 | 권장 조치 |
 |---|---|---|
 | `Recommended execution: host` | 현재 메인 OS에서 Docker 또는 필요한 provider를 바로 실행 가능 | 현재 shell에서 build/deploy 진행 |
-| `Recommended execution: wsl` | Windows host보다 WSL 내부에서 Docker 실행이 적합 | WSL Ubuntu 안으로 이동해 실행 |
+| `Recommended execution: wsl` | Windows host보다 WSL 내부에서 Docker 실행이 적합 | doctor가 감지한 Docker 사용 가능 WSL 배포판 안에서 실행 |
 | `Recommended execution: wsl-required` | Windows에서는 Docker가 보이지 않고 WSL 구성이 필요 | Docker Desktop WSL integration 또는 WSL Docker Engine 확인 |
 | lab warning에 `hybrid`, `vm`, `proxmox`, `ludus` 표시 | Docker-only는 prototype이고 현실적 구성에는 VM/hypervisor 필요 | deployment requirements 문서 확인 |
 

@@ -101,19 +101,21 @@ Jinja2 templates and can emit `unprotected` and `protected` architecture views.
 The Docker Compose provider can materialize selected protected controls as safe
 control scaffold services with labels, networks, and log volumes. It also emits
 PowerShell and shell runtime scripts for validation, start, stop, and reset;
-PowerShell scripts automatically delegate to WSL when Docker is not available in
-the current Windows shell. It does not yet generate full vulnerable service source code, VM infrastructure, Ansible
+PowerShell scripts automatically detect whether Docker is available in the
+current shell or in any WSL distro on Windows, then run through the first usable
+runtime. It does not yet generate full vulnerable service source code, VM infrastructure, Ansible
 roles, Terraform modules, Ludus range files, or production-grade enforcement
 logic for WAF, IDS, SIEM, or EDR controls.
 
 The `doctor` command now detects whether the current machine should run lab
-work directly from the host shell or from WSL. This is important for Windows
-training PCs where the source tree is on Windows but Docker is configured inside
-WSL.
+work directly from the host shell, from WSL, or through a VM/hybrid provider.
+This is important because training PCs may be Windows, Linux, macOS, WSL-based,
+or backed by a separate virtualization host.
 
 The `plan` command turns that diagnosis into concrete execution steps. For
-example, on a Windows PC with Docker available in `Ubuntu-24.04`, the plan tells
-the supervisor to run Docker-backed build and runtime commands through WSL.
+example, on a Windows PC where Docker is only reachable inside WSL, the plan
+selects the detected WSL distro with Docker instead of assuming a fixed distro
+name.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent task
