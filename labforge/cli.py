@@ -8,6 +8,7 @@ from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_a
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .implementation_plan import create_service_implementation_plan, implementation_plan_to_json, implementation_plan_to_markdown
 from .intake import create_intake_template, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
 from .agent_orchestration import (
@@ -370,6 +371,18 @@ def command_services_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_plan(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    plan = create_service_implementation_plan(spec, Path(args.out) if args.out else None)
+    if args.out:
+        print(f"Rendered service implementation plan: {Path(args.out).resolve()}")
+    elif args.format == "json":
+        print(implementation_plan_to_json(plan))
+    else:
+        print(implementation_plan_to_markdown(plan))
+    return 0
+
+
 def command_services_scaffold(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     written = scaffold_service_artifacts(spec, force=args.force)
@@ -589,6 +602,11 @@ def main(argv: list[str] | None = None) -> int:
     services_check_parser = services_sub.add_parser("check", help="Validate service artifact directories")
     services_check_parser.add_argument("lab")
     services_check_parser.set_defaults(func=command_services_check)
+    services_plan_parser = services_sub.add_parser("plan", help="Create per-service implementation task plan")
+    services_plan_parser.add_argument("lab")
+    services_plan_parser.add_argument("--out")
+    services_plan_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_plan_parser.set_defaults(func=command_services_plan)
     services_scaffold_parser = services_sub.add_parser("scaffold", help="Create service artifact directories and hook placeholders")
     services_scaffold_parser.add_argument("lab")
     services_scaffold_parser.add_argument("--force", action="store_true", help="Overwrite existing scaffold files")

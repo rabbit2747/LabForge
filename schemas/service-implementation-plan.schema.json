@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "ServiceImplementationTask": {
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "runtime",
+            "seed",
+            "noise",
+            "healthcheck",
+            "reset",
+            "evidence",
+            "safety",
+            "tests"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "details": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "array"
+        },
+        "expected_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Files",
+          "type": "array"
+        },
+        "done_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Done Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "service",
+        "category",
+        "title"
+      ],
+      "title": "ServiceImplementationTask",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "service_count": {
+      "title": "Service Count",
+      "type": "integer"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "#/$defs/ServiceImplementationTask"
+      },
+      "title": "Tasks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "title",
+    "service_count"
+  ],
+  "title": "ServiceImplementationPlan",
+  "type": "object"
+}

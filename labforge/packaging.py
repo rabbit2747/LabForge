@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .implementation_plan import create_service_implementation_plan
 from .io import write_text
 from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .model import LabSpec
@@ -85,6 +86,7 @@ def create_supervisor_package(
     write_text(reports_dir / "execution-plan.json", plan_to_json(plan))
     write_text(reports_dir / "lint-report.md", lint_report_to_markdown(lint_report))
     write_text(reports_dir / "lint-report.json", lint_report_to_json(lint_report))
+    create_service_implementation_plan(spec, reports_dir)
 
     warnings = [
         *validation_errors,
@@ -130,6 +132,11 @@ def create_supervisor_package(
                 name="qa-smoke-report",
                 path=str((qa_dir / "qa-smoke-report.md").resolve()),
                 purpose="Schema, lint, service artifact, and provider smoke checks.",
+            ),
+            PackageArtifact(
+                name="service-implementation-plan",
+                path=str((reports_dir / "service-implementation-plan.md").resolve()),
+                purpose="Per-service implementation tasks for builders and agents.",
             ),
         ],
         warnings=warnings,
