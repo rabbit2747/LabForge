@@ -60,6 +60,7 @@ python -m labforge agents validate output/scenario-02-agents
 python -m labforge services scaffold examples/scenario-02-ad-domain-compromise
 python -m labforge services check examples/scenario-02-ad-domain-compromise
 python -m labforge services plan examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-plan
+python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
 python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
@@ -159,6 +160,7 @@ python -m labforge controls apply output/new-lab --clear --select firewall=fw-ba
 python -m labforge services scaffold output/new-lab
 python -m labforge services materialize output/new-lab --force
 python -m labforge services plan output/new-lab --out output/new-lab-service-plan
+python -m labforge services agent-packages output/new-lab --out output/new-lab-service-agents --adapter manual
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
 python -m labforge agents adapters

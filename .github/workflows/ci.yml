@@ -51,6 +51,7 @@ jobs:
           python -m labforge services materialize output/starter-lab --force
           python -m labforge services check output/starter-lab
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
+          python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual
 
       - name: Export schemas
         run: python -m labforge schema export --out output/schemas

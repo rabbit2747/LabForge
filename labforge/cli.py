@@ -8,7 +8,12 @@ from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_a
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
-from .implementation_plan import create_service_implementation_plan, implementation_plan_to_json, implementation_plan_to_markdown
+from .implementation_plan import (
+    create_service_agent_packages,
+    create_service_implementation_plan,
+    implementation_plan_to_json,
+    implementation_plan_to_markdown,
+)
 from .intake import create_intake_template, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
 from .agent_orchestration import (
@@ -383,6 +388,20 @@ def command_services_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_agent_packages(args: argparse.Namespace) -> int:
+    try:
+        get_agent_adapter(args.adapter)
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
+    spec = LabSpec.load(Path(args.lab))
+    written = create_service_agent_packages(spec, Path(args.out), adapter=args.adapter)
+    print(f"Created service builder packages under: {(Path(args.out) / '.ai' / 'service-build').resolve()}")
+    for path in written:
+        print(f"- {path}")
+    return 0
+
+
 def command_services_scaffold(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     written = scaffold_service_artifacts(spec, force=args.force)
@@ -607,6 +626,11 @@ def main(argv: list[str] | None = None) -> int:
     services_plan_parser.add_argument("--out")
     services_plan_parser.add_argument("--format", choices=["text", "json"], default="text")
     services_plan_parser.set_defaults(func=command_services_plan)
+    services_agent_packages_parser = services_sub.add_parser("agent-packages", help="Create per-service service-builder agent packages")
+    services_agent_packages_parser.add_argument("lab")
+    services_agent_packages_parser.add_argument("--out", required=True)
+    services_agent_packages_parser.add_argument("--adapter", default="manual")
+    services_agent_packages_parser.set_defaults(func=command_services_agent_packages)
     services_scaffold_parser = services_sub.add_parser("scaffold", help="Create service artifact directories and hook placeholders")
     services_scaffold_parser.add_argument("lab")
     services_scaffold_parser.add_argument("--force", action="store_true", help="Overwrite existing scaffold files")
