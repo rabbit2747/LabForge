@@ -32,12 +32,20 @@ From those files, LabForge currently generates:
 - deployment requirements for supervisors
 - raw `.mmd` diagram files for rendering or review
 
+LabForge can also inspect the local build host before real deployment work:
+
+- local OS detection: Windows, Linux, macOS, WSL Linux
+- WSL availability and distro list
+- Docker CLI/server reachability from host and WSL
+- recommended execution location such as host shell, WSL, or VM/hybrid prerequisites
+
 ## Quick Start
 
 ```powershell
 cd C:\dev\LabForge
 
 python -m labforge validate examples/scenario-02-ad-domain-compromise
+python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -47,6 +55,7 @@ Expected result:
 
 ```text
 Validation passed
+# LabForge Host Doctor
 Built lab scaffold with provider docker-compose and profile unprotected: C:\dev\LabForge\output\scenario-02
 Rendered docs with profile protected: C:\dev\LabForge\output\scenario-02-docs
 ```
@@ -81,3 +90,8 @@ control scaffold services with labels, networks, and log volumes. It does not
 yet generate full vulnerable service source code, VM infrastructure, Ansible
 roles, Terraform modules, Ludus range files, or production-grade enforcement
 logic for WAF, IDS, SIEM, or EDR controls.
+
+The `doctor` command now detects whether the current machine should run lab
+work directly from the host shell or from WSL. This is important for Windows
+training PCs where the source tree is on Windows but Docker is configured inside
+WSL.

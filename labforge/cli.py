@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from .model import LabSpec
+from .doctor import inspect_host, report_to_json, report_to_markdown
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
 from .schema import export_schemas
@@ -55,6 +56,16 @@ def command_schema_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_doctor(args: argparse.Namespace) -> int:
+    lab_root = Path(args.lab) if args.lab else None
+    report = inspect_host(lab_root)
+    if args.format == "json":
+        print(report_to_json(report))
+    else:
+        print(report_to_markdown(report))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -82,6 +93,11 @@ def main(argv: list[str] | None = None) -> int:
     schema_export_parser = schema_sub.add_parser("export", help="Export JSON Schemas")
     schema_export_parser.add_argument("--out", required=True)
     schema_export_parser.set_defaults(func=command_schema_export)
+
+    doctor_parser = sub.add_parser("doctor", help="Inspect host OS, WSL, Docker, and execution target")
+    doctor_parser.add_argument("--lab", help="Optional lab root used to include deployment-model advice")
+    doctor_parser.add_argument("--format", choices=["text", "json"], default="text")
+    doctor_parser.set_defaults(func=command_doctor)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

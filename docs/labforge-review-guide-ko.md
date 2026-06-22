@@ -73,6 +73,7 @@ LabForge는 다음 원칙을 따른다.
 - `lab.yaml`, `environment.yaml`, `artifacts.yaml`, `security-controls.yaml`, `supervisor-selection.yaml` 선택적 로딩
 - pydantic v2 기반 v0.2 스펙 검증
 - JSON Schema export 명령
+- host doctor 명령으로 Windows/Linux/macOS/WSL/Docker 실행 환경 진단
 - 필수 필드 검증
 - MITRE ATT&CK Enterprise tactic 검증
 - 각 stage의 technique ID/name 존재 여부 검증
@@ -379,6 +380,59 @@ Validation failed:
 - stage별 title/procedure 존재 여부
 - stage별 MITRE tactic 유효성
 - stage별 technique ID/name 존재 여부
+
+### 7.1.1 로컬 실행 환경 진단
+
+실제 lab 제작을 시작하기 전에 현재 PC가 어떤 방식으로 인프라를 만들 수 있는지 확인해야 한다.
+
+예를 들어 현재 개발 PC처럼 로컬 OS는 Windows이고 Docker는 WSL 환경에서 실행되는 경우가 있다. 이때 LabForge가 Windows PowerShell에서 바로 Docker 명령을 실행하면 실패할 수 있다. 반대로 Linux나 macOS에서는 메인 OS에서 바로 Docker Engine 또는 Docker Desktop을 사용할 수 있다.
+
+이를 위해 `doctor` 명령을 제공한다.
+
+```powershell
+python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
+```
+
+확인 항목:
+
+- 현재 OS: Windows, Linux, macOS, WSL Linux
+- CPU architecture
+- 현재 shell 힌트
+- WSL 설치 여부
+- WSL 배포판 목록과 WSL version
+- host shell에서 Docker CLI가 보이는지
+- host shell에서 Docker server에 연결되는지
+- WSL 배포판 안에서 Docker CLI/server가 보이는지
+- lab의 권장 구축 모델이 Docker-only인지, VM/hybrid/proxmox 계열인지
+- 권장 실행 위치: host, wsl, wsl-required
+
+예상 출력 일부:
+
+```text
+# LabForge Host Doctor
+
+## Host
+
+- OS: `windows`
+- Recommended execution: `wsl-required`
+
+## WSL
+
+- WSL available: `true`
+
+## Next Steps
+
+- Install/enable Docker Desktop WSL integration or Docker Engine inside WSL.
+- Check deployment requirements for hypervisor, Windows Server, and VM prerequisites.
+```
+
+JSON 출력도 가능하다.
+
+```powershell
+python -m labforge doctor --format json
+```
+
+이 출력은 나중에 웹 UI, 감독자 콘솔, 자동 배포 오케스트레이터가 읽어서 "이 lab은 이 PC에서 바로 실행 가능", "WSL에서 실행 필요", "Proxmox/Windows Server VM 필요" 같은 판단을 내리는 데 사용할 수 있다.
 
 ### 7.2 전체 lab scaffold 생성
 
@@ -734,13 +788,14 @@ examples/scenario-02-ad-domain-compromise
 2. topology.yaml 작성
 3. stages.yaml 작성
 4. python -m labforge validate <scenario-root>
-5. validation error 수정
-6. python -m labforge schema export --out schemas
-7. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-8. 감독자가 문서와 다이어그램 검토
-9. 보안장치 선택
-10. python -m labforge build <scenario-root> --out output/<scenario>
-11. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+5. python -m labforge doctor --lab <scenario-root>
+6. validation error 또는 host 환경 문제 수정
+7. python -m labforge schema export --out schemas
+8. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+9. 감독자가 문서와 다이어그램 검토
+10. 보안장치 선택
+11. python -m labforge build <scenario-root> --out output/<scenario>
+12. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
 현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
@@ -772,6 +827,7 @@ examples/scenario-02-ad-domain-compromise
 - `python -m labforge docs <lab> --profile protected --out <out>` 명령 추가
 - `architecture-unprotected.md`, `architecture-protected.md`, `security-control-selection.md` 생성 추가
 - protected profile의 Docker Compose 산출물에 선택된 보안장치 scaffold 서비스 생성 추가
+- `python -m labforge doctor --lab <lab>` 명령으로 host/WSL/Docker 실행 환경 진단 추가
 - scenario-02 예제를 v0.2 구조로 확장
 
 다음 구현 우선순위는 supervisor 선택값을 Docker Compose placeholder가 아닌 실제 WAF/IDS/SIEM/EDR 구현으로 확장하는 작업과, Ansible/Terraform/Ludus/Hybrid provider 반영이다.

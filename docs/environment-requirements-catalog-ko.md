@@ -87,6 +87,30 @@ Windows 사용자 PC에서 Linux 기반 실습을 개발하거나 검증할 때 
 | RAM | 16 GB 최소, 32 GB 권장 |
 | Software | Docker Desktop WSL integration, Git, Python 3.11+ |
 
+LabForge 진단:
+
+```powershell
+python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
+```
+
+판단 기준:
+
+| doctor 결과 | 의미 | 권장 조치 |
+|---|---|---|
+| `Recommended execution: host` | 현재 메인 OS에서 Docker 또는 필요한 provider를 바로 실행 가능 | 현재 shell에서 build/deploy 진행 |
+| `Recommended execution: wsl` | Windows host보다 WSL 내부에서 Docker 실행이 적합 | WSL Ubuntu 안으로 이동해 실행 |
+| `Recommended execution: wsl-required` | Windows에서는 Docker가 보이지 않고 WSL 구성이 필요 | Docker Desktop WSL integration 또는 WSL Docker Engine 확인 |
+| lab warning에 `hybrid`, `vm`, `proxmox`, `ludus` 표시 | Docker-only는 prototype이고 현실적 구성에는 VM/hypervisor 필요 | deployment requirements 문서 확인 |
+
+Windows 소스 경로와 WSL 실행 경로가 분리되는 경우:
+
+```text
+Windows source: C:\dev\LabForge
+WSL execution: /home/<user>/LabForge
+```
+
+이 모델에서는 Git 저장소를 WSL ext4 영역에 clone하거나, Windows 경로에서 WSL 경로로 `rsync`한 뒤 Docker 명령을 실행하는 방식을 권장한다. Docker volume과 많은 작은 파일을 Windows 동기화 폴더에서 직접 다루면 성능과 권한 문제가 생길 수 있다.
+
 ## 4. Active Directory / Windows Domain 환경
 
 AD(Active Directory) 기반 실습은 Docker-only로는 현실성이 부족하다.
@@ -425,4 +449,3 @@ deployment:
 - Wazuh installation requirements: <https://documentation.wazuh.com/current/installation-guide/wazuh-indexer/installation-assistant.html>
 - Kubernetes kubeadm installation guide: <https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/>
 - pfSense hardware requirements: <https://docs.netgate.com/pfsense/en/latest/hardware/minimum-requirements.html>
-
