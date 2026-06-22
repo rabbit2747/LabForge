@@ -34,6 +34,16 @@ class QaSmokeReport(QaModel):
     output_dir: str
 
 
+class ReleaseGateReport(QaModel):
+    lab_id: str
+    provider: str
+    profile: str
+    status: Literal["passed", "failed"]
+    checks: list[QaCheck] = Field(default_factory=list)
+    output_dir: str
+    release_ready: bool = False
+
+
 def run_qa_smoke(
     lab_root: Path,
     out: Path,
@@ -128,6 +138,82 @@ def run_qa_smoke(
     return report
 
 
+def run_release_gate(
+    lab_root: Path,
+    out: Path,
+    *,
+    provider: str,
+    profile: str,
+    materialize: bool = False,
+    force: bool = False,
+) -> ReleaseGateReport:
+    working_lab = lab_root.resolve()
+    if materialize:
+        working_lab = out / "materialized-source"
+        if working_lab.exists() and force:
+            shutil.rmtree(working_lab)
+        if not working_lab.exists():
+            shutil.copytree(lab_root, working_lab, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        spec_for_materialize = LabSpec.load(working_lab)
+        materialize_service_runtimes(spec_for_materialize, force=force)
+
+    checks: list[QaCheck] = []
+    validation_errors = validate_lab(working_lab)
+    checks.append(
+        QaCheck(
+            name="schema-validation",
+            status="failed" if validation_errors else "passed",
+            messages=validation_errors,
+        )
+    )
+
+    spec = LabSpec.load(working_lab)
+    lint_report = lint_lab(working_lab)
+    checks.append(
+        QaCheck(
+            name="quality-lint-strict",
+            status="passed" if lint_report.status == "passed" else "failed",
+            messages=[f"{finding.location}: {finding.message}" for finding in lint_report.findings],
+        )
+    )
+
+    service_verification = verify_services(spec)
+    checks.append(
+        QaCheck(
+            name="service-verification-strict",
+            status="passed" if service_verification.status == "passed" else "failed",
+            messages=[
+                f"{finding.service}:{finding.category}:{finding.path}: {finding.message}"
+                for finding in service_verification.findings
+            ],
+        )
+    )
+
+    provider_out = out / "provider-output"
+    provider_messages: list[str] = []
+    provider_status: Literal["passed", "warning", "failed"] = "passed"
+    try:
+        build_lab(spec, provider_out, provider_name=provider, profile=profile)
+    except Exception as exc:  # noqa: BLE001 - release gate should preserve provider failures.
+        provider_status = "failed"
+        provider_messages.append(str(exc))
+    checks.append(QaCheck(name="provider-build", status=provider_status, messages=provider_messages))
+
+    status: Literal["passed", "failed"] = "failed" if any(check.status != "passed" for check in checks) else "passed"
+    report = ReleaseGateReport(
+        lab_id=spec.lab_id,
+        provider=provider,
+        profile=profile,
+        status=status,
+        checks=checks,
+        output_dir=str(out.resolve()),
+        release_ready=status == "passed",
+    )
+    write_text(out / "release-gate-report.yaml", dump_yaml(report.model_dump()))
+    write_text(out / "release-gate-report.md", render_release_gate_markdown(report))
+    return report
+
+
 def aggregate_status(checks: list[QaCheck]) -> Literal["passed", "warning", "failed"]:
     if any(check.status == "failed" for check in checks):
         return "failed"
@@ -155,6 +241,27 @@ def render_qa_smoke_markdown(report: QaSmokeReport) -> str:
     return "\n".join(lines)
 
 
+def render_release_gate_markdown(report: ReleaseGateReport) -> str:
+    lines = [
+        f"# Release Gate Report - {report.lab_id}",
+        "",
+        f"- Provider: `{report.provider}`",
+        f"- Profile: `{report.profile}`",
+        f"- Status: `{report.status}`",
+        f"- Release ready: `{str(report.release_ready).lower()}`",
+        f"- Output directory: `{report.output_dir}`",
+        "",
+        "| Check | Status | Messages |",
+        "|---|---|---|",
+    ]
+    for check in report.checks:
+        messages = "<br>".join(check.messages) if check.messages else "-"
+        lines.append(f"| `{check.name}` | {check.status} | {messages} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
 QA_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "qa-smoke-report.schema.json": QaSmokeReport,
+    "release-gate-report.schema.json": ReleaseGateReport,
 }

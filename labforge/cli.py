@@ -35,7 +35,7 @@ from .io import write_text
 from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .providers.factory import list_providers
 from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
-from .qa import run_qa_smoke
+from .qa import run_qa_smoke, run_release_gate
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
@@ -485,6 +485,21 @@ def command_qa_smoke(args: argparse.Namespace) -> int:
     return 0 if report.status in {"passed", "warning"} else 1
 
 
+def command_qa_release_gate(args: argparse.Namespace) -> int:
+    report = run_release_gate(
+        Path(args.lab),
+        Path(args.out),
+        provider=args.provider,
+        profile=args.profile,
+        materialize=args.materialize,
+        force=args.force,
+    )
+    print(f"Release gate status: {report.status}")
+    print(f"- {(Path(args.out) / 'release-gate-report.md').resolve()}")
+    print(f"- {(Path(args.out) / 'release-gate-report.yaml').resolve()}")
+    return 0 if report.status == "passed" else 1
+
+
 def command_provider_lifecycle(args: argparse.Namespace) -> int:
     result = provider_lifecycle(
         Path(args.output),
@@ -683,6 +698,14 @@ def main(argv: list[str] | None = None) -> int:
     qa_smoke_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize placeholder runtimes before building")
     qa_smoke_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
     qa_smoke_parser.set_defaults(func=command_qa_smoke)
+    qa_release_gate_parser = qa_sub.add_parser("release-gate", help="Run strict release readiness checks")
+    qa_release_gate_parser.add_argument("lab")
+    qa_release_gate_parser.add_argument("--out", required=True)
+    qa_release_gate_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    qa_release_gate_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
+    qa_release_gate_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize placeholder runtimes before building")
+    qa_release_gate_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
+    qa_release_gate_parser.set_defaults(func=command_qa_release_gate)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)

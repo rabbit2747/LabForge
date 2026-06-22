@@ -64,6 +64,7 @@ python -m labforge services plan examples/scenario-02-ad-domain-compromise --out
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
 python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
+python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/scenario-02-release-gate --provider docker-compose --profile protected --materialize --force
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -203,6 +204,17 @@ python -m labforge provider deploy output/qa-smoke/provider-output --provider do
 python -m labforge provider status output/qa-smoke/provider-output --provider docker-compose
 python -m labforge provider destroy output/qa-smoke/provider-output --provider docker-compose --volumes
 ```
+
+Release gates are stricter than smoke checks. Warnings from lint or service
+verification fail the gate, which is useful before a lab is handed to learners:
+
+```powershell
+python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/release-gate --provider docker-compose --profile protected --materialize --force
+```
+
+The current example scenario is still a scaffold, so the release gate is
+expected to fail until service placeholders, tests, seed data, and reset logic
+are implemented.
 
 Provider lifecycle commands are dry-run by default. Add `--execute` only when
 you intentionally want LabForge to invoke the provider command.
