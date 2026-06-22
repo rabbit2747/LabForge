@@ -7,6 +7,15 @@ networks:
   - name: drop_net
     internal: true
 
+security_controls:
+  recommended:
+    - Firewall / Segmentation
+    - WAF on HR Portal
+    - IDS East-West Sensor
+    - Central Log Collection
+    - Windows Event Forwarding
+    - EDR Lite Process Monitor
+
 services:
   - name: edge-proxy
     role: external ingress
@@ -91,4 +100,3 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
-

@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .diagrams import (
+    render_architecture_diagrams_report,
+    render_attack_flow_diagram,
+    render_security_controls_diagram,
+    render_topology_diagram,
+)
 from .io import dump_yaml, write_text
 from .model import LabSpec
 
@@ -116,12 +122,20 @@ def build_lab(spec: LabSpec, out: Path) -> None:
     write_text(out / "README.md", render_readme(spec))
     write_text(out / "docs" / "mitre-mapping.md", render_mitre_report(spec))
     write_text(out / "docs" / "implementation-checklist.md", render_checklist(spec))
+    write_text(out / "docs" / "architecture-diagrams.md", render_architecture_diagrams_report(spec))
+    write_text(out / "diagrams" / "topology.mmd", render_topology_diagram(spec))
+    write_text(out / "diagrams" / "attack-flow.mmd", render_attack_flow_diagram(spec))
+    write_text(out / "diagrams" / "security-controls.mmd", render_security_controls_diagram(spec))
 
 
 def render_docs(spec: LabSpec, out: Path) -> None:
     write_text(out / "README.md", render_readme(spec))
     write_text(out / "mitre-mapping.md", render_mitre_report(spec))
     write_text(out / "implementation-checklist.md", render_checklist(spec))
+    write_text(out / "architecture-diagrams.md", render_architecture_diagrams_report(spec))
+    write_text(out / "diagrams" / "topology.mmd", render_topology_diagram(spec))
+    write_text(out / "diagrams" / "attack-flow.mmd", render_attack_flow_diagram(spec))
+    write_text(out / "diagrams" / "security-controls.mmd", render_security_controls_diagram(spec))
 
 
 def render_checklist(spec: LabSpec) -> str:
@@ -148,4 +162,3 @@ def render_checklist(spec: LabSpec) -> str:
         lines.append(f"- [ ] `{stage['id']}` {stage['title']}")
     lines.append("")
     return "\n".join(lines)
-

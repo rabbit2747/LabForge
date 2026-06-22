@@ -17,6 +17,7 @@ Then LabForge generates a repeatable lab scaffold:
 - `docker-compose.yml`
 - generated documentation
 - stage/MITRE report
+- supervisor architecture diagrams
 - reset notes
 - implementation checklist
 
@@ -30,6 +31,13 @@ python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs
 ```
+
+Generated documentation includes Mermaid diagrams:
+
+- `docs/architecture-diagrams.md`
+- `diagrams/topology.mmd`
+- `diagrams/attack-flow.mmd`
+- `diagrams/security-controls.mmd`
 
 ## Scenario Layout
 
@@ -58,4 +66,3 @@ scenario-root/
 This is an MVP scaffold. It can validate a scenario bundle and generate a Docker
 Compose scaffold plus documentation. It does not yet generate full vulnerable
 service source code.
-
