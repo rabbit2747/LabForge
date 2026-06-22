@@ -1,0 +1,7 @@
+# MITRE Mapping - {{ spec.title }}
+
+| Stage | Procedure | Tactic | Techniques |
+|---|---|---|---|
+{% for stage in stages %}
+| {{ stage["id"] }} {{ stage["title"] }} | {{ stage.get("procedure", "") }} | {{ stage.get("mitre", {}).get("tactic", "") }} | {{ stage_techniques(stage, "<br>") }} |
+{% endfor %}

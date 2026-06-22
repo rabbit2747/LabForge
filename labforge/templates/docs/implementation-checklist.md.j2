@@ -1,0 +1,23 @@
+# Implementation Checklist - {{ spec.title }}
+
+## Required Controls
+
+- [ ] External services are explicitly marked.
+- [ ] Internal services are not directly exposed.
+- [ ] Attacker Workstation is available.
+- [ ] Reset strategy is documented.
+- [ ] Seed data and noise data are separated.
+- [ ] Health checks exist for every service.
+- [ ] Dangerous behavior is constrained to lab networks.
+
+## Services
+
+{% for service in services %}
+- [ ] `{{ service["name"] }}` implemented and healthcheck passing
+{% endfor %}
+
+## Stages
+
+{% for stage in stages %}
+- [ ] `{{ stage["id"] }}` {{ stage["title"] }}
+{% endfor %}

@@ -12,117 +12,135 @@ from .diagrams import (
 from .io import write_text
 from .model import LabSpec
 from .providers.factory import get_provider
+from .templating import render_template, template_context
 
 
 def render_readme(spec: LabSpec) -> str:
-    lines = [
-        f"# {spec.title}",
-        "",
-        "## Summary",
-        "",
-        str(spec.scenario.get("summary", "")),
-        "",
-        "## Final Objective",
-        "",
-        str(spec.scenario.get("final_objective", "")),
-        "",
-        "## Exposed Services",
-        "",
-    ]
-    for service in spec.services:
-        if service.get("exposed"):
-            lines.append(f"- `{service['name']}`")
-    lines += [
-        "",
-        "## Stages",
-        "",
-    ]
-    for stage in spec.stage_list:
-        mitre = stage.get("mitre", {})
-        techniques = ", ".join(
-            f"{item['id']} {item['name']}" for item in mitre.get("techniques", [])
-        )
-        lines += [
-            f"### {stage['id']} - {stage['title']}",
-            "",
-            f"- Procedure: {stage.get('procedure', '')}",
-            f"- MITRE Tactic: {mitre.get('tactic', '')}",
-            f"- MITRE Techniques: {techniques}",
-            "",
-        ]
-    return "\n".join(lines)
+    return render_template("docs/readme.md.j2", **template_context(spec))
 
 
 def render_mitre_report(spec: LabSpec) -> str:
-    lines = [
-        f"# MITRE Mapping - {spec.title}",
-        "",
-        "| Stage | Procedure | Tactic | Techniques |",
-        "|---|---|---|---|",
-    ]
-    for stage in spec.stage_list:
-        mitre = stage.get("mitre", {})
-        techniques = "<br>".join(
-            f"`{item['id']}` {item['name']}" for item in mitre.get("techniques", [])
-        )
-        lines.append(
-            f"| {stage['id']} {stage['title']} | {stage.get('procedure', '')} | "
-            f"{mitre.get('tactic', '')} | {techniques} |"
-        )
-    lines.append("")
-    return "\n".join(lines)
+    return render_template("docs/mitre-mapping.md.j2", **template_context(spec))
 
 
-def build_lab(spec: LabSpec, out: Path, provider_name: str = "docker-compose") -> None:
+def build_lab(
+    spec: LabSpec,
+    out: Path,
+    provider_name: str = "docker-compose",
+    profile: str = "unprotected",
+) -> None:
     provider = get_provider(provider_name)
     provider_errors = provider.validate(spec)
     if provider_errors:
         joined = "\n".join(f"- {error}" for error in provider_errors)
         raise ValueError(f"Provider validation failed for {provider_name}:\n{joined}")
     provider.generate(spec, out)
-    write_text(out / "README.md", render_readme(spec))
-    write_text(out / "docs" / "mitre-mapping.md", render_mitre_report(spec))
-    write_text(out / "docs" / "implementation-checklist.md", render_checklist(spec))
-    write_text(out / "docs" / "architecture-diagrams.md", render_architecture_diagrams_report(spec))
-    write_text(out / "docs" / "deployment-requirements.md", render_deployment_requirements(spec))
-    write_text(out / "diagrams" / "topology.mmd", render_topology_diagram(spec))
-    write_text(out / "diagrams" / "attack-flow.mmd", render_attack_flow_diagram(spec))
-    write_text(out / "diagrams" / "security-controls.mmd", render_security_controls_diagram(spec))
+    render_common_outputs(spec, out, profile=profile)
 
 
-def render_docs(spec: LabSpec, out: Path) -> None:
+def render_docs(spec: LabSpec, out: Path, profile: str = "unprotected") -> None:
+    render_common_outputs(spec, out, profile=profile, docs_root=out)
+
+
+def render_common_outputs(
+    spec: LabSpec,
+    out: Path,
+    profile: str = "unprotected",
+    docs_root: Path | None = None,
+) -> None:
+    docs_base = docs_root if docs_root is not None else out / "docs"
     write_text(out / "README.md", render_readme(spec))
-    write_text(out / "mitre-mapping.md", render_mitre_report(spec))
-    write_text(out / "implementation-checklist.md", render_checklist(spec))
-    write_text(out / "architecture-diagrams.md", render_architecture_diagrams_report(spec))
-    write_text(out / "deployment-requirements.md", render_deployment_requirements(spec))
+    write_text(docs_base / "mitre-mapping.md", render_mitre_report(spec))
+    write_text(docs_base / "implementation-checklist.md", render_checklist(spec))
+    write_text(docs_base / "architecture-diagrams.md", render_architecture_diagrams_report(spec))
+    write_text(docs_base / "architecture-unprotected.md", render_profile_architecture(spec, "unprotected"))
+    write_text(docs_base / "architecture-protected.md", render_profile_architecture(spec, "protected"))
+    write_text(docs_base / "security-control-selection.md", render_security_control_selection(spec, profile))
+    write_text(docs_base / "deployment-requirements.md", render_deployment_requirements(spec))
     write_text(out / "diagrams" / "topology.mmd", render_topology_diagram(spec))
     write_text(out / "diagrams" / "attack-flow.mmd", render_attack_flow_diagram(spec))
     write_text(out / "diagrams" / "security-controls.mmd", render_security_controls_diagram(spec))
 
 
 def render_checklist(spec: LabSpec) -> str:
+    return render_template("docs/implementation-checklist.md.j2", **template_context(spec))
+
+
+def render_profile_architecture(spec: LabSpec, profile: str) -> str:
+    protected = profile == "protected"
     lines = [
-        f"# Implementation Checklist - {spec.title}",
+        f"# {profile.title()} Architecture - {spec.title}",
         "",
-        "## Required Controls",
-        "",
-        "- [ ] External services are explicitly marked.",
-        "- [ ] Internal services are not directly exposed.",
-        "- [ ] Attacker Workstation is available.",
-        "- [ ] Reset strategy is documented.",
-        "- [ ] Seed data and noise data are separated.",
-        "- [ ] Health checks exist for every service.",
-        "- [ ] Dangerous behavior is constrained to lab networks.",
-        "",
-        "## Services",
+        "## Purpose",
         "",
     ]
-    for service in spec.services:
-        lines.append(f"- [ ] `{service['name']}` implemented and healthcheck passing")
-    lines += ["", "## Stages", ""]
-    for stage in spec.stage_list:
-        lines.append(f"- [ ] `{stage['id']}` {stage['title']}")
+    if protected:
+        lines += [
+            "This architecture overlays selectable security controls on top of the base lab topology.",
+            "It is intended for realistic supervision, detection planning, and purple-team expansion.",
+            "",
+            "## Security Controls",
+            "",
+        ]
+        controls = spec.topology.get("security_controls", {}).get("recommended", [])
+        for control in controls:
+            lines.append(f"- {control}")
+        if not controls:
+            lines.append("- No controls declared.")
+        lines += [
+            "",
+            "## Expected Control Impact",
+            "",
+            "- Public entry points may be observed by WAF or reverse-proxy logging.",
+            "- Internal east-west movement may be observed by IDS/NDR sensors.",
+            "- Endpoint execution may be recorded by EDR-lite or host telemetry.",
+            "- Central logging should preserve enough context for instructor review.",
+            "",
+        ]
+    else:
+        lines += [
+            "This architecture shows the base learner path without enforcement-oriented security controls.",
+            "It is intended for validating that the red-team scenario can be completed end to end.",
+            "",
+            "## Base Exposure",
+            "",
+        ]
+        for service in spec.services:
+            if service.get("exposed"):
+                lines.append(f"- `{service['name']}` is externally reachable.")
+        lines += [
+            "",
+            "## Expected Learner Flow",
+            "",
+        ]
+        for stage in spec.stage_list:
+            lines.append(f"- `{stage['id']}` {stage['title']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def render_security_control_selection(spec: LabSpec, profile: str) -> str:
+    selection = spec.supervisor_selection.get("selected_controls", {})
+    lines = [
+        f"# Security Control Selection - {spec.title}",
+        "",
+        f"- Active profile: `{profile}`",
+        "",
+        "## Recommended Controls",
+        "",
+    ]
+    for control in spec.topology.get("security_controls", {}).get("recommended", []):
+        lines.append(f"- {control}")
+    if not spec.topology.get("security_controls", {}).get("recommended", []):
+        lines.append("- No recommended controls declared.")
+    lines += ["", "## Supervisor Selection", ""]
+    if isinstance(selection, dict) and selection:
+        for category, controls in selection.items():
+            values = controls or []
+            joined = ", ".join(f"`{item}`" for item in values) if values else "_none_"
+            lines.append(f"- {category}: {joined}")
+    else:
+        lines.append("- No supervisor selection file provided.")
     lines.append("")
     return "\n".join(lines)
 

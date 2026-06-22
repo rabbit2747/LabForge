@@ -37,8 +37,8 @@ From those files, LabForge currently generates:
 cd C:\dev\LabForge
 
 python -m labforge validate examples/scenario-02-ad-domain-compromise
-python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --force
-python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs
+python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
+python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
 ```
 
@@ -46,8 +46,8 @@ Expected result:
 
 ```text
 Validation passed
-Built lab scaffold: C:\dev\LabForge\output\scenario-02
-Rendered docs: C:\dev\LabForge\output\scenario-02-docs
+Built lab scaffold with provider docker-compose and profile unprotected: C:\dev\LabForge\output\scenario-02
+Rendered docs with profile protected: C:\dev\LabForge\output\scenario-02-docs
 ```
 
 ## Detailed Review Guide
@@ -73,7 +73,8 @@ LabForge is currently an MVP. It can validate a scenario bundle and generate
 Docker Compose scaffolding plus documentation. The v0.2 spec model is now
 validated through pydantic and can export JSON Schema files. The provider
 interface has a working `docker-compose` provider plus skeleton `ansible`,
-`terraform`, `ludus`, and `hybrid` providers. It does not yet generate full
-vulnerable service source code, VM infrastructure, Ansible roles, Terraform
-modules, Ludus range files, or final production-grade protected/unprotected
-architecture variants.
+`terraform`, `ludus`, and `hybrid` providers. Documentation rendering now uses
+Jinja2 templates and can emit `unprotected` and `protected` architecture views.
+It does not yet generate full vulnerable service source code, VM infrastructure,
+Ansible roles, Terraform modules, Ludus range files, or production-grade
+security-control enforcement in provider outputs.

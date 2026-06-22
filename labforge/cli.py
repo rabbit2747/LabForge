@@ -31,16 +31,19 @@ def command_build(args: argparse.Namespace) -> int:
         print("Use --force to render anyway.")
         return 1
     spec = LabSpec.load(root)
-    build_lab(spec, Path(args.out), provider_name=args.provider)
-    print(f"Built lab scaffold with provider {args.provider}: {Path(args.out).resolve()}")
+    build_lab(spec, Path(args.out), provider_name=args.provider, profile=args.profile)
+    print(
+        f"Built lab scaffold with provider {args.provider} "
+        f"and profile {args.profile}: {Path(args.out).resolve()}"
+    )
     return 0
 
 
 def command_docs(args: argparse.Namespace) -> int:
     root = Path(args.lab)
     spec = LabSpec.load(root)
-    render_docs(spec, Path(args.out))
-    print(f"Rendered docs: {Path(args.out).resolve()}")
+    render_docs(spec, Path(args.out), profile=args.profile)
+    print(f"Rendered docs with profile {args.profile}: {Path(args.out).resolve()}")
     return 0
 
 
@@ -64,12 +67,14 @@ def main(argv: list[str] | None = None) -> int:
     build_parser.add_argument("lab")
     build_parser.add_argument("--out", required=True)
     build_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    build_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     build_parser.add_argument("--force", action="store_true")
     build_parser.set_defaults(func=command_build)
 
     docs_parser = sub.add_parser("docs", help="Render documentation only")
     docs_parser.add_argument("lab")
     docs_parser.add_argument("--out", required=True)
+    docs_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     docs_parser.set_defaults(func=command_docs)
 
     schema_parser = sub.add_parser("schema", help="Schema utilities")

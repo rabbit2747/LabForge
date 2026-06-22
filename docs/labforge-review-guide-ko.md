@@ -83,7 +83,10 @@ LabForge는 다음 원칙을 따른다.
 - README 생성
 - MITRE mapping report 생성
 - implementation checklist 생성
+- Jinja2 기반 문서 템플릿 렌더링
 - 감독자용 Mermaid architecture diagram 생성
+- `unprotected` / `protected` architecture 문서 분리 생성
+- supervisor security-control 선택 요약 문서 생성
 - 감독자용 deployment requirements 문서 생성
 - provider interface 1차 분리
 - `docker-compose` provider 실제 생성
@@ -96,8 +99,8 @@ LabForge는 다음 원칙을 따른다.
 - Terraform provider
 - Vagrant provider
 - Proxmox / VMware provider
-- protected / unprotected profile 분리 출력
-- 감독자 interactive security-control 선택
+- supervisor 선택값을 provider 산출물에 실제 방화벽/센서 구성으로 반영
+- 감독자 interactive security-control 선택 UI
 - reset snapshot 자동화
 - 학생용 guide와 강사용 answer key 분리
 - PNG/SVG 다이어그램 렌더링
@@ -675,9 +678,9 @@ examples/scenario-02-ad-domain-compromise
 한계:
 
 - 실제 취약 서비스 자동 생성은 하지 않는다.
-- Docker Compose 외 provider는 아직 없다.
-- protected/unprotected profile이 완전히 분리되어 있지 않다.
-- security control은 현재 diagram overlay와 문서화 수준이다.
+- Docker Compose 외 provider는 skeleton만 있고, 아직 실제 산출물을 생성하지 않는다.
+- protected/unprotected profile은 문서 수준으로 분리되었지만, provider 산출물의 네트워크 정책/센서 배치까지 완전히 분리되지는 않았다.
+- security control은 현재 diagram overlay와 문서화 수준이며, 실제 WAF/IDS/SIEM/EDR 구동 설정은 아직 생성하지 않는다.
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
 - generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
 
@@ -685,17 +688,17 @@ examples/scenario-02-ad-domain-compromise
 
 우선순위는 다음과 같다.
 
-1. 입력 스펙 v0.2 정리
+1. supervisor selection provider 반영
 
-   `lab.yaml`, `environment.yaml`, `security-controls.yaml`, `providers/*.yaml` 구조를 추가한다. 현재 scenario-02 예제에는 v0.2 파일 구조와 pydantic 검증의 1차 구현이 적용되어 있다.
+   감독자가 WAF, IDS, firewall, SIEM, EDR 등을 선택하면 해당 선택이 문서뿐 아니라 Docker Compose, Ansible, Terraform, Ludus, hybrid provider 산출물에도 반영되게 한다.
 
-2. protected/unprotected architecture 분리
+2. Jinja2 템플릿 범위 확장
 
-   같은 시나리오에서 보안장치 미적용 문서와 보안장치 적용 문서를 각각 생성한다.
+   README, MITRE mapping, implementation checklist에 적용한 템플릿 구조를 architecture, deployment requirements, security-control 문서까지 확장한다.
 
-3. supervisor selection 기능 추가
+3. 입력 스펙 v0.2 고도화
 
-   감독자가 WAF, IDS, firewall, SIEM, EDR 등을 선택하면 해당 선택이 문서와 provider 산출물에 반영되게 한다.
+   `lab.yaml`, `environment.yaml`, `security-controls.yaml`, `providers/*.yaml` 구조를 안정화하고 JSON Schema와 pydantic 검증 범위를 더 촘촘하게 맞춘다.
 
 4. 10개 시나리오 YAML 변환
 
@@ -756,7 +759,9 @@ examples/scenario-02-ad-domain-compromise
   - `ludus`
   - `hybrid`
 - `python -m labforge schema export --out schemas` 명령 추가
-- `python -m labforge build <lab> --provider docker-compose --out <out>` 명령 추가
+- `python -m labforge build <lab> --provider docker-compose --profile unprotected --out <out>` 명령 추가
+- `python -m labforge docs <lab> --profile protected --out <out>` 명령 추가
+- `architecture-unprotected.md`, `architecture-protected.md`, `security-control-selection.md` 생성 추가
 - scenario-02 예제를 v0.2 구조로 확장
 
-다음 구현 우선순위는 protected/unprotected profile 분리와 Jinja2 템플릿화다.
+다음 구현 우선순위는 supervisor 선택값을 provider 산출물에 실제로 반영하는 작업과 남은 문서 렌더러의 Jinja2 템플릿화다.

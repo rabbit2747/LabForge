@@ -1,0 +1,26 @@
+# {{ spec.title }}
+
+## Summary
+
+{{ scenario.get("summary", "") }}
+
+## Final Objective
+
+{{ scenario.get("final_objective", "") }}
+
+## Exposed Services
+
+{% for service in exposed_services %}
+- `{{ service["name"] }}`
+{% endfor %}
+
+## Stages
+
+{% for stage in stages %}
+### {{ stage["id"] }} - {{ stage["title"] }}
+
+- Procedure: {{ stage.get("procedure", "") }}
+- MITRE Tactic: {{ stage.get("mitre", {}).get("tactic", "") }}
+- MITRE Techniques: {{ stage_techniques(stage) }}
+
+{% endfor %}

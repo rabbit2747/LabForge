@@ -10,7 +10,8 @@ requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
   "jsonschema>=4.0",
-  "pydantic>=2.0"
+  "pydantic>=2.0",
+  "Jinja2>=3.1"
 ]
 
 [project.scripts]
@@ -18,3 +19,6 @@ labforge = "labforge.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["labforge*"]
+
+[tool.setuptools.package-data]
+labforge = ["templates/**/*.j2"]
