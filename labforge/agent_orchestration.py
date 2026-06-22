@@ -2,10 +2,63 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from .io import dump_yaml, write_text
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
+
+
+class AgentModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class AgentTaskSpec(AgentModel):
+    task_id: str
+    agent_id: str
+    agent_name: str
+    phase: str
+    lab_id: str
+    mission: str
+    context_files: list[str] = Field(default_factory=list)
+    inputs: list[str] = Field(default_factory=list)
+    expected_outputs: list[str] = Field(default_factory=list)
+    guardrails: list[str] = Field(default_factory=list)
+    status: Literal["pending", "in-progress", "complete", "blocked"] = "pending"
+    assigned_runtime: str = "dry-run"
+    output_file: str
+
+
+class AgentResultSpec(AgentModel):
+    task_id: str
+    status: Literal["not-started", "draft", "complete", "blocked", "needs-review"] = "not-started"
+    summary: str = ""
+    findings: list[dict[str, Any] | str] = Field(default_factory=list)
+    artifacts: list[dict[str, Any] | str] = Field(default_factory=list)
+    open_questions: list[dict[str, Any] | str] = Field(default_factory=list)
+
+
+class AgentDecisionLog(AgentModel):
+    items: list[dict[str, Any] | str] = Field(default_factory=list)
+
+
+class OrchestrationPlanSpec(AgentModel):
+    lab_id: str
+    title: str
+    mode: str
+    orchestrator: dict[str, Any]
+    phases: list[dict[str, Any]]
+    artifact_contract: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_phases(self) -> "OrchestrationPlanSpec":
+        agent_ids = {role.agent_id for role in DEFAULT_AGENT_ROLES}
+        for phase in self.phases:
+            for agent_id in phase.get("agents", []):
+                if agent_id not in agent_ids:
+                    raise ValueError(f"unknown agent id in phase plan: {agent_id}")
+        return self
 
 
 @dataclass(frozen=True)
@@ -255,3 +308,96 @@ def render_agent_workspace_readme(spec: LabSpec) -> str:
             "",
         ]
     )
+
+
+def agent_workspace_root(path: Path) -> Path:
+    path = path.resolve()
+    return path if path.name == ".ai" else path / ".ai"
+
+
+def pydantic_errors(prefix: str, exc: ValidationError) -> list[str]:
+    return [
+        f"{prefix}: {'.'.join(str(item) for item in error['loc'])}: {error['msg']}"
+        for error in exc.errors()
+    ]
+
+
+def validate_agent_workspace(path: Path) -> list[str]:
+    errors: list[str] = []
+    root = agent_workspace_root(path)
+    if not root.exists():
+        return [f"agent workspace not found: {root}"]
+
+    plan_path = root / "orchestration-plan.yaml"
+    if not plan_path.exists():
+        errors.append(f"missing orchestration plan: {plan_path}")
+    else:
+        try:
+            OrchestrationPlanSpec.model_validate(load_yaml(plan_path))
+        except ValidationError as exc:
+            errors.extend(pydantic_errors(str(plan_path), exc))
+        except ValueError as exc:
+            errors.append(f"{plan_path}: {exc}")
+
+    task_dir = root / "tasks"
+    output_dir = root / "outputs"
+    decision_dir = root / "decisions"
+    for directory in (task_dir, output_dir, decision_dir):
+        if not directory.exists():
+            errors.append(f"missing directory: {directory}")
+
+    known_agents = {role.agent_id for role in DEFAULT_AGENT_ROLES}
+    task_ids: set[str] = set()
+    if task_dir.exists():
+        for task_path in sorted(task_dir.glob("*.yaml")):
+            try:
+                task = AgentTaskSpec.model_validate(load_yaml(task_path))
+            except ValidationError as exc:
+                errors.extend(pydantic_errors(str(task_path), exc))
+                continue
+            except ValueError as exc:
+                errors.append(f"{task_path}: {exc}")
+                continue
+            task_ids.add(task.task_id)
+            if task.agent_id not in known_agents:
+                errors.append(f"{task_path}: unknown agent_id {task.agent_id}")
+            output_path = root.parent / task.output_file
+            if not output_path.exists():
+                errors.append(f"{task_path}: referenced output file missing: {task.output_file}")
+
+    if output_dir.exists():
+        for output_path in sorted(output_dir.glob("*.yaml")):
+            try:
+                result = AgentResultSpec.model_validate(load_yaml(output_path))
+            except ValidationError as exc:
+                errors.extend(pydantic_errors(str(output_path), exc))
+                continue
+            except ValueError as exc:
+                errors.append(f"{output_path}: {exc}")
+                continue
+            if task_ids and result.task_id not in task_ids:
+                errors.append(f"{output_path}: result references unknown task_id {result.task_id}")
+
+    expected_decisions = {"accepted.yaml", "rejected.yaml", "open-questions.yaml"}
+    if decision_dir.exists():
+        for name in expected_decisions:
+            decision_path = decision_dir / name
+            if not decision_path.exists():
+                errors.append(f"missing decision log: {decision_path}")
+                continue
+            try:
+                AgentDecisionLog.model_validate(load_yaml(decision_path))
+            except ValidationError as exc:
+                errors.extend(pydantic_errors(str(decision_path), exc))
+            except ValueError as exc:
+                errors.append(f"{decision_path}: {exc}")
+
+    return errors
+
+
+AGENT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "agent-task.schema.json": AgentTaskSpec,
+    "agent-result.schema.json": AgentResultSpec,
+    "agent-decision-log.schema.json": AgentDecisionLog,
+    "orchestration-plan.schema.json": OrchestrationPlanSpec,
+}

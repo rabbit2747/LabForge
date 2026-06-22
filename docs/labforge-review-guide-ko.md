@@ -834,13 +834,14 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 5. python -m labforge doctor --lab <scenario-root>
 6. python -m labforge plan <scenario-root> --provider <provider> --profile <profile>
 7. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
-8. validation error, host 환경 문제, agent task 설계 문제 수정
-9. python -m labforge schema export --out schemas
-10. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-11. 감독자가 문서, 다이어그램, agent task를 검토
-12. 보안장치 선택
-13. python -m labforge build <scenario-root> --out output/<scenario>
-14. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+8. python -m labforge agents validate output/<scenario>-agents
+9. validation error, host 환경 문제, agent task 설계 문제 수정
+10. python -m labforge schema export --out schemas
+11. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+12. 감독자가 문서, 다이어그램, agent task를 검토
+13. 보안장치 선택
+14. python -m labforge build <scenario-root> --out output/<scenario>
+15. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
 현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
@@ -876,6 +877,8 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge plan <lab>` 명령으로 host-aware execution plan 생성 추가
 - `python -m labforge agents list` 명령으로 기본 전문 agent 역할 목록 출력 추가
 - `python -m labforge agents scaffold <lab>` 명령으로 dry-run agent workspace 생성 추가
+- `python -m labforge agents validate <workspace>` 명령으로 agent task/output/decision artifact 검증 추가
+- agent 관련 JSON Schema export 추가
 - scenario-02 예제를 v0.2 구조로 확장
 
-다음 구현 우선순위는 agent output schema 검증, provider 실행 스크립트 분리, service artifact 표준화다. 실제 LLM adapter는 dry-run orchestration artifact가 안정화된 뒤 연결한다.
+다음 구현 우선순위는 provider 실행 스크립트 분리와 service artifact 표준화다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.

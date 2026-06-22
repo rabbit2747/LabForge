@@ -6,7 +6,11 @@ from pathlib import Path
 from .model import LabSpec
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
-from .agent_orchestration import render_agent_list, scaffold_agent_workspace
+from .agent_orchestration import (
+    render_agent_list,
+    scaffold_agent_workspace,
+    validate_agent_workspace,
+)
 from .io import write_text
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
@@ -106,6 +110,17 @@ def command_agents_scaffold(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_agents_validate(args: argparse.Namespace) -> int:
+    errors = validate_agent_workspace(Path(args.workspace))
+    if errors:
+        print("Agent workspace validation failed:")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    print("Agent workspace validation passed")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -155,6 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     agents_scaffold_parser.add_argument("lab")
     agents_scaffold_parser.add_argument("--out")
     agents_scaffold_parser.set_defaults(func=command_agents_scaffold)
+    agents_validate_parser = agents_sub.add_parser("validate", help="Validate a dry-run agent workspace")
+    agents_validate_parser.add_argument("workspace")
+    agents_validate_parser.set_defaults(func=command_agents_validate)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

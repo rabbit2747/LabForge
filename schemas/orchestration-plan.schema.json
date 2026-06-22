@@ -1,0 +1,45 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "mode": {
+      "title": "Mode",
+      "type": "string"
+    },
+    "orchestrator": {
+      "additionalProperties": true,
+      "title": "Orchestrator",
+      "type": "object"
+    },
+    "phases": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Phases",
+      "type": "array"
+    },
+    "artifact_contract": {
+      "additionalProperties": true,
+      "title": "Artifact Contract",
+      "type": "object"
+    }
+  },
+  "required": [
+    "lab_id",
+    "title",
+    "mode",
+    "orchestrator",
+    "phases",
+    "artifact_contract"
+  ],
+  "title": "OrchestrationPlanSpec",
+  "type": "object"
+}

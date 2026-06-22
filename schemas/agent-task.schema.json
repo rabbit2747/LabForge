@@ -1,0 +1,88 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "phase": {
+      "title": "Phase",
+      "type": "string"
+    },
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "mission": {
+      "title": "Mission",
+      "type": "string"
+    },
+    "context_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Context Files",
+      "type": "array"
+    },
+    "inputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "expected_outputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Expected Outputs",
+      "type": "array"
+    },
+    "guardrails": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Guardrails",
+      "type": "array"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending",
+        "in-progress",
+        "complete",
+        "blocked"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "assigned_runtime": {
+      "default": "dry-run",
+      "title": "Assigned Runtime",
+      "type": "string"
+    },
+    "output_file": {
+      "title": "Output File",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "agent_id",
+    "agent_name",
+    "phase",
+    "lab_id",
+    "mission",
+    "output_file"
+  ],
+  "title": "AgentTaskSpec",
+  "type": "object"
+}

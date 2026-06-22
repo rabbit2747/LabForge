@@ -1,0 +1,22 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "items": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "title": "AgentDecisionLog",
+  "type": "object"
+}

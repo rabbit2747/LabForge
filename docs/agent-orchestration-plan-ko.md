@@ -70,6 +70,7 @@ LLM은 설계, 검토, 변환, 품질검수에 사용한다.
 ```powershell
 python -m labforge agents list
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
+python -m labforge agents validate output/scenario-02-agents
 ```
 
 ### Phase 4. Provider Execution Layer
@@ -135,6 +136,31 @@ output/<lab>/
 - 각 agent의 입력과 출력 계약을 고정할 수 있다.
 - 나중에 OpenAI, Claude CLI, MCP 중 어떤 runtime을 붙여도 artifact 구조가 흔들리지 않는다.
 - supervisor가 agent 결과를 승인하기 전에는 LabForge core가 자동으로 반영하지 않게 만들 수 있다.
+
+## 5.1 Agent Artifact 검증
+
+Agent workspace는 다음 pydantic schema로 검증한다.
+
+| Schema | 대상 |
+|---|---|
+| `orchestration-plan.schema.json` | `.ai/orchestration-plan.yaml` |
+| `agent-task.schema.json` | `.ai/tasks/*.yaml` |
+| `agent-result.schema.json` | `.ai/outputs/*.result.yaml` |
+| `agent-decision-log.schema.json` | `.ai/decisions/*.yaml` |
+
+검증 명령:
+
+```powershell
+python -m labforge agents validate output/scenario-02-agents
+```
+
+검증 원칙:
+
+- 모든 task는 알려진 agent ID를 사용해야 한다.
+- 모든 task는 대응되는 output file을 가져야 한다.
+- 모든 result는 존재하는 task ID를 참조해야 한다.
+- decision log는 `items` 배열을 가져야 한다.
+- LLM adapter가 생성한 결과도 이 검증을 통과해야 다음 단계로 이동할 수 있다.
 
 ## 6. 운영 원칙
 
