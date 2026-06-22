@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .io import dump_yaml, write_text
+from .linting import lint_lab
 from .model import LabSpec
 from .render import build_lab
 from .service_artifacts import materialize_service_runtimes, service_check
@@ -58,6 +59,18 @@ def run_qa_smoke(
             name="schema-validation",
             status="failed" if validation_errors else "passed",
             messages=validation_errors,
+        )
+    )
+
+    lint_report = lint_lab(working_lab)
+    checks.append(
+        QaCheck(
+            name="quality-lint",
+            status="passed" if lint_report.status == "passed" else "warning",
+            messages=[
+                f"{finding.location}: {finding.message}"
+                for finding in lint_report.findings
+            ],
         )
     )
 

@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "LintFinding": {
+      "additionalProperties": true,
+      "properties": {
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "location",
+        "message"
+      ],
+      "title": "LintFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "warning",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/LintFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "status"
+  ],
+  "title": "LintReport",
+  "type": "object"
+}

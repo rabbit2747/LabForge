@@ -148,6 +148,7 @@ logs first, then later adapters can connect OpenAI, Claude CLI, or MCP.
 ```powershell
 python -m labforge init --out output/new-lab --lab-id new-lab --title "New Lab"
 python -m labforge validate output/new-lab
+python -m labforge lint output/new-lab
 python -m labforge services scaffold output/new-lab
 python -m labforge services materialize output/new-lab --force
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents

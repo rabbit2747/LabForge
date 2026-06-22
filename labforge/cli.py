@@ -23,6 +23,7 @@ from .agent_orchestration import (
     write_agent_result_stub,
 )
 from .io import write_text
+from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .providers.factory import list_providers
 from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
 from .qa import run_qa_smoke
@@ -46,6 +47,23 @@ def command_validate(args: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     print("Validation passed")
+    return 0
+
+
+def command_lint(args: argparse.Namespace) -> int:
+    report = lint_lab(Path(args.lab))
+    if args.out:
+        out = Path(args.out)
+        write_text(out, lint_report_to_json(report) if args.format == "json" else lint_report_to_markdown(report))
+        print(f"Rendered lint report: {out.resolve()}")
+    elif args.format == "json":
+        print(lint_report_to_json(report))
+    else:
+        print(lint_report_to_markdown(report))
+    if report.status == "failed":
+        return 1
+    if args.strict and report.status == "warning":
+        return 1
     return 0
 
 
@@ -363,6 +381,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser = sub.add_parser("validate", help="Validate a lab spec")
     validate_parser.add_argument("lab")
     validate_parser.set_defaults(func=command_validate)
+
+    lint_parser = sub.add_parser("lint", help="Run quality checks for placeholders and weak scenario structure")
+    lint_parser.add_argument("lab")
+    lint_parser.add_argument("--format", choices=["text", "json"], default="text")
+    lint_parser.add_argument("--out")
+    lint_parser.add_argument("--strict", action="store_true", help="Return a non-zero exit code when warnings are present")
+    lint_parser.set_defaults(func=command_lint)
 
     init_parser = sub.add_parser("init", help="Create a new LabForge scenario template")
     init_parser.add_argument("--out", required=True)

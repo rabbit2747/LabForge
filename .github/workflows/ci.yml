@@ -33,12 +33,15 @@ jobs:
         run: python -m compileall -q labforge
 
       - name: Validate example scenario
-        run: python -m labforge validate examples/scenario-02-ad-domain-compromise
+        run: |
+          python -m labforge validate examples/scenario-02-ad-domain-compromise
+          python -m labforge lint examples/scenario-02-ad-domain-compromise
 
       - name: Validate starter template
         run: |
           python -m labforge init --out output/starter-lab --lab-id starter-lab --title "Starter Lab"
           python -m labforge validate output/starter-lab
+          python -m labforge lint output/starter-lab
           python -m labforge services scaffold output/starter-lab
           python -m labforge services materialize output/starter-lab --force
           python -m labforge services check output/starter-lab
