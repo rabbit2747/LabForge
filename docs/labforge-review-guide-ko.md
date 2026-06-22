@@ -614,6 +614,10 @@ training_mode:
 | Ransomware prepositioning | Windows VM + Ansible |
 | ICS/OT 침투 | Docker Compose + OT simulator 또는 Hybrid |
 
+환경 요구사항을 더 넓게 판단하기 위한 별도 카탈로그는 다음 문서를 기준으로 한다.
+
+[`docs/environment-requirements-catalog-ko.md`](environment-requirements-catalog-ko.md)
+
 ## 11. 현재 예제 시나리오
 
 현재 포함된 예제는 다음이다.

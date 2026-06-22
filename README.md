@@ -56,6 +56,11 @@ security-control concept, and current limitations, see:
 
 [`docs/labforge-review-guide-ko.md`](docs/labforge-review-guide-ko.md)
 
+For a broader catalog of Docker, VM, AD, Proxmox, IDS, SIEM, Kubernetes, and
+hybrid deployment environment requirements, see:
+
+[`docs/environment-requirements-catalog-ko.md`](docs/environment-requirements-catalog-ko.md)
+
 ## Current Status
 
 LabForge is currently an MVP. It can validate a scenario bundle and generate
