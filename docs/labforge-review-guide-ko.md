@@ -897,5 +897,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge agents validate <workspace>` 명령으로 agent task/output/decision artifact 검증 추가
 - agent 관련 JSON Schema export 추가
 - scenario-02 예제를 v0.2 구조로 확장
+- `artifacts.yaml`의 `service_artifacts` 계약 추가
+- 서비스 구현 표준 문서와 생성 산출물 `docs/service-artifact-contract.md` 추가
 
-다음 구현 우선순위는 service artifact 표준화와 Hybrid/Ludus/Ansible/Terraform provider 고도화다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.
+다음 구현 우선순위는 service artifact 계약을 provider 산출물에 더 깊게 반영하고, Hybrid/Ludus/Ansible/Terraform provider를 고도화하는 것이다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.

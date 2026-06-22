@@ -81,6 +81,11 @@ must follow, see:
 
 [`docs/open-source-constitution.md`](docs/open-source-constitution.md)
 
+For the service implementation contract used by scenario authors, service
+builders, providers, QA agents, and supervisors, see:
+
+[`docs/service-artifact-standard.md`](docs/service-artifact-standard.md)
+
 For a broader catalog of Docker, VM, AD, Proxmox, IDS, SIEM, Kubernetes, and
 hybrid deployment environment requirements, see:
 

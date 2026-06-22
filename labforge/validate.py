@@ -68,4 +68,23 @@ def validate_lab(root: Path) -> list[str]:
             if not technique.get("id") or not technique.get("name"):
                 errors.append(f"stage {stage_id} has incomplete technique entry")
 
+    artifact_model = spec.artifacts_model
+    if artifact_model and artifact_model.service_artifacts:
+        artifact_services = {artifact.service for artifact in artifact_model.service_artifacts}
+        unknown = sorted(artifact_services - service_names)
+        missing = sorted(service_names - artifact_services)
+        for name in unknown:
+            errors.append(f"artifacts.yaml service_artifacts references unknown service: {name}")
+        for name in missing:
+            errors.append(f"service {name} missing service_artifacts contract")
+        for artifact in artifact_model.service_artifacts:
+            if not artifact.source_path:
+                errors.append(f"service artifact {artifact.service} missing source_path")
+            if not artifact.healthcheck:
+                errors.append(f"service artifact {artifact.service} missing healthcheck contract")
+            if not artifact.reset:
+                errors.append(f"service artifact {artifact.service} missing reset contract")
+            if not artifact.safety_boundaries:
+                errors.append(f"service artifact {artifact.service} missing safety_boundaries")
+
     return errors

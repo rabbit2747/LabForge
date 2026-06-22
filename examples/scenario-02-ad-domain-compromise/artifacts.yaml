@@ -25,3 +25,154 @@ instructor_only:
   - id: answer-key
     description: Full solution path, expected evidence, and reset notes.
 
+service_artifacts:
+  - service: edge-proxy
+    source_path: services/edge-proxy
+    runtime: nginx or equivalent reverse proxy
+    purpose: Public ingress that exposes only approved learner entrypoints.
+    attack_surface:
+      - HTTP routing and access logging
+      - Optional WAF or reverse-proxy control placement
+    seed_inputs: []
+    noise_inputs: []
+    healthcheck: GET /healthz must return 200 from inside the container.
+    reset: Stateless; restart container and clear generated access logs when reset profile requires it.
+    evidence_logs:
+      - access.log
+      - error.log
+    safety_boundaries:
+      - Must not proxy arbitrary internal hostnames.
+      - Must expose only topology-declared public ports.
+
+  - service: attacker-workstation
+    source_path: services/attacker-workstation
+    runtime: Linux SSH workstation
+    purpose: Learner-controlled workstation for authorized lab activity.
+    attack_surface:
+      - SSH access for learner terminal
+      - Lab-scoped tools and handout files
+    seed_inputs:
+      - entrypoint
+    noise_inputs: []
+    healthcheck: SSH service or shell readiness check must confirm the attacker home exists.
+    reset: Recreate learner home from baseline files and remove transient sessions, tunnels, and callbacks.
+    evidence_logs:
+      - shell command transcript when training mode requires it
+      - callback listener logs
+    safety_boundaries:
+      - Tools must be scoped to lab networks.
+      - No privileged Docker socket mount.
+      - No default route to unintended external targets unless explicitly selected by supervisor.
+
+  - service: hr-portal
+    source_path: services/hr-portal
+    runtime: Python web application
+    purpose: Externally reachable business application used for initial access.
+    attack_surface:
+      - Authenticated or unauthenticated web workflow
+      - Deliberately vulnerable preview or business logic endpoint
+    seed_inputs:
+      - hr-portal-cases
+    noise_inputs: []
+    healthcheck: GET /healthz must return 200 and verify the application can read its seed data.
+    reset: Restore seeded cases and remove learner-created temporary files.
+    evidence_logs:
+      - application.log
+      - access.log
+      - security-audit.log
+    safety_boundaries:
+      - Vulnerable behavior must be lab-scoped and documented.
+      - Outbound callbacks may reach only the attacker-workstation or declared internal services.
+
+  - service: ldap-ad
+    source_path: services/ldap-ad
+    runtime: LDAP directory prototype or Windows AD provider replacement
+    purpose: Prototype directory service for identity, group, and service account data.
+    attack_surface:
+      - Directory queries
+      - Credential and group discovery paths
+    seed_inputs:
+      - ldap-directory
+    noise_inputs: []
+    healthcheck: Directory bind or equivalent query must succeed with a low-privilege test account.
+    reset: Reimport baseline directory objects and rotate any generated lab credentials.
+    evidence_logs:
+      - directory-query.log
+      - auth.log
+    safety_boundaries:
+      - Prototype mode must not claim full Kerberos or GPO fidelity.
+      - Realistic AD mode must be implemented by VM or hybrid provider.
+
+  - service: reporting-server
+    source_path: services/reporting-server
+    runtime: Internal Linux or Windows application server
+    purpose: Internal discovery and lateral movement target.
+    attack_surface:
+      - Internal HTTP or service endpoint
+      - Misconfiguration or delegated access path
+    seed_inputs: []
+    noise_inputs:
+      - stale-vpn-notes
+    healthcheck: Internal readiness endpoint or service status check must pass.
+    reset: Remove learner-created files and restore baseline internal notes.
+    evidence_logs:
+      - service.log
+      - access.log
+    safety_boundaries:
+      - Must be reachable only from declared internal networks.
+      - Any exploit path must remain inside lab services.
+
+  - service: backup-server
+    source_path: services/backup-server
+    runtime: Internal backup service prototype
+    purpose: Privilege escalation and sensitive operations target.
+    attack_surface:
+      - Backup metadata
+      - Restore workflow or credential handling path
+    seed_inputs: []
+    noise_inputs:
+      - old-backup-runbooks
+    healthcheck: Backup API or local status command must report ready.
+    reset: Restore backup catalog and delete learner-generated restore jobs.
+    evidence_logs:
+      - backup-audit.log
+      - restore-jobs.log
+    safety_boundaries:
+      - Restore operations must not write outside declared lab volumes.
+      - Credentials must be synthetic lab secrets only.
+
+  - service: fileserver
+    source_path: services/fileserver
+    runtime: Internal file or object service
+    purpose: Stores the final controlled collection object.
+    attack_surface:
+      - Internal file listing or object retrieval workflow
+      - Access proof validation
+    seed_inputs:
+      - board-strategy-archive
+    noise_inputs: []
+    healthcheck: Object listing or file existence check for seeded non-secret object must pass.
+    reset: Restore final object and remove temporary learner downloads or proofs.
+    evidence_logs:
+      - object-access.log
+    safety_boundaries:
+      - Final data must be synthetic and training-only.
+      - Object retrieval must require the intended lab proof or access condition.
+
+  - service: controlled-drop
+    source_path: services/controlled-drop
+    runtime: Submission API
+    purpose: Receives the final object proof and records completion.
+    attack_surface:
+      - Final submission endpoint
+      - Optional supervisor status endpoint
+    seed_inputs: []
+    noise_inputs: []
+    healthcheck: GET /healthz or equivalent status endpoint must return ready.
+    reset: Clear submissions and restore initial scoreboard state.
+    evidence_logs:
+      - submissions.log
+      - completion-events.log
+    safety_boundaries:
+      - Must accept only lab-defined final object proofs.
+      - Must not expose instructor-only answer data to learners.

@@ -170,11 +170,26 @@ class EnvironmentSpec(LabForgeModel):
     assets: list[AssetSpec] = Field(default_factory=list)
 
 
+class ServiceArtifactSpec(LabForgeModel):
+    service: str
+    source_path: str
+    runtime: str = "unspecified"
+    purpose: str
+    attack_surface: list[str] = Field(default_factory=list)
+    seed_inputs: list[str] = Field(default_factory=list)
+    noise_inputs: list[str] = Field(default_factory=list)
+    healthcheck: str
+    reset: str
+    evidence_logs: list[str] = Field(default_factory=list)
+    safety_boundaries: list[str] = Field(default_factory=list)
+
+
 class ArtifactSpec(LabForgeModel):
     seed: list[dict[str, Any]] = Field(default_factory=list)
     noise: list[dict[str, Any]] = Field(default_factory=list)
     learner_handouts: list[dict[str, Any]] = Field(default_factory=list)
     instructor_only: list[dict[str, Any]] = Field(default_factory=list)
+    service_artifacts: list[ServiceArtifactSpec] = Field(default_factory=list)
 
 
 class SupervisorSelectionSpec(LabForgeModel):
@@ -192,4 +207,3 @@ SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "security-controls.schema.json": SecurityControlsSpec,
     "supervisor-selection.schema.json": SupervisorSelectionSpec,
 }
-

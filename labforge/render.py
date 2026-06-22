@@ -57,6 +57,7 @@ def render_common_outputs(
     write_text(docs_base / "architecture-protected.md", render_profile_architecture(spec, "protected"))
     write_text(docs_base / "security-control-selection.md", render_security_control_selection(spec, profile))
     write_text(docs_base / "deployment-requirements.md", render_deployment_requirements(spec))
+    write_text(docs_base / "service-artifact-contract.md", render_service_artifact_contract(spec))
     write_text(out / "diagrams" / "topology.mmd", render_topology_diagram(spec))
     write_text(out / "diagrams" / "attack-flow.mmd", render_attack_flow_diagram(spec))
     write_text(out / "diagrams" / "security-controls.mmd", render_security_controls_diagram(spec))
@@ -64,6 +65,74 @@ def render_common_outputs(
 
 def render_checklist(spec: LabSpec) -> str:
     return render_template("docs/implementation-checklist.md.j2", **template_context(spec))
+
+
+def render_service_artifact_contract(spec: LabSpec) -> str:
+    artifacts = spec.artifacts_model.service_artifacts if spec.artifacts_model else []
+    lines = [
+        f"# Service Artifact Contract - {spec.title}",
+        "",
+        "This document defines the implementation contract for each service in the lab.",
+        "It is intended for service builders, provider engineers, QA agents, and supervisors.",
+        "",
+        "A service artifact is the bridge between logical scenario design and runnable implementation.",
+        "It should explain where the service source lives, what data it needs, how it resets, how it is checked, and which safety boundaries constrain it.",
+        "",
+    ]
+
+    if not artifacts:
+        lines += [
+            "## No Service Artifacts Declared",
+            "",
+            "No `service_artifacts` entries were found in `artifacts.yaml`.",
+            "Add one entry for each service in `topology.yaml` before moving from architecture design to runnable lab implementation.",
+            "",
+        ]
+        return "\n".join(lines)
+
+    lines += [
+        "## Summary",
+        "",
+        "| Service | Runtime | Source Path | Purpose |",
+        "|---|---|---|---|",
+    ]
+    for artifact in artifacts:
+        lines.append(
+            f"| `{artifact.service}` | `{artifact.runtime}` | `{artifact.source_path}` | {artifact.purpose} |"
+        )
+    lines.append("")
+
+    for artifact in artifacts:
+        lines += [
+            f"## `{artifact.service}`",
+            "",
+            f"- Source path: `{artifact.source_path}`",
+            f"- Runtime: `{artifact.runtime}`",
+            f"- Purpose: {artifact.purpose}",
+            f"- Healthcheck contract: {artifact.healthcheck}",
+            f"- Reset contract: {artifact.reset}",
+            "",
+            "### Attack Surface",
+            "",
+        ]
+        lines.extend(f"- {item}" for item in artifact.attack_surface or ["No attack surface declared."])
+        lines += ["", "### Seed Inputs", ""]
+        if artifact.seed_inputs:
+            lines.extend(f"- `{item}`" for item in artifact.seed_inputs)
+        else:
+            lines.append("- No seed inputs declared.")
+        lines += ["", "### Noise Inputs", ""]
+        if artifact.noise_inputs:
+            lines.extend(f"- `{item}`" for item in artifact.noise_inputs)
+        else:
+            lines.append("- No noise inputs declared.")
+        lines += ["", "### Evidence Logs", ""]
+        lines.extend(f"- `{item}`" for item in artifact.evidence_logs or ["No evidence logs declared."])
+        lines += ["", "### Safety Boundaries", ""]
+        lines.extend(f"- {item}" for item in artifact.safety_boundaries or ["No safety boundaries declared."])
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def render_profile_architecture(spec: LabSpec, profile: str) -> str:

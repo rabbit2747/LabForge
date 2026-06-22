@@ -1,4 +1,80 @@
 {
+  "$defs": {
+    "ServiceArtifactSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "runtime": {
+          "default": "unspecified",
+          "title": "Runtime",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "attack_surface": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attack Surface",
+          "type": "array"
+        },
+        "seed_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Seed Inputs",
+          "type": "array"
+        },
+        "noise_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Noise Inputs",
+          "type": "array"
+        },
+        "healthcheck": {
+          "title": "Healthcheck",
+          "type": "string"
+        },
+        "reset": {
+          "title": "Reset",
+          "type": "string"
+        },
+        "evidence_logs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Logs",
+          "type": "array"
+        },
+        "safety_boundaries": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Safety Boundaries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "service",
+        "source_path",
+        "purpose",
+        "healthcheck",
+        "reset"
+      ],
+      "title": "ServiceArtifactSpec",
+      "type": "object"
+    }
+  },
   "additionalProperties": true,
   "properties": {
     "seed": {
@@ -31,6 +107,13 @@
         "type": "object"
       },
       "title": "Instructor Only",
+      "type": "array"
+    },
+    "service_artifacts": {
+      "items": {
+        "$ref": "#/$defs/ServiceArtifactSpec"
+      },
+      "title": "Service Artifacts",
       "type": "array"
     }
   },
