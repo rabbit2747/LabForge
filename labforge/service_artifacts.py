@@ -108,6 +108,25 @@ class ServiceResultBatchReviewReport(ServiceArtifactModel):
     reviews: list[ServiceResultReviewReport] = Field(default_factory=list)
 
 
+class ServiceResultBatchApplyItem(ServiceArtifactModel):
+    service: str = ""
+    result_file: str = ""
+    status: Literal["applied", "skipped", "failed"]
+    reason: str = ""
+    applied: list[ServiceResultApplyItem] = Field(default_factory=list)
+
+
+class ServiceResultBatchApplyReport(ServiceArtifactModel):
+    lab_id: str
+    result_dir: str
+    status: Literal["passed", "warning", "failed"]
+    dry_run: bool = True
+    applied_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    items: list[ServiceResultBatchApplyItem] = Field(default_factory=list)
+
+
 def declared_service_artifacts(spec: LabSpec):
     if not spec.artifacts_model:
         return []
@@ -496,6 +515,89 @@ def review_service_results(
     )
 
 
+def apply_service_results(
+    spec: LabSpec,
+    result_dir: Path,
+    *,
+    force: bool = False,
+    dry_run: bool = True,
+) -> ServiceResultBatchApplyReport:
+    resolved = result_dir.resolve()
+    items: list[ServiceResultBatchApplyItem] = []
+
+    result_files = sorted(resolved.glob("*.result.yaml"))
+    if not result_files:
+        return ServiceResultBatchApplyReport(
+            lab_id=spec.lab_id,
+            result_dir=str(resolved),
+            status="failed",
+            dry_run=dry_run,
+            failed_count=1,
+            items=[
+                ServiceResultBatchApplyItem(
+                    status="failed",
+                    reason="result directory contains no *.result.yaml files",
+                )
+            ],
+        )
+
+    for result_file in result_files:
+        review = review_service_result(spec, result_file, force=force)
+        if review.status != "ready":
+            reason = "; ".join(review.errors) if review.errors else f"review status is {review.status}"
+            items.append(
+                ServiceResultBatchApplyItem(
+                    service=review.service,
+                    result_file=review.result_file,
+                    status="skipped",
+                    reason=reason,
+                )
+            )
+            continue
+
+        apply_report = apply_service_result(spec, result_file, force=force, dry_run=dry_run)
+        if apply_report.status == "passed":
+            items.append(
+                ServiceResultBatchApplyItem(
+                    service=apply_report.service,
+                    result_file=apply_report.result_file,
+                    status="applied",
+                    applied=apply_report.applied,
+                )
+            )
+        else:
+            items.append(
+                ServiceResultBatchApplyItem(
+                    service=apply_report.service,
+                    result_file=apply_report.result_file,
+                    status="failed",
+                    reason="; ".join(apply_report.errors) or "apply failed",
+                    applied=apply_report.applied,
+                )
+            )
+
+    applied_count = sum(1 for item in items if item.status == "applied")
+    skipped_count = sum(1 for item in items if item.status == "skipped")
+    failed_count = sum(1 for item in items if item.status == "failed")
+    if failed_count:
+        status: Literal["passed", "warning", "failed"] = "failed"
+    elif skipped_count:
+        status = "warning"
+    else:
+        status = "passed"
+
+    return ServiceResultBatchApplyReport(
+        lab_id=spec.lab_id,
+        result_dir=str(resolved),
+        status=status,
+        dry_run=dry_run,
+        applied_count=applied_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        items=items,
+    )
+
+
 def resolve_service_target(service_root: Path, target_path: str) -> tuple[Path | None, str | None]:
     raw = Path(target_path)
     if raw.is_absolute():
@@ -648,6 +750,47 @@ def service_result_batch_review_to_markdown(report: ServiceResultBatchReviewRepo
             lines.append(f"### `{review.service or 'unknown'}`")
             lines.append("")
             lines.extend(f"- {question}" for question in review.open_questions)
+            lines.append("")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def service_result_batch_apply_to_markdown(report: ServiceResultBatchApplyReport) -> str:
+    lines = [
+        f"# Service Result Batch Apply - {report.lab_id}",
+        "",
+        f"- Result directory: `{report.result_dir}`",
+        f"- Status: `{report.status}`",
+        f"- Dry run: `{str(report.dry_run).lower()}`",
+        f"- Applied: `{report.applied_count}`",
+        f"- Skipped: `{report.skipped_count}`",
+        f"- Failed: `{report.failed_count}`",
+        "",
+        "| Service | Status | Result File | Files | Reason |",
+        "|---|---|---|---:|---|",
+    ]
+    for item in report.items:
+        lines.append(
+            f"| `{item.service or '-'}` | `{item.status}` | `{item.result_file or '-'}` | "
+            f"{len(item.applied)} | {item.reason or '-'} |"
+        )
+    if not report.items:
+        lines.append("| - | failed | - | 0 | No service results were found. |")
+
+    applied_items = [item for item in report.items if item.applied]
+    if applied_items:
+        lines += [
+            "",
+            "## File Actions",
+            "",
+        ]
+        for item in applied_items:
+            lines.append(f"### `{item.service or 'unknown'}`")
+            lines.append("")
+            lines.append("| Target | Action | Message |")
+            lines.append("|---|---|---|")
+            for applied in item.applied:
+                lines.append(f"| `{applied.target_path}` | `{applied.action}` | {applied.message or '-'} |")
             lines.append("")
     lines.append("")
     return "\n".join(lines)
@@ -858,4 +1001,5 @@ SERVICE_ARTIFACT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "service-result-apply-report.schema.json": ServiceResultApplyReport,
     "service-result-review-report.schema.json": ServiceResultReviewReport,
     "service-result-batch-review-report.schema.json": ServiceResultBatchReviewReport,
+    "service-result-batch-apply-report.schema.json": ServiceResultBatchApplyReport,
 }

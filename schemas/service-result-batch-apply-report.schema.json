@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "ServiceResultApplyItem": {
+      "additionalProperties": true,
+      "properties": {
+        "target_path": {
+          "title": "Target Path",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "would-write",
+            "written",
+            "skipped",
+            "failed"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_path",
+        "action"
+      ],
+      "title": "ServiceResultApplyItem",
+      "type": "object"
+    },
+    "ServiceResultBatchApplyItem": {
+      "additionalProperties": true,
+      "properties": {
+        "service": {
+          "default": "",
+          "title": "Service",
+          "type": "string"
+        },
+        "result_file": {
+          "default": "",
+          "title": "Result File",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "skipped",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "applied": {
+          "items": {
+            "$ref": "#/$defs/ServiceResultApplyItem"
+          },
+          "title": "Applied",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ServiceResultBatchApplyItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "result_dir": {
+      "title": "Result Dir",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "warning",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "dry_run": {
+      "default": true,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "applied_count": {
+      "default": 0,
+      "title": "Applied Count",
+      "type": "integer"
+    },
+    "skipped_count": {
+      "default": 0,
+      "title": "Skipped Count",
+      "type": "integer"
+    },
+    "failed_count": {
+      "default": 0,
+      "title": "Failed Count",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ServiceResultBatchApplyItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "result_dir",
+    "status"
+  ],
+  "title": "ServiceResultBatchApplyReport",
+  "type": "object"
+}

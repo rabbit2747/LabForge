@@ -43,12 +43,14 @@ from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
 from .service_artifacts import (
     apply_service_result,
+    apply_service_results,
     materialize_service_runtimes,
     review_service_result,
     review_service_results,
     run_service_hooks,
     scaffold_service_artifacts,
     service_check,
+    service_result_batch_apply_to_markdown,
     service_result_batch_review_to_markdown,
     service_result_apply_to_markdown,
     service_result_review_to_markdown,
@@ -482,6 +484,25 @@ def command_services_apply_result(args: argparse.Namespace) -> int:
     return 0 if report.status == "passed" else 1
 
 
+def command_services_apply_results(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    report = apply_service_results(
+        spec,
+        Path(args.results),
+        force=args.force,
+        dry_run=not args.execute,
+    )
+    if args.out:
+        out = Path(args.out)
+        write_text(out, report.model_dump_json(indent=2) if args.format == "json" else service_result_batch_apply_to_markdown(report))
+        print(f"Rendered service batch apply report: {out.resolve()}")
+    elif args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(service_result_batch_apply_to_markdown(report))
+    return 0 if report.status == "passed" else 1
+
+
 def command_services_review_result(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     report = review_service_result(spec, Path(args.result), force=args.force)
@@ -787,6 +808,14 @@ def main(argv: list[str] | None = None) -> int:
     services_apply_result_parser.add_argument("--format", choices=["text", "json"], default="text")
     services_apply_result_parser.add_argument("--out")
     services_apply_result_parser.set_defaults(func=command_services_apply_result)
+    services_apply_results_parser = services_sub.add_parser("apply-results", help="Apply ready service-builder results from a directory")
+    services_apply_results_parser.add_argument("lab")
+    services_apply_results_parser.add_argument("--results", required=True, help="Directory containing *.result.yaml service result files")
+    services_apply_results_parser.add_argument("--force", action="store_true", help="Overwrite existing files in target service directories")
+    services_apply_results_parser.add_argument("--execute", action="store_true", help="Write files. Default is a dry-run.")
+    services_apply_results_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_apply_results_parser.add_argument("--out")
+    services_apply_results_parser.set_defaults(func=command_services_apply_results)
     services_scaffold_parser = services_sub.add_parser("scaffold", help="Create service artifact directories and hook placeholders")
     services_scaffold_parser.add_argument("lab")
     services_scaffold_parser.add_argument("--force", action="store_true", help="Overwrite existing scaffold files")

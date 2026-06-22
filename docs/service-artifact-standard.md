@@ -194,6 +194,8 @@ python -m labforge services review-result <lab-root> --result service-build-entr
 python -m labforge services review-results <lab-root> --results <service-agent-output-dir> --force
 python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --dry-run
 python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --force
+python -m labforge services apply-results <lab-root> --results <service-agent-output-dir>
+python -m labforge services apply-results <lab-root> --results <service-agent-output-dir> --execute --force
 ```
 
 Safety rules:
@@ -225,3 +227,8 @@ returns success only when the result is ready to apply.
 `*.result.yaml` files and reports how many services are ready, still need review,
 or failed validation. It is intended for supervisor batch review before applying
 service-builder outputs.
+
+`apply-results` applies every ready `*.result.yaml` file in a directory. It is
+dry-run by default; use `--execute` to write files. Results that still need
+review are skipped rather than partially applied, so a supervisor can rerun the
+command after individual service-builder agents fix their output.

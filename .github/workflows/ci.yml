@@ -71,6 +71,10 @@ jobs:
           python -m labforge services review-result output/starter-lab --result output/starter-entry-service.result.yaml --force --out output/starter-review-result.md
           python -m labforge services apply-result output/starter-lab --result output/starter-entry-service.result.yaml --force --out output/starter-apply-result.md
           python -m labforge services apply-result output/starter-lab --result output/starter-entry-service.result.yaml --dry-run --force --format json > output/starter-apply-result.json
+          mkdir -p output/starter-complete-results
+          cp output/starter-entry-service.result.yaml output/starter-complete-results/service-build-entry-service.result.yaml
+          python -m labforge services apply-results output/starter-lab --results output/starter-complete-results --force --out output/starter-batch-apply-dry-run.md
+          python -m labforge services apply-results output/starter-lab --results output/starter-complete-results --execute --force --format json > output/starter-batch-apply.json
           python -m labforge services verify output/starter-lab
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
           python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual
@@ -80,6 +84,11 @@ jobs:
             exit 1
           fi
           grep -q "Needs review" output/starter-service-batch-review.md
+          if python -m labforge services apply-results output/starter-lab --results output/starter-service-agents/.ai/outputs --force --out output/starter-service-batch-apply.md; then
+            echo "batch apply unexpectedly passed for empty service-builder stubs"
+            exit 1
+          fi
+          grep -q "skipped" output/starter-service-batch-apply.md
 
       - name: Validate service infrastructure templates
         run: |
