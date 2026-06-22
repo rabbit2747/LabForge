@@ -165,3 +165,9 @@ live execution yet.
 `.ai/reviews/agent-review.{yaml,md}` and returns a non-zero status when the
 workspace is not ready for supervisor approval. `agents decide` appends explicit
 supervisor decisions to `.ai/decisions/`.
+
+Non-Docker providers currently generate deterministic scaffold artifacts rather
+than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and
+`hybrid` outputs include provider plans, inventory files, security profiles, and
+provider-specific starter files so provider engineers can complete the runnable
+implementation without reverse-engineering the scenario spec.

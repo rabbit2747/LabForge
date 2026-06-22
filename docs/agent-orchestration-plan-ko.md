@@ -166,8 +166,21 @@ python -m labforge agents decide output/scenario-02-agents --decision accepted -
 ### Phase 4. Provider Execution Layer
 
 - Docker Compose start/stop/reset script
-- Hybrid/Ludus/Ansible/Terraform provider 고도화
+- Hybrid/Ludus/Ansible/Terraform provider skeleton 고도화
 - 보안장치 선택값을 실제 provider 산출물에 반영
+
+현재 Docker 외 provider는 실제 인프라를 즉시 배포하지 않고, 다음 산출물을 생성한다.
+
+- `provider-plan.yaml`
+- `inventory.yaml`
+- `security-profile.md`
+- provider별 starter file
+  - Ansible: `site.yml`
+  - Terraform: `main.tf`, `variables.tf`
+  - Ludus: `range-config.yaml`
+  - Hybrid: `orchestration-plan.yaml`
+
+이 산출물은 provider engineer가 실제 Proxmox, VMware, Hyper-V, Windows AD, Linux VM, Docker host 환경에 맞게 구현을 완성하기 위한 결정론적 설계도다.
 
 ### Phase 5. Service Artifact Standard
 
