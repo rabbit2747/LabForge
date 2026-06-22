@@ -129,7 +129,8 @@ python -m labforge agents plan-run output/scenario-02-agents --context-root exam
 `agents run --dry-run`은 실제 LLM 호출 전에 agent별 실행 패키지를 만든다.
 
 ```powershell
-python -m labforge agents run output/scenario-02-agents --dry-run --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents adapters
+python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
 ```
 
 생성되는 파일은 다음과 같다.
@@ -145,7 +146,8 @@ output/<lab>/
 ```
 
 각 package에는 system prompt, task prompt, task manifest, output file 위치, context file 누락 여부가 함께 들어간다.
-이 단계까지는 여전히 dry-run이며, OpenAI/Claude/MCP adapter는 다음 단계에서 붙인다.
+`manual` adapter는 사람이 직접 LLM 세션에 붙여넣을 수 있는 `.manual.md` invocation 파일을 추가로 만든다.
+이 단계까지는 여전히 dry-run이며, `openai`, `claude-cli`, `mcp` adapter는 registry에만 등록되어 있고 실제 실행은 다음 단계에서 붙인다.
 
 ### Phase 4. Provider Execution Layer
 

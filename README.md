@@ -146,11 +146,15 @@ logs first, then later adapters can connect OpenAI, Claude CLI, or MCP.
 ```powershell
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
+python -m labforge agents adapters
 python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
-python -m labforge agents run output/scenario-02-agents --dry-run --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
 ```
 
 `agents plan-run` reports execution readiness without calling an LLM.
 `agents run --dry-run` writes `.ai/run/*.package.yaml` files that bundle the
 system prompt, task prompt, task manifest, output contract, and context status
-for each specialist agent.
+for each specialist agent. The first available adapter is `manual`, which also
+writes `.manual.md` invocation files for human-operated LLM sessions. `openai`,
+`claude-cli`, and `mcp` are registered as future adapter slots but do not perform
+live execution yet.

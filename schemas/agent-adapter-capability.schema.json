@@ -1,0 +1,40 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "available",
+        "not-implemented"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "live_execution": {
+      "default": false,
+      "title": "Live Execution",
+      "type": "boolean"
+    },
+    "requires": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requires",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "status",
+    "description"
+  ],
+  "title": "AgentAdapterCapability",
+  "type": "object"
+}

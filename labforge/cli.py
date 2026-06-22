@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from .model import LabSpec
+from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .agent_orchestration import (
@@ -105,6 +106,11 @@ def command_agents_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_agents_adapters(args: argparse.Namespace) -> int:
+    print(render_agent_adapter_list())
+    return 0
+
+
 def command_agents_scaffold(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     out = Path(args.out) if args.out else Path("output") / spec.lab_id
@@ -127,6 +133,11 @@ def command_agents_validate(args: argparse.Namespace) -> int:
 
 
 def command_agents_plan_run(args: argparse.Namespace) -> int:
+    try:
+        get_agent_adapter(args.adapter)
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
     context_root = Path(args.context_root) if args.context_root else None
     plan = create_agent_run_plan(Path(args.workspace), adapter=args.adapter, context_root=context_root)
     if args.out:
@@ -141,6 +152,14 @@ def command_agents_plan_run(args: argparse.Namespace) -> int:
 
 
 def command_agents_run(args: argparse.Namespace) -> int:
+    try:
+        adapter = get_agent_adapter(args.adapter)
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
+    if adapter.status != "available":
+        print(f"Agent adapter `{args.adapter}` is registered but not implemented yet.")
+        return 1
     if not args.dry_run:
         print("Agent execution currently supports --dry-run only. Configure an adapter before live LLM execution.")
         return 1
@@ -160,9 +179,17 @@ def command_agents_run(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(str(exc))
         return 1
+    prepared = []
+    for path in written:
+        if path.name == "run-plan.yaml":
+            continue
+        prepared.append(adapter.prepare(path))
     print(f"Created dry-run agent execution packages under: {(Path(args.workspace) / '.ai' / 'run').resolve() if Path(args.workspace).name != '.ai' else (Path(args.workspace) / 'run').resolve()}")
     for path in written:
         print(f"- {path}")
+    for result in prepared:
+        if result.invocation_file:
+            print(f"- {result.invocation_file}")
     return 0
 
 
@@ -263,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     agents_sub = agents_parser.add_subparsers(dest="agents_command", required=True)
     agents_list_parser = agents_sub.add_parser("list", help="List default specialist agent roles")
     agents_list_parser.set_defaults(func=command_agents_list)
+    agents_adapters_parser = agents_sub.add_parser("adapters", help="List registered agent adapters")
+    agents_adapters_parser.set_defaults(func=command_agents_adapters)
     agents_scaffold_parser = agents_sub.add_parser("scaffold", help="Create a dry-run agent workspace")
     agents_scaffold_parser.add_argument("lab")
     agents_scaffold_parser.add_argument("--out")

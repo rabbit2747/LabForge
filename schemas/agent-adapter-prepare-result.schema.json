@@ -1,0 +1,50 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "adapter": {
+      "title": "Adapter",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "prepared",
+        "not-implemented"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "package_file": {
+      "title": "Package File",
+      "type": "string"
+    },
+    "invocation_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Invocation File"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter",
+    "task_id",
+    "status",
+    "package_file",
+    "message"
+  ],
+  "title": "AgentAdapterPrepareResult",
+  "type": "object"
+}
