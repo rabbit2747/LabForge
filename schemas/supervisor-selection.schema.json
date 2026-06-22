@@ -1,0 +1,22 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "selected_controls": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Selected Controls",
+      "type": "object"
+    },
+    "training_mode": {
+      "additionalProperties": true,
+      "title": "Training Mode",
+      "type": "object"
+    }
+  },
+  "title": "SupervisorSelectionSpec",
+  "type": "object"
+}

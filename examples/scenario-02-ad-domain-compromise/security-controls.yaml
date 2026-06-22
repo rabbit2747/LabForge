@@ -1,0 +1,39 @@
+recommended:
+  - Firewall / Segmentation
+  - WAF on HR Portal
+  - IDS East-West Sensor
+  - Central Log Collection
+  - Windows Event Forwarding
+  - EDR Lite Process Monitor
+
+controls:
+  firewall:
+    - id: fw-basic-segmentation
+      name: Basic segmentation
+      mode: enforce
+      description: Separates public, DMZ, corporate, and drop networks.
+    - id: fw-egress-restrict
+      name: Egress restriction
+      mode: enforce
+      description: Blocks direct outbound internet access from internal assets.
+  waf:
+    - id: waf-hr-portal
+      name: HR Portal WAF
+      mode: alert
+      description: Records suspicious template syntax and request anomalies.
+  ids:
+    - id: ids-east-west
+      name: East-west IDS
+      mode: alert
+      description: Observes movement between DMZ and corporate zones.
+  siem:
+    - id: siem-central-logs
+      name: Central log collection
+      mode: collect
+      description: Collects app, proxy, auth, and sensor logs.
+  edr:
+    - id: edr-lite-process-monitor
+      name: EDR-lite process monitor
+      mode: alert
+      description: Records shell spawning and suspicious child processes.
+

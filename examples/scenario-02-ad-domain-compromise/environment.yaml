@@ -1,0 +1,52 @@
+zones:
+  - id: public
+    name: Public learner access
+  - id: dmz
+    name: Externally reachable business services
+  - id: corp
+    name: Corporate identity and application network
+  - id: drop
+    name: Controlled submission network
+
+assets:
+  - id: edge-proxy
+    type: reverse_proxy
+    zone: public
+    os: linux
+    exposure: public
+  - id: attacker-workstation
+    type: learner_workstation
+    zone: public
+    os: linux
+    exposure: public
+  - id: hr-portal
+    type: web_app
+    zone: dmz
+    os: linux
+    exposure: public
+  - id: ldap-ad
+    type: directory_service
+    zone: corp
+    os: linux-prototype
+    exposure: internal
+  - id: reporting-server
+    type: application_server
+    zone: corp
+    os: linux-prototype
+    exposure: internal
+  - id: backup-server
+    type: backup_server
+    zone: corp
+    os: linux-prototype
+    exposure: internal
+  - id: fileserver
+    type: file_server
+    zone: corp
+    os: linux-prototype
+    exposure: internal
+  - id: controlled-drop
+    type: submission_service
+    zone: drop
+    os: linux
+    exposure: restricted
+

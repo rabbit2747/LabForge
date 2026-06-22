@@ -1,0 +1,39 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "seed": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Seed",
+      "type": "array"
+    },
+    "noise": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Noise",
+      "type": "array"
+    },
+    "learner_handouts": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Learner Handouts",
+      "type": "array"
+    },
+    "instructor_only": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Instructor Only",
+      "type": "array"
+    }
+  },
+  "title": "ArtifactSpec",
+  "type": "object"
+}

@@ -9,53 +9,9 @@ from .diagrams import (
     render_security_controls_diagram,
     render_topology_diagram,
 )
-from .io import dump_yaml, write_text
+from .io import write_text
 from .model import LabSpec
-
-
-def render_compose(spec: LabSpec) -> str:
-    compose: dict[str, Any] = {
-        "name": spec.lab_id,
-        "networks": {},
-        "volumes": {},
-        "services": {},
-    }
-
-    for network in spec.networks:
-        name = str(network["name"])
-        compose["networks"][name] = {"driver": "bridge"}
-        if network.get("internal", False):
-            compose["networks"][name]["internal"] = True
-
-    for service in spec.services:
-        name = str(service["name"])
-        entry: dict[str, Any] = {
-            "build": service.get("build", f"./services/{name}"),
-            "networks": service.get("networks", []),
-            "restart": "unless-stopped",
-            "security_opt": ["no-new-privileges:true"],
-            "cap_drop": ["ALL"],
-            "pids_limit": 200,
-        }
-        if service.get("read_only", True):
-            entry["read_only"] = True
-        if "user" in service:
-            entry["user"] = str(service["user"])
-        if service.get("expose"):
-            entry["expose"] = [str(port) for port in service["expose"]]
-        if service.get("ports"):
-            entry["ports"] = [str(port) for port in service["ports"]]
-        if service.get("environment"):
-            entry["environment"] = service["environment"]
-        if service.get("volumes"):
-            entry["volumes"] = service["volumes"]
-        if service.get("depends_on"):
-            entry["depends_on"] = service["depends_on"]
-        if service.get("healthcheck"):
-            entry["healthcheck"] = service["healthcheck"]
-        compose["services"][name] = entry
-
-    return dump_yaml(compose)
+from .providers.factory import get_provider
 
 
 def render_readme(spec: LabSpec) -> str:
@@ -117,8 +73,13 @@ def render_mitre_report(spec: LabSpec) -> str:
     return "\n".join(lines)
 
 
-def build_lab(spec: LabSpec, out: Path) -> None:
-    write_text(out / "docker-compose.yml", render_compose(spec))
+def build_lab(spec: LabSpec, out: Path, provider_name: str = "docker-compose") -> None:
+    provider = get_provider(provider_name)
+    provider_errors = provider.validate(spec)
+    if provider_errors:
+        joined = "\n".join(f"- {error}" for error in provider_errors)
+        raise ValueError(f"Provider validation failed for {provider_name}:\n{joined}")
+    provider.generate(spec, out)
     write_text(out / "README.md", render_readme(spec))
     write_text(out / "docs" / "mitre-mapping.md", render_mitre_report(spec))
     write_text(out / "docs" / "implementation-checklist.md", render_checklist(spec))

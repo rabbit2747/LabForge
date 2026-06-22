@@ -9,12 +9,12 @@ description = "Declarative hands-on security lab generator"
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
-  "jsonschema>=4.0"
+  "jsonschema>=4.0",
+  "pydantic>=2.0"
 ]
 
 [project.scripts]
 labforge = "labforge.cli:main"
 
-[tool.setuptools]
-packages = ["labforge"]
-
+[tool.setuptools.packages.find]
+include = ["labforge*"]

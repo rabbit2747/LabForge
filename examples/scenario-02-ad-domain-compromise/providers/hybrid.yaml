@@ -1,0 +1,9 @@
+provider: hybrid
+status: planned
+purpose: Combine Docker-hosted business services with VM-hosted Windows AD assets.
+expected_assets:
+  - Docker host for web/API services
+  - Windows Server VM for AD DS
+  - Windows client VM
+  - Linux attacker VM or container
+

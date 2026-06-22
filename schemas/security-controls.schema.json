@@ -1,0 +1,14 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "recommended": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Recommended",
+      "type": "array"
+    }
+  },
+  "title": "SecurityControlsSpec",
+  "type": "object"
+}

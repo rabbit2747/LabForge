@@ -1,34 +1,394 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LabForge Topology",
-  "type": "object",
-  "required": ["networks", "services"],
+  "$defs": {
+    "DeploymentSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "recommended_model": {
+          "default": "docker-compose",
+          "title": "Recommended Model",
+          "type": "string"
+        },
+        "docker_only_supported": {
+          "default": true,
+          "title": "Docker Only Supported",
+          "type": "boolean"
+        },
+        "docker_only_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Docker Only Notes"
+        },
+        "minimum_environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentRequirement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "realistic_environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentRequirement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "required_platforms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Platforms",
+          "type": "array"
+        }
+      },
+      "title": "DeploymentSpec",
+      "type": "object"
+    },
+    "EnvironmentRequirement": {
+      "additionalProperties": true,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "hosts": {
+          "items": {
+            "$ref": "#/$defs/HostRequirement"
+          },
+          "title": "Hosts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "EnvironmentRequirement",
+      "type": "object"
+    },
+    "HealthcheckSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "test": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Test",
+          "type": "array"
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interval"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retries"
+        }
+      },
+      "required": [
+        "test"
+      ],
+      "title": "HealthcheckSpec",
+      "type": "object"
+    },
+    "HostRequirement": {
+      "additionalProperties": true,
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "count": {
+          "default": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "os": {
+          "title": "Os",
+          "type": "string"
+        },
+        "cpu": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory"
+        },
+        "storage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage"
+        },
+        "software": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Software",
+          "type": "array"
+        }
+      },
+      "required": [
+        "role",
+        "os"
+      ],
+      "title": "HostRequirement",
+      "type": "object"
+    },
+    "NetworkSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "internal": {
+          "default": false,
+          "title": "Internal",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "NetworkSpec",
+      "type": "object"
+    },
+    "SecurityControlsSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "recommended": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended",
+          "type": "array"
+        }
+      },
+      "title": "SecurityControlsSpec",
+      "type": "object"
+    },
+    "ServiceSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "default": "service",
+          "title": "Role",
+          "type": "string"
+        },
+        "exposed": {
+          "default": false,
+          "title": "Exposed",
+          "type": "boolean"
+        },
+        "networks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Networks",
+          "type": "array"
+        },
+        "ports": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ports",
+          "type": "array"
+        },
+        "expose": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expose",
+          "type": "array"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment"
+        },
+        "volumes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Volumes"
+        },
+        "depends_on": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depends On"
+        },
+        "healthcheck": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HealthcheckSpec"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Healthcheck"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ServiceSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
   "properties": {
     "networks": {
-      "type": "array",
       "items": {
-        "type": "object",
-        "required": ["name"],
-        "properties": {
-          "name": {"type": "string"},
-          "internal": {"type": "boolean"}
-        }
-      }
+        "$ref": "#/$defs/NetworkSpec"
+      },
+      "title": "Networks",
+      "type": "array"
     },
     "services": {
-      "type": "array",
       "items": {
-        "type": "object",
-        "required": ["name", "networks", "healthcheck"],
-        "properties": {
-          "name": {"type": "string"},
-          "role": {"type": "string"},
-          "exposed": {"type": "boolean"},
-          "networks": {"type": "array", "items": {"type": "string"}},
-          "healthcheck": {"type": "object"}
-        }
-      }
+        "$ref": "#/$defs/ServiceSpec"
+      },
+      "title": "Services",
+      "type": "array"
+    },
+    "security_controls": {
+      "$ref": "#/$defs/SecurityControlsSpec"
+    },
+    "deployment": {
+      "$ref": "#/$defs/DeploymentSpec"
     }
-  }
+  },
+  "title": "TopologySpec",
+  "type": "object"
 }
-

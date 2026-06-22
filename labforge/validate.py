@@ -2,30 +2,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .model import LabSpec
-
-
-ENTERPRISE_TACTICS = {
-    "Reconnaissance",
-    "Resource Development",
-    "Initial Access",
-    "Execution",
-    "Persistence",
-    "Privilege Escalation",
-    "Defense Evasion",
-    "Credential Access",
-    "Discovery",
-    "Lateral Movement",
-    "Collection",
-    "Command and Control",
-    "Exfiltration",
-    "Impact",
-}
+from .spec_models import ENTERPRISE_TACTICS
 
 
 def validate_lab(root: Path) -> list[str]:
-    spec = LabSpec.load(root)
     errors: list[str] = []
+    try:
+        spec = LabSpec.load(root)
+    except FileNotFoundError as exc:
+        return [str(exc)]
+    except ValidationError as exc:
+        return [
+            f"{'.'.join(str(item) for item in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        ]
+    except ValueError as exc:
+        return [str(exc)]
 
     for key in ("id", "title", "summary", "final_objective"):
         if not spec.scenario.get(key):
@@ -74,4 +69,3 @@ def validate_lab(root: Path) -> list[str]:
                 errors.append(f"stage {stage_id} has incomplete technique entry")
 
     return errors
-

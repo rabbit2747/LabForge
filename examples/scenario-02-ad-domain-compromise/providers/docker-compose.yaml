@@ -1,0 +1,16 @@
+provider: docker-compose
+profile_support:
+  - unprotected
+  - protected
+purpose: Prototype the lab as Linux containers for early scenario validation.
+limitations:
+  - Does not provide a real Windows Domain Controller.
+  - Does not reproduce Kerberos, SMB, GPO, or Windows Event Log behavior with full fidelity.
+  - Should be replaced by ludus or hybrid provider for realistic AD delivery.
+entrypoints:
+  learner:
+    - service: edge-proxy
+      url: http://localhost:8080
+    - service: attacker-workstation
+      ssh: ssh attacker@127.0.0.1 -p 2222
+

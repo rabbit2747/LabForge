@@ -70,6 +70,9 @@ LabForge는 다음 원칙을 따른다.
 현재 구현된 MVP 기능은 다음과 같다.
 
 - `scenario.yaml`, `topology.yaml`, `stages.yaml` 로딩
+- `lab.yaml`, `environment.yaml`, `artifacts.yaml`, `security-controls.yaml`, `supervisor-selection.yaml` 선택적 로딩
+- pydantic v2 기반 v0.2 스펙 검증
+- JSON Schema export 명령
 - 필수 필드 검증
 - MITRE ATT&CK Enterprise tactic 검증
 - 각 stage의 technique ID/name 존재 여부 검증
@@ -82,6 +85,9 @@ LabForge는 다음 원칙을 따른다.
 - implementation checklist 생성
 - 감독자용 Mermaid architecture diagram 생성
 - 감독자용 deployment requirements 문서 생성
+- provider interface 1차 분리
+- `docker-compose` provider 실제 생성
+- `ansible`, `terraform`, `ludus`, `hybrid` provider skeleton 생성
 
 현재 아직 구현되지 않은 기능은 다음과 같다.
 
@@ -672,7 +678,7 @@ examples/scenario-02-ad-domain-compromise
 - Docker Compose 외 provider는 아직 없다.
 - protected/unprotected profile이 완전히 분리되어 있지 않다.
 - security control은 현재 diagram overlay와 문서화 수준이다.
-- JSON Schema 파일은 존재하지만 Python validator가 모든 schema 규칙을 완전히 사용하지는 않는다.
+- JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
 - generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
 
 ## 14. 다음 개발 단계 제안
@@ -681,7 +687,7 @@ examples/scenario-02-ad-domain-compromise
 
 1. 입력 스펙 v0.2 정리
 
-   `lab.yaml`, `environment.yaml`, `security-controls.yaml`, `providers/*.yaml` 구조를 추가한다.
+   `lab.yaml`, `environment.yaml`, `security-controls.yaml`, `providers/*.yaml` 구조를 추가한다. 현재 scenario-02 예제에는 v0.2 파일 구조와 pydantic 검증의 1차 구현이 적용되어 있다.
 
 2. protected/unprotected architecture 분리
 
@@ -697,7 +703,7 @@ examples/scenario-02-ad-domain-compromise
 
 5. provider interface 분리
 
-   Docker Compose renderer를 provider plugin처럼 분리하고 Ansible/Terraform skeleton을 추가한다.
+   Docker Compose renderer를 provider plugin처럼 분리하고 Ansible/Terraform skeleton을 추가한다. 현재 `docker-compose` provider와 `ansible`, `terraform`, `ludus`, `hybrid` skeleton은 1차 반영되어 있다.
 
 6. Orion Echo 변환
 
@@ -717,11 +723,40 @@ examples/scenario-02-ad-domain-compromise
 3. stages.yaml 작성
 4. python -m labforge validate <scenario-root>
 5. validation error 수정
-6. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-7. 감독자가 문서와 다이어그램 검토
-8. 보안장치 선택
-9. python -m labforge build <scenario-root> --out output/<scenario>
-10. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+6. python -m labforge schema export --out schemas
+7. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+8. 감독자가 문서와 다이어그램 검토
+9. 보안장치 선택
+10. python -m labforge build <scenario-root> --out output/<scenario>
+11. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
 현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
+
+## 16. v0.2 현재 반영 상태
+
+현재 코드에 반영된 v0.2 기반 작업은 다음과 같다.
+
+- pydantic 기반 spec model 추가
+- 기존 `scenario.yaml`, `topology.yaml`, `stages.yaml` 호환 유지
+- 선택 파일 추가 지원:
+  - `lab.yaml`
+  - `environment.yaml`
+  - `artifacts.yaml`
+  - `security-controls.yaml`
+  - `supervisor-selection.yaml`
+- provider 설정 디렉토리 예시 추가:
+  - `providers/docker-compose.yaml`
+  - `providers/ludus.yaml`
+  - `providers/hybrid.yaml`
+- provider interface 추가:
+  - `docker-compose`
+  - `ansible`
+  - `terraform`
+  - `ludus`
+  - `hybrid`
+- `python -m labforge schema export --out schemas` 명령 추가
+- `python -m labforge build <lab> --provider docker-compose --out <out>` 명령 추가
+- scenario-02 예제를 v0.2 구조로 확장
+
+다음 구현 우선순위는 protected/unprotected profile 분리와 Jinja2 템플릿화다.

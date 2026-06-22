@@ -1,0 +1,53 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "version": {
+      "default": "0.2",
+      "title": "Version",
+      "type": "string"
+    },
+    "difficulty": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Difficulty"
+    },
+    "mode": {
+      "default": "red-team",
+      "title": "Mode",
+      "type": "string"
+    },
+    "default_provider": {
+      "default": "docker-compose",
+      "title": "Default Provider",
+      "type": "string"
+    },
+    "supported_providers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Providers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "title"
+  ],
+  "title": "LabMetadata",
+  "type": "object"
+}

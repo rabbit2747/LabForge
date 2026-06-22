@@ -1,0 +1,13 @@
+id: scenario-02-ad-domain-compromise
+title: Scenario 02 - Active Directory Domain Compromise
+version: "0.2"
+difficulty: advanced
+mode: red-team
+default_provider: docker-compose
+supported_providers:
+  - docker-compose
+  - ludus
+  - hybrid
+  - ansible
+  - terraform
+

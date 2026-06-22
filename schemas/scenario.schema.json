@@ -1,15 +1,41 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LabForge Scenario",
-  "type": "object",
-  "required": ["id", "title", "summary", "final_objective"],
+  "additionalProperties": true,
   "properties": {
-    "id": {"type": "string"},
-    "title": {"type": "string"},
-    "summary": {"type": "string"},
-    "final_objective": {"type": "string"},
-    "motivation": {"type": "array", "items": {"type": "string"}},
-    "safety": {"type": "object"}
-  }
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "final_objective": {
+      "title": "Final Objective",
+      "type": "string"
+    },
+    "learner_entrypoint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Learner Entrypoint"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "summary",
+    "final_objective"
+  ],
+  "title": "ScenarioSpec",
+  "type": "object"
 }
-

@@ -1,40 +1,110 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LabForge Stages",
-  "type": "object",
-  "required": ["stages"],
+  "$defs": {
+    "MitreStageMapping": {
+      "additionalProperties": true,
+      "properties": {
+        "tactic": {
+          "title": "Tactic",
+          "type": "string"
+        },
+        "techniques": {
+          "items": {
+            "$ref": "#/$defs/TechniqueSpec"
+          },
+          "title": "Techniques",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tactic"
+      ],
+      "title": "MitreStageMapping",
+      "type": "object"
+    },
+    "StageSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "procedure": {
+          "title": "Procedure",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "mitre": {
+          "$ref": "#/$defs/MitreStageMapping"
+        },
+        "required_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Findings",
+          "type": "array"
+        },
+        "next_stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Stage"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "procedure",
+        "mitre"
+      ],
+      "title": "StageSpec",
+      "type": "object"
+    },
+    "TechniqueSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "TechniqueSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
   "properties": {
     "stages": {
-      "type": "array",
       "items": {
-        "type": "object",
-        "required": ["id", "title", "procedure", "mitre"],
-        "properties": {
-          "id": {"type": "string"},
-          "title": {"type": "string"},
-          "procedure": {"type": "string"},
-          "evidence": {"type": "array", "items": {"type": "string"}},
-          "mitre": {
-            "type": "object",
-            "required": ["tactic", "techniques"],
-            "properties": {
-              "tactic": {"type": "string"},
-              "techniques": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "required": ["id", "name"],
-                  "properties": {
-                    "id": {"type": "string"},
-                    "name": {"type": "string"}
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+        "$ref": "#/$defs/StageSpec"
+      },
+      "title": "Stages",
+      "type": "array"
     }
-  }
+  },
+  "title": "StagesSpec",
+  "type": "object"
 }
-

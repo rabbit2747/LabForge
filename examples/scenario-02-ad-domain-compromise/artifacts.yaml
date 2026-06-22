@@ -1,0 +1,27 @@
+seed:
+  - id: hr-portal-cases
+    target: hr-portal
+    description: HR support tickets and profile preview data.
+  - id: ldap-directory
+    target: ldap-ad
+    description: Prototype directory users, groups, and service accounts.
+  - id: board-strategy-archive
+    target: fileserver
+    description: Final controlled collection object.
+
+noise:
+  - id: stale-vpn-notes
+    target: reporting-server
+    description: Decoy internal maintenance notes unrelated to the attack path.
+  - id: old-backup-runbooks
+    target: backup-server
+    description: Historical backup notes that should not unlock the final path.
+
+learner_handouts:
+  - id: entrypoint
+    description: Starting URL and high-level final objective only.
+
+instructor_only:
+  - id: answer-key
+    description: Full solution path, expected evidence, and reset notes.
+

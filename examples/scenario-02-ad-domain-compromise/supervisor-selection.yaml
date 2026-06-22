@@ -1,0 +1,16 @@
+selected_controls:
+  firewall:
+    - fw-basic-segmentation
+  waf: []
+  ids:
+    - ids-east-west
+  siem:
+    - siem-central-logs
+  edr: []
+
+training_mode:
+  mode: red-team
+  profile: unprotected
+  detection_feedback: instructor_only
+  allow_student_log_access: false
+

@@ -4,7 +4,9 @@ import argparse
 from pathlib import Path
 
 from .model import LabSpec
+from .providers.factory import list_providers
 from .render import build_lab, render_docs
+from .schema import export_schemas
 from .validate import validate_lab
 
 
@@ -29,8 +31,8 @@ def command_build(args: argparse.Namespace) -> int:
         print("Use --force to render anyway.")
         return 1
     spec = LabSpec.load(root)
-    build_lab(spec, Path(args.out))
-    print(f"Built lab scaffold: {Path(args.out).resolve()}")
+    build_lab(spec, Path(args.out), provider_name=args.provider)
+    print(f"Built lab scaffold with provider {args.provider}: {Path(args.out).resolve()}")
     return 0
 
 
@@ -39,6 +41,14 @@ def command_docs(args: argparse.Namespace) -> int:
     spec = LabSpec.load(root)
     render_docs(spec, Path(args.out))
     print(f"Rendered docs: {Path(args.out).resolve()}")
+    return 0
+
+
+def command_schema_export(args: argparse.Namespace) -> int:
+    paths = export_schemas(Path(args.out))
+    print(f"Exported {len(paths)} schema files: {Path(args.out).resolve()}")
+    for path in paths:
+        print(f"- {path.name}")
     return 0
 
 
@@ -53,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")
     build_parser.add_argument("--out", required=True)
+    build_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
     build_parser.add_argument("--force", action="store_true")
     build_parser.set_defaults(func=command_build)
 
@@ -61,10 +72,15 @@ def main(argv: list[str] | None = None) -> int:
     docs_parser.add_argument("--out", required=True)
     docs_parser.set_defaults(func=command_docs)
 
+    schema_parser = sub.add_parser("schema", help="Schema utilities")
+    schema_sub = schema_parser.add_subparsers(dest="schema_command", required=True)
+    schema_export_parser = schema_sub.add_parser("export", help="Export JSON Schemas")
+    schema_export_parser.add_argument("--out", required=True)
+    schema_export_parser.set_defaults(func=command_schema_export)
+
     args = parser.parse_args(argv)
     return int(args.func(args))
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

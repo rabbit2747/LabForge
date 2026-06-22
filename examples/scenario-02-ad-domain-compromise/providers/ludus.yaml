@@ -1,0 +1,9 @@
+provider: ludus
+status: planned
+purpose: Generate a Proxmox-backed range for realistic Windows AD delivery.
+expected_assets:
+  - Windows Server Domain Controller
+  - Windows workstation or member server
+  - Linux attacker workstation
+  - Optional Wazuh/Sysmon telemetry nodes
+

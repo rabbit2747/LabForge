@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "AssetSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "zone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Zone"
+        },
+        "os": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Os"
+        },
+        "exposure": {
+          "anyOf": [
+            {
+              "enum": [
+                "public",
+                "internal",
+                "restricted"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": "internal",
+          "title": "Exposure"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "AssetSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "zones": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Zones",
+      "type": "array"
+    },
+    "assets": {
+      "items": {
+        "$ref": "#/$defs/AssetSpec"
+      },
+      "title": "Assets",
+      "type": "array"
+    }
+  },
+  "title": "EnvironmentSpec",
+  "type": "object"
+}
