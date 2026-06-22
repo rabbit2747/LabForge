@@ -55,6 +55,7 @@ python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
 python -m labforge controls list examples/scenario-02-ad-domain-compromise
 python -m labforge package examples/scenario-02-ad-domain-compromise --out output/scenario-02-package --provider docker-compose --profile protected --all-profiles --materialize --force
+python -m labforge workflow status examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
 python -m labforge services scaffold examples/scenario-02-ad-domain-compromise
@@ -66,6 +67,7 @@ python -m labforge services plan examples/scenario-02-ad-domain-compromise --out
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
 python -m labforge services review-results examples/scenario-02-ad-domain-compromise --results output/scenario-02-service-agents/.ai/outputs --force
 python -m labforge services apply-results examples/scenario-02-ad-domain-compromise --results output/scenario-02-service-agents/.ai/outputs
+python -m labforge workflow plan examples/scenario-02-ad-domain-compromise --results output/scenario-02-service-agents/.ai/outputs --provider docker-compose --profile protected
 python -m labforge services review-result examples/scenario-02-ad-domain-compromise --result output/scenario-02-service-agents/.ai/outputs/service-build-<service>.result.yaml --force
 python -m labforge services apply-result examples/scenario-02-ad-domain-compromise --result output/scenario-02-service-agents/.ai/outputs/service-build-<service>.result.yaml --dry-run
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
@@ -172,6 +174,7 @@ python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml
 python -m labforge validate output/new-lab
 python -m labforge lint output/new-lab
 python -m labforge controls apply output/new-lab --clear --select firewall=fw-basic-segmentation --select ids=ids-east-west --profile protected
+python -m labforge workflow status output/new-lab --provider docker-compose --profile protected
 python -m labforge services scaffold output/new-lab
 python -m labforge services materialize output/new-lab --force
 python -m labforge services verify output/new-lab
@@ -179,6 +182,7 @@ python -m labforge services plan output/new-lab --out output/new-lab-service-pla
 python -m labforge services agent-packages output/new-lab --out output/new-lab-service-agents --adapter manual
 python -m labforge services review-results output/new-lab --results output/new-lab-service-agents/.ai/outputs --force
 python -m labforge services apply-results output/new-lab --results output/new-lab-service-agents/.ai/outputs
+python -m labforge workflow plan output/new-lab --results output/new-lab-service-agents/.ai/outputs --provider docker-compose --profile protected
 python -m labforge services review-result output/new-lab --result output/new-lab-service-agents/.ai/outputs/service-build-entry-service.result.yaml --force
 python -m labforge services apply-result output/new-lab --result output/new-lab-service-agents/.ai/outputs/service-build-entry-service.result.yaml --dry-run
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
@@ -212,6 +216,13 @@ Batch apply is dry-run by default; pass `--execute` only after review. The apply
 commands accept schema-valid result YAML with `service_changes`, verify that
 every target path stays inside the declared service directory, block overwrites
 unless `--force` is set, and can run without changing files first.
+
+`workflow status` and `workflow plan` summarize the current build state and show
+the next LabForge commands a supervisor should run. They do not modify files.
+Pass `--results <service-agent-output-dir>` after service-builder packages exist
+so the workflow can include review/apply readiness in the report.
+See `docs/workflow-orchestration.md` for the workflow phases and report
+contract.
 
 Non-Docker providers currently generate deterministic scaffold artifacts rather
 than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and

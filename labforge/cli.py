@@ -41,6 +41,7 @@ from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
+from .workflow import create_workflow_report, workflow_report_to_json, workflow_report_to_markdown
 from .service_artifacts import (
     apply_service_result,
     apply_service_results,
@@ -207,6 +208,29 @@ def command_package(args: argparse.Namespace) -> int:
     print(f"- {(Path(args.out) / 'reports').resolve()}")
     print(f"- {(Path(args.out) / 'qa').resolve()}")
     return 0 if report.status in {"passed", "warning"} else 1
+
+
+def command_workflow_status(args: argparse.Namespace) -> int:
+    report = create_workflow_report(
+        Path(args.lab),
+        provider=args.provider,
+        profile=args.profile,
+        result_dir=Path(args.results) if args.results else None,
+        package_dir=Path(args.package_dir) if args.package_dir else None,
+    )
+    if args.out:
+        out = Path(args.out)
+        write_text(out, workflow_report_to_json(report) if args.format == "json" else workflow_report_to_markdown(report))
+        print(f"Rendered workflow status: {out.resolve()}")
+    elif args.format == "json":
+        print(workflow_report_to_json(report))
+    else:
+        print(workflow_report_to_markdown(report))
+    return 0 if report.status != "blocked" else 1
+
+
+def command_workflow_plan(args: argparse.Namespace) -> int:
+    return command_workflow_status(args)
 
 
 def command_controls_list(args: argparse.Namespace) -> int:
@@ -701,6 +725,22 @@ def main(argv: list[str] | None = None) -> int:
     package_parser.add_argument("--all-profiles", action="store_true", help="Also render unprotected and protected provider outputs side by side")
     package_parser.add_argument("--force", action="store_true")
     package_parser.set_defaults(func=command_package)
+
+    workflow_parser = sub.add_parser("workflow", help="Inspect lab build workflow status and next commands")
+    workflow_sub = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+    for workflow_command, help_text, func in (
+        ("status", "Report current workflow status", command_workflow_status),
+        ("plan", "Render the next-command workflow plan", command_workflow_plan),
+    ):
+        workflow_command_parser = workflow_sub.add_parser(workflow_command, help=help_text)
+        workflow_command_parser.add_argument("lab")
+        workflow_command_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+        workflow_command_parser.add_argument("--profile", default="protected", choices=["unprotected", "protected"])
+        workflow_command_parser.add_argument("--results", help="Directory containing service-builder *.result.yaml files")
+        workflow_command_parser.add_argument("--package-dir", help="Expected supervisor package output directory")
+        workflow_command_parser.add_argument("--format", choices=["text", "json"], default="text")
+        workflow_command_parser.add_argument("--out")
+        workflow_command_parser.set_defaults(func=func)
 
     controls_parser = sub.add_parser("controls", help="Security control catalog and supervisor selection utilities")
     controls_sub = controls_parser.add_subparsers(dest="controls_command", required=True)

@@ -15,6 +15,7 @@ from .qa import QA_SCHEMA_MODELS
 from .service_artifacts import SERVICE_ARTIFACT_SCHEMA_MODELS
 from .service_verification import SERVICE_VERIFICATION_SCHEMA_MODELS
 from .spec_models import SCHEMA_MODELS
+from .workflow import WORKFLOW_SCHEMA_MODELS
 
 
 def export_schemas(out: Path) -> list[Path]:
@@ -31,6 +32,7 @@ def export_schemas(out: Path) -> list[Path]:
         **PROVIDER_LIFECYCLE_SCHEMA_MODELS,
         **LINT_SCHEMA_MODELS,
         **PACKAGE_SCHEMA_MODELS,
+        **WORKFLOW_SCHEMA_MODELS,
     }.items():
         schema = model.model_json_schema()
         target = out / filename

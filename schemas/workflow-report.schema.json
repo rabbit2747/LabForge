@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "WorkflowStep": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "done",
+            "ready",
+            "pending",
+            "warning",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "next_commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Commands",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "purpose"
+      ],
+      "title": "WorkflowStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "in-progress",
+        "blocked"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "current_step": {
+      "default": "",
+      "title": "Current Step",
+      "type": "string"
+    },
+    "provider": {
+      "default": "docker-compose",
+      "title": "Provider",
+      "type": "string"
+    },
+    "profile": {
+      "default": "protected",
+      "title": "Profile",
+      "type": "string"
+    },
+    "result_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Result Dir"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/WorkflowStep"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "title",
+    "status"
+  ],
+  "title": "WorkflowReport",
+  "type": "object"
+}

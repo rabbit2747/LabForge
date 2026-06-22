@@ -50,6 +50,8 @@ jobs:
           python -m labforge services scaffold output/starter-lab
           python -m labforge services materialize output/starter-lab --force
           python -m labforge services check output/starter-lab
+          python -m labforge workflow status output/starter-lab --provider docker-compose --profile protected --out output/starter-workflow-status.md || true
+          python -m labforge workflow plan output/starter-lab --provider docker-compose --profile protected --format json --out output/starter-workflow-plan.json || true
           cat > output/starter-entry-service.result.yaml <<'YAML'
           task_id: service-build-entry-service
           status: complete
@@ -78,6 +80,7 @@ jobs:
           python -m labforge services verify output/starter-lab
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
           python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual
+          python -m labforge workflow status output/starter-lab --results output/starter-service-agents/.ai/outputs --provider docker-compose --profile protected --out output/starter-workflow-with-results.md || true
           grep -q "service_changes:" output/starter-service-agents/.ai/outputs/service-build-entry-service.result.yaml
           if python -m labforge services review-results output/starter-lab --results output/starter-service-agents/.ai/outputs --force --out output/starter-service-batch-review.md; then
             echo "batch review unexpectedly ready for empty service-builder stubs"
