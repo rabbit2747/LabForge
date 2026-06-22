@@ -7,6 +7,7 @@ from .model import LabSpec
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .intake import create_intake_template
 from .packaging import create_supervisor_package
 from .agent_orchestration import (
     append_agent_decision,
@@ -71,6 +72,22 @@ def command_lint(args: argparse.Namespace) -> int:
 def command_init(args: argparse.Namespace) -> int:
     written = init_lab(Path(args.out), lab_id=args.lab_id, title=args.title, force=args.force)
     print(f"Initialized LabForge scenario template: {Path(args.out).resolve()}")
+    if written:
+        for path in written:
+            print(f"- {path}")
+    else:
+        print("No files written. Existing files were left unchanged. Use --force to overwrite.")
+    return 0
+
+
+def command_intake_template(args: argparse.Namespace) -> int:
+    written = create_intake_template(
+        Path(args.out),
+        lab_id=args.lab_id,
+        title=args.title,
+        force=args.force,
+    )
+    print(f"Rendered scenario intake template: {Path(args.out).resolve()}")
     if written:
         for path in written:
             print(f"- {path}")
@@ -413,6 +430,15 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument("--title", required=True)
     init_parser.add_argument("--force", action="store_true")
     init_parser.set_defaults(func=command_init)
+
+    intake_parser = sub.add_parser("intake", help="Scenario intake utilities")
+    intake_sub = intake_parser.add_subparsers(dest="intake_command", required=True)
+    intake_template_parser = intake_sub.add_parser("template", help="Create a human scenario intake template")
+    intake_template_parser.add_argument("--out", required=True)
+    intake_template_parser.add_argument("--lab-id", required=True)
+    intake_template_parser.add_argument("--title", required=True)
+    intake_template_parser.add_argument("--force", action="store_true")
+    intake_template_parser.set_defaults(func=command_intake_template)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")

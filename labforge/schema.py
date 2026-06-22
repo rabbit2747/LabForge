@@ -6,6 +6,7 @@ from pathlib import Path
 from .io import write_text
 from .agent_adapters import ADAPTER_SCHEMA_MODELS
 from .agent_orchestration import AGENT_SCHEMA_MODELS
+from .intake import INTAKE_SCHEMA_MODELS
 from .linting import LINT_SCHEMA_MODELS
 from .packaging import PACKAGE_SCHEMA_MODELS
 from .provider_lifecycle import PROVIDER_LIFECYCLE_SCHEMA_MODELS
@@ -19,6 +20,7 @@ def export_schemas(out: Path) -> list[Path]:
         **SCHEMA_MODELS,
         **AGENT_SCHEMA_MODELS,
         **ADAPTER_SCHEMA_MODELS,
+        **INTAKE_SCHEMA_MODELS,
         **QA_SCHEMA_MODELS,
         **PROVIDER_LIFECYCLE_SCHEMA_MODELS,
         **LINT_SCHEMA_MODELS,
