@@ -43,6 +43,8 @@ jobs:
           python -m labforge init --out output/starter-lab --lab-id starter-lab --title "Starter Lab"
           python -m labforge validate output/starter-lab
           python -m labforge lint output/starter-lab
+          python -m labforge controls list output/starter-lab
+          python -m labforge controls apply output/starter-lab --clear --select firewall=fw-basic-segmentation --select ids=ids-east-west --profile protected
           python -m labforge services scaffold output/starter-lab
           python -m labforge services materialize output/starter-lab --force
           python -m labforge services check output/starter-lab

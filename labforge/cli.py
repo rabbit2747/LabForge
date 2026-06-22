@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .model import LabSpec
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
+from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .intake import create_intake_template
@@ -177,6 +178,32 @@ def command_package(args: argparse.Namespace) -> int:
     print(f"- {(Path(args.out) / 'reports').resolve()}")
     print(f"- {(Path(args.out) / 'qa').resolve()}")
     return 0 if report.status in {"passed", "warning"} else 1
+
+
+def command_controls_list(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    print(render_control_catalog(spec))
+    return 0
+
+
+def command_controls_apply(args: argparse.Namespace) -> int:
+    try:
+        data = apply_control_selection(
+            Path(args.lab),
+            args.select,
+            clear=args.clear,
+            profile=args.profile,
+            detection_feedback=args.detection_feedback,
+            allow_student_log_access=args.allow_student_log_access,
+        )
+    except ValueError as exc:
+        print(f"Control selection failed: {exc}")
+        return 1
+    print(f"Updated supervisor selection: {(Path(args.lab) / 'supervisor-selection.yaml').resolve()}")
+    for category, values in (data.get("selected_controls", {}) or {}).items():
+        joined = ", ".join(str(value) for value in values) if values else "(none)"
+        print(f"- {category}: {joined}")
+    return 0
 
 
 def command_agents_list(args: argparse.Namespace) -> int:
@@ -481,6 +508,20 @@ def main(argv: list[str] | None = None) -> int:
     package_parser.add_argument("--materialize", action="store_true")
     package_parser.add_argument("--force", action="store_true")
     package_parser.set_defaults(func=command_package)
+
+    controls_parser = sub.add_parser("controls", help="Security control catalog and supervisor selection utilities")
+    controls_sub = controls_parser.add_subparsers(dest="controls_command", required=True)
+    controls_list_parser = controls_sub.add_parser("list", help="List available and selected security controls")
+    controls_list_parser.add_argument("lab")
+    controls_list_parser.set_defaults(func=command_controls_list)
+    controls_apply_parser = controls_sub.add_parser("apply", help="Apply supervisor security control selections")
+    controls_apply_parser.add_argument("lab")
+    controls_apply_parser.add_argument("--select", action="append", default=[], help="Selection in CATEGORY=CONTROL_ID format. Can be repeated.")
+    controls_apply_parser.add_argument("--clear", action="store_true", help="Clear existing selected controls before applying selections")
+    controls_apply_parser.add_argument("--profile", choices=["unprotected", "protected"])
+    controls_apply_parser.add_argument("--detection-feedback", choices=["none", "instructor_only", "learner_visible"])
+    controls_apply_parser.add_argument("--allow-student-log-access", action="store_true")
+    controls_apply_parser.set_defaults(func=command_controls_apply)
 
     agents_parser = sub.add_parser("agents", help="Agent orchestration utilities")
     agents_sub = agents_parser.add_subparsers(dest="agents_command", required=True)

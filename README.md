@@ -52,6 +52,7 @@ python -m labforge intake template --out output/intake-scenario-02 --lab-id scen
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
+python -m labforge controls list examples/scenario-02-ad-domain-compromise
 python -m labforge package examples/scenario-02-ad-domain-compromise --out output/scenario-02-package --provider docker-compose --profile protected --materialize --force
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
 python -m labforge agents validate output/scenario-02-agents
@@ -152,6 +153,7 @@ python -m labforge intake template --out output/new-intake --lab-id new-lab --ti
 python -m labforge init --out output/new-lab --lab-id new-lab --title "New Lab"
 python -m labforge validate output/new-lab
 python -m labforge lint output/new-lab
+python -m labforge controls apply output/new-lab --clear --select firewall=fw-basic-segmentation --select ids=ids-east-west --profile protected
 python -m labforge services scaffold output/new-lab
 python -m labforge services materialize output/new-lab --force
 python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --out output/scenario-02-agents
