@@ -191,6 +191,24 @@ python -m labforge agents decide output/scenario-02-agents --decision accepted -
 - `healthcheck`
 - 학생용 힌트와 강사용 answer key 분리
 
+### Phase 5.1. QA Smoke Loop
+
+`qa smoke`는 현재 lab 정의가 최소 실행 가능한 상태인지 빠르게 확인한다.
+
+```powershell
+python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force
+```
+
+이 명령은 다음을 순서대로 수행한다.
+
+- schema validation
+- service artifact check
+- optional placeholder runtime materialization
+- provider build
+- `qa-smoke-report.yaml`, `qa-smoke-report.md` 생성
+
+이는 실제 학생 플레이테스트를 대체하지 않는다. 다만 provider engineer와 QA agent가 실습 환경을 만들기 전에 깨진 스펙, 누락된 서비스 계약, provider build 오류를 빠르게 잡기 위한 gate다.
+
 ### Phase 6. LLM Adapter
 
 - OpenAI / Claude CLI / MCP adapter

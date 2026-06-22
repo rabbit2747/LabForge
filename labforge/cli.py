@@ -23,6 +23,7 @@ from .agent_orchestration import (
 )
 from .io import write_text
 from .providers.factory import list_providers
+from .qa import run_qa_smoke
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_artifacts import (
@@ -297,6 +298,21 @@ def command_services_hook(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def command_qa_smoke(args: argparse.Namespace) -> int:
+    report = run_qa_smoke(
+        Path(args.lab),
+        Path(args.out),
+        provider=args.provider,
+        profile=args.profile,
+        materialize=args.materialize,
+        force=args.force,
+    )
+    print(f"QA smoke status: {report.status}")
+    print(f"- {(Path(args.out) / 'qa-smoke-report.md').resolve()}")
+    print(f"- {(Path(args.out) / 'qa-smoke-report.yaml').resolve()}")
+    return 0 if report.status in {"passed", "warning"} else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -396,6 +412,17 @@ def main(argv: list[str] | None = None) -> int:
         hook_parser.add_argument("--service", help="Run a single service hook")
         hook_parser.add_argument("--dry-run", action="store_true", help="Print hook targets without executing them")
         hook_parser.set_defaults(func=command_services_hook, hook=hook_name)
+
+    qa_parser = sub.add_parser("qa", help="QA and smoke-test utilities")
+    qa_sub = qa_parser.add_subparsers(dest="qa_command", required=True)
+    qa_smoke_parser = qa_sub.add_parser("smoke", help="Run schema, service, and provider smoke checks")
+    qa_smoke_parser.add_argument("lab")
+    qa_smoke_parser.add_argument("--out", required=True)
+    qa_smoke_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    qa_smoke_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
+    qa_smoke_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize placeholder runtimes before building")
+    qa_smoke_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
+    qa_smoke_parser.set_defaults(func=command_qa_smoke)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

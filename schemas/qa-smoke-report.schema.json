@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "QaCheck": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "warning",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Messages",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "QaCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "profile": {
+      "title": "Profile",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "warning",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/QaCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "output_dir": {
+      "title": "Output Dir",
+      "type": "string"
+    }
+  },
+  "required": [
+    "lab_id",
+    "provider",
+    "profile",
+    "status",
+    "output_dir"
+  ],
+  "title": "QaSmokeReport",
+  "type": "object"
+}

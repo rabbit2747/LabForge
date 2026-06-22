@@ -173,3 +173,11 @@ than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and
 `hybrid` outputs include provider plans, inventory files, security profiles, and
 provider-specific starter files so provider engineers can complete the runnable
 implementation without reverse-engineering the scenario spec.
+
+QA smoke checks can validate the current lab definition, service artifact
+contracts, optional placeholder runtime materialization, and provider build in
+one pass:
+
+```powershell
+python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force
+```
