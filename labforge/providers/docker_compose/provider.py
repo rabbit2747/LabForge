@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ class DockerComposeProvider(Provider):
         write_text(out / "docker-compose.yml", render_compose(spec, profile=profile))
         write_text(out / "docs" / "provider-security-plan.md", render_security_plan(spec, profile))
         write_text(out / "docs" / "provider-service-plan.md", render_provider_service_plan(spec))
+        copy_service_sources(spec, out)
         write_runtime_scripts(out)
 
 
@@ -36,6 +38,20 @@ def service_build_context(spec: LabSpec, service: dict[str, Any], artifacts: dic
         if source.exists():
             return f"./{artifact.source_path}"
     return f"./services/{name}"
+
+
+def copy_service_sources(spec: LabSpec, out: Path) -> None:
+    for artifact in service_artifact_map(spec).values():
+        source = spec.root / artifact.source_path
+        if not source.exists() or not source.is_dir():
+            continue
+        target = out / artifact.source_path
+        shutil.copytree(
+            source,
+            target,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+        )
 
 
 def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
@@ -239,7 +255,9 @@ def render_provider_service_plan(spec: LabSpec) -> str:
         "## Reset Notes",
         "",
         "The generated `scripts/reset.*` currently performs a Compose volume reset.",
-        "Service-specific reset behavior declared in `artifacts.yaml` should be implemented inside service reset hooks or future provider-specific reset orchestration.",
+        "The generated `scripts/services-reset.*` runs copied service `reset.sh` hooks.",
+        "The generated `scripts/services-healthcheck.*` runs copied service `healthcheck.sh` hooks.",
+        "Service-specific hooks should replace placeholders with deterministic implementation logic before the lab is treated as runnable.",
         "",
     ]
     return "\n".join(lines)
@@ -255,6 +273,9 @@ def write_runtime_scripts(out: Path) -> None:
     for name, args in scripts.items():
         write_text(out / "scripts" / f"{name}.sh", render_shell_script(args))
         write_text(out / "scripts" / f"{name}.ps1", render_powershell_script(args))
+    for hook in ("healthcheck", "reset"):
+        write_text(out / "scripts" / f"services-{hook}.sh", render_service_hook_shell_script(hook))
+        write_text(out / "scripts" / f"services-{hook}.ps1", render_service_hook_powershell_script(hook))
     write_text(out / "scripts" / "README.md", render_scripts_readme())
 
 
@@ -277,6 +298,71 @@ def render_shell_script(compose_args: list[str]) -> str:
             'LAB_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"',
             'cd "$LAB_ROOT"',
             body,
+            "",
+        ]
+    )
+
+
+def render_service_hook_shell_script(hook: str) -> str:
+    return "\n".join(
+        [
+            "#!/usr/bin/env sh",
+            "set -eu",
+            'LAB_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"',
+            'cd "$LAB_ROOT"',
+            f"FOUND=0",
+            f"for script in services/*/{hook}.sh; do",
+            '    [ -f "$script" ] || continue',
+            "    FOUND=1",
+            '    echo "[labforge] running $script"',
+            '    sh "$script"',
+            "done",
+            'if [ "$FOUND" -eq 0 ]; then',
+            f"    echo '[labforge] no services/*/{hook}.sh hooks found'",
+            "fi",
+            "",
+        ]
+    )
+
+
+def render_service_hook_powershell_script(hook: str) -> str:
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            "$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path",
+            "$LabRoot = (Resolve-Path (Join-Path $ScriptDir '..')).Path",
+            f"$HookScript = Join-Path $ScriptDir 'services-{hook}.sh'",
+            "",
+            "function ConvertTo-LabForgeWslPath([string]$Path) {",
+            "    $FullPath = (Resolve-Path $Path).Path",
+            "    if ($FullPath -match '^([A-Za-z]):\\\\(.*)$') {",
+            "        $Drive = $Matches[1].ToLowerInvariant()",
+            "        $Rest = $Matches[2] -replace '\\\\', '/'",
+            "        return \"/mnt/$Drive/$Rest\"",
+            "    }",
+            "    return ($FullPath -replace '\\\\', '/')",
+            "}",
+            "",
+            "if (Get-Command sh -ErrorAction SilentlyContinue) {",
+            "    Push-Location $LabRoot",
+            "    try {",
+            "        & sh $HookScript",
+            "        if ($LASTEXITCODE -ne 0) { throw \"service hook failed with exit code $LASTEXITCODE\" }",
+            "    } finally {",
+            "        Pop-Location",
+            "    }",
+            "    return",
+            "}",
+            "",
+            "if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {",
+            "    throw 'No POSIX shell found. Install sh/Git Bash/WSL to run service hooks on Windows.'",
+            "}",
+            "",
+            "$DistroArgs = @()",
+            "if ($env:LABFORGE_WSL_DISTRO) { $DistroArgs = @('-d', $env:LABFORGE_WSL_DISTRO) }",
+            "$WslHook = ConvertTo-LabForgeWslPath $HookScript",
+            "wsl.exe @DistroArgs -- sh $WslHook",
+            "if ($LASTEXITCODE -ne 0) { throw \"WSL service hook failed with exit code $LASTEXITCODE\" }",
             "",
         ]
     )
@@ -396,6 +482,8 @@ def render_scripts_readme() -> str:
             "| `start.ps1` / `start.sh` | Build and start the lab. |",
             "| `stop.ps1` / `stop.sh` | Stop the lab without deleting volumes. |",
             "| `reset.ps1` / `reset.sh` | Delete volumes and rebuild the lab. |",
+            "| `services-healthcheck.ps1` / `services-healthcheck.sh` | Run service `healthcheck.sh` hooks copied into the generated lab. |",
+            "| `services-reset.ps1` / `services-reset.sh` | Run service `reset.sh` hooks copied into the generated lab. |",
             "",
             "PowerShell scripts first try Docker in the current shell. If Docker is not available, they delegate to WSL.",
             "When WSL delegation is needed, the scripts auto-detect a WSL distro with a reachable Docker server.",

@@ -15,7 +15,7 @@ from .io import write_text
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
 from .schema import export_schemas
-from .service_artifacts import scaffold_service_artifacts, service_check
+from .service_artifacts import run_service_hooks, scaffold_service_artifacts, service_check
 from .validate import validate_lab
 
 
@@ -150,6 +150,30 @@ def command_services_scaffold(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_hook(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    runs, errors = run_service_hooks(
+        spec,
+        args.hook,
+        service=args.service,
+        dry_run=args.dry_run,
+    )
+    failed = False
+    for error in errors:
+        print(f"- {error}")
+        failed = True
+    for run in runs:
+        status = "passed" if run.returncode == 0 else "failed"
+        print(f"[{status}] {run.service} {run.hook}: {run.path}")
+        if run.stdout:
+            print(run.stdout)
+        if run.stderr:
+            print(run.stderr)
+        if run.returncode != 0:
+            failed = True
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -212,6 +236,12 @@ def main(argv: list[str] | None = None) -> int:
     services_scaffold_parser.add_argument("lab")
     services_scaffold_parser.add_argument("--force", action="store_true", help="Overwrite existing scaffold files")
     services_scaffold_parser.set_defaults(func=command_services_scaffold)
+    for hook_name in ("healthcheck", "reset"):
+        hook_parser = services_sub.add_parser(hook_name, help=f"Run service {hook_name}.sh hooks")
+        hook_parser.add_argument("lab")
+        hook_parser.add_argument("--service", help="Run a single service hook")
+        hook_parser.add_argument("--dry-run", action="store_true", help="Print hook targets without executing them")
+        hook_parser.set_defaults(func=command_services_hook, hook=hook_name)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

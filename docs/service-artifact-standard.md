@@ -90,9 +90,30 @@ directory and required files:
 python -m labforge services check <lab-root>
 ```
 
+Run healthcheck hooks:
+
+```powershell
+python -m labforge services healthcheck <lab-root>
+python -m labforge services healthcheck <lab-root> --service hr-portal
+```
+
+Run reset hooks:
+
+```powershell
+python -m labforge services reset <lab-root>
+python -m labforge services reset <lab-root> --service hr-portal
+```
+
 The scaffold command is intentionally conservative. It does not generate real
 vulnerable service code. It creates the contract files that service builders and
 agents replace with actual implementation.
+
+Docker Compose provider outputs also include:
+
+- `scripts/services-healthcheck.sh`
+- `scripts/services-healthcheck.ps1`
+- `scripts/services-reset.sh`
+- `scripts/services-reset.ps1`
 
 ## Provider Expectations
 

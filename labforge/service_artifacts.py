@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import platform
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +19,16 @@ REQUIRED_FILES = ("README.md", "labforge-service.yaml", "healthcheck.sh", "reset
 class ServiceCheckResult:
     errors: list[str]
     warnings: list[str]
+
+
+@dataclass(frozen=True)
+class ServiceHookRun:
+    service: str
+    hook: str
+    path: Path
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 def declared_service_artifacts(spec: LabSpec):
@@ -81,6 +95,85 @@ def scaffold_service_artifacts(spec: LabSpec, force: bool = False) -> list[Path]
             write_text(path, content)
             written.append(path)
     return written
+
+
+def run_service_hooks(
+    spec: LabSpec,
+    hook: str,
+    service: str | None = None,
+    dry_run: bool = False,
+) -> tuple[list[ServiceHookRun], list[str]]:
+    if hook not in {"healthcheck", "reset"}:
+        raise ValueError(f"unsupported service hook: {hook}")
+
+    selected = []
+    for artifact in declared_service_artifacts(spec):
+        if service and artifact.service != service:
+            continue
+        selected.append(artifact)
+
+    if service and not selected:
+        return [], [f"unknown service or missing service_artifacts contract: {service}"]
+
+    errors: list[str] = []
+    runs: list[ServiceHookRun] = []
+    for artifact in selected:
+        script = spec.root / artifact.source_path / f"{hook}.sh"
+        if not script.exists():
+            errors.append(f"`{artifact.service}` missing hook: {script}")
+            continue
+        if dry_run:
+            runs.append(ServiceHookRun(artifact.service, hook, script, 0, f"DRY RUN: {script}", ""))
+            continue
+        command = shell_command_for_script(script)
+        if command is None:
+            errors.append(
+                f"`{artifact.service}` cannot run {hook}.sh: no POSIX shell found. "
+                "Install sh/Git Bash/WSL or run the hook inside a Linux-capable provider."
+            )
+            continue
+        completed = subprocess.run(
+            command,
+            cwd=script.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        runs.append(
+            ServiceHookRun(
+                artifact.service,
+                hook,
+                script,
+                completed.returncode,
+                completed.stdout.strip(),
+                completed.stderr.strip(),
+            )
+        )
+    return runs, errors
+
+
+def shell_command_for_script(script: Path) -> list[str] | None:
+    sh = shutil.which("sh")
+    if sh:
+        return [sh, str(script)]
+    if platform.system().lower() == "windows" and shutil.which("wsl.exe"):
+        distro = []
+        distro_name = os.environ.get("LABFORGE_WSL_DISTRO")
+        if distro_name:
+            distro = ["-d", distro_name]
+        return ["wsl.exe", *distro, "--", "sh", windows_to_wsl_path(script)]
+    return None
+
+
+def windows_to_wsl_path(path: Path) -> str:
+    resolved = str(path.resolve())
+    if len(resolved) >= 3 and resolved[1:3] == ":\\":
+        drive = resolved[0].lower()
+        rest = resolved[3:].replace("\\", "/")
+        return f"/mnt/{drive}/{rest}"
+    return resolved.replace("\\", "/")
 
 
 def render_service_readme(artifact) -> str:

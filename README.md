@@ -54,6 +54,8 @@ python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --o
 python -m labforge agents validate output/scenario-02-agents
 python -m labforge services scaffold examples/scenario-02-ad-domain-compromise
 python -m labforge services check examples/scenario-02-ad-domain-compromise
+python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
+python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -69,6 +71,8 @@ Scaffolded agent workspace: <repo>\output\scenario-02-agents\.ai
 Agent workspace validation passed
 Scaffolded service artifact files under: <repo>\examples\scenario-02-ad-domain-compromise
 Service artifact check passed
+[passed] edge-proxy healthcheck: <repo>\examples\scenario-02-ad-domain-compromise\services\edge-proxy\healthcheck.sh
+[passed] hr-portal reset: <repo>\examples\scenario-02-ad-domain-compromise\services\hr-portal\reset.sh
 Built lab scaffold with provider docker-compose and profile unprotected: <repo>\output\scenario-02
 Rendered docs with profile protected: <repo>\output\scenario-02-docs
 ```
