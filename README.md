@@ -61,6 +61,11 @@ hybrid deployment environment requirements, see:
 
 [`docs/environment-requirements-catalog-ko.md`](docs/environment-requirements-catalog-ko.md)
 
+For an analysis of reusable open-source tools, MCP/Skill candidates, provider
+backends, and license risks from the local `reference/` directory, see:
+
+[`docs/reference-tooling-analysis-ko.md`](docs/reference-tooling-analysis-ko.md)
+
 ## Current Status
 
 LabForge is currently an MVP. It can validate a scenario bundle and generate
