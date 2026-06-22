@@ -188,6 +188,7 @@ def command_package(args: argparse.Namespace) -> int:
         profile=args.profile,
         materialize=args.materialize,
         force=args.force,
+        all_profiles=args.all_profiles,
     )
     print(f"Package status: {report.status}")
     print(f"- {(Path(args.out) / 'package-report.md').resolve()}")
@@ -554,6 +555,7 @@ def main(argv: list[str] | None = None) -> int:
     package_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
     package_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     package_parser.add_argument("--materialize", action="store_true")
+    package_parser.add_argument("--all-profiles", action="store_true", help="Also render unprotected and protected provider outputs side by side")
     package_parser.add_argument("--force", action="store_true")
     package_parser.set_defaults(func=command_package)
 

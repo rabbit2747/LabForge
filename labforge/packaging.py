@@ -47,6 +47,7 @@ def create_supervisor_package(
     profile: Literal["unprotected", "protected"],
     materialize: bool = False,
     force: bool = False,
+    all_profiles: bool = False,
 ) -> PackageReport:
     lab_root = lab_root.resolve()
     if out.exists() and force:
@@ -69,6 +70,23 @@ def create_supervisor_package(
     except Exception as exc:  # noqa: BLE001 - package report should preserve generation failures.
         build_status = "failed"
         build_warnings.append(f"Provider generation failed: {exc}")
+
+    profile_artifacts: list[PackageArtifact] = []
+    if all_profiles:
+        for profile_name in ("unprotected", "protected"):
+            profile_dir = out / "profiles" / profile_name
+            try:
+                build_lab(spec, profile_dir, provider_name=provider, profile=profile_name)
+            except Exception as exc:  # noqa: BLE001 - package report should preserve generation failures.
+                build_status = "failed"
+                build_warnings.append(f"Provider generation failed for {profile_name}: {exc}")
+            profile_artifacts.append(
+                PackageArtifact(
+                    name=f"{profile_name}-profile-output",
+                    path=str(profile_dir.resolve()),
+                    purpose=f"Provider output rendered with the `{profile_name}` security profile.",
+                )
+            )
 
     plan = create_execution_plan(spec, lab_root, generated_dir, provider=provider, profile=profile)
     qa_report = run_qa_smoke(
@@ -113,6 +131,7 @@ def create_supervisor_package(
                 path=str(generated_dir.resolve()),
                 purpose="Provider output, rendered documentation, and diagrams.",
             ),
+            *profile_artifacts,
             PackageArtifact(
                 name="host-doctor",
                 path=str((reports_dir / "host-doctor.md").resolve()),
