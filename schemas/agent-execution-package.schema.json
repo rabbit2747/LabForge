@@ -1,0 +1,85 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "adapter": {
+      "default": "manual",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "mode": {
+      "const": "dry-run",
+      "default": "dry-run",
+      "title": "Mode",
+      "type": "string"
+    },
+    "context_root": {
+      "title": "Context Root",
+      "type": "string"
+    },
+    "system_prompt_file": {
+      "title": "System Prompt File",
+      "type": "string"
+    },
+    "task_prompt_file": {
+      "title": "Task Prompt File",
+      "type": "string"
+    },
+    "task_manifest_file": {
+      "title": "Task Manifest File",
+      "type": "string"
+    },
+    "output_file": {
+      "title": "Output File",
+      "type": "string"
+    },
+    "context_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Context Files",
+      "type": "array"
+    },
+    "missing_context_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Context Files",
+      "type": "array"
+    },
+    "system_prompt": {
+      "title": "System Prompt",
+      "type": "string"
+    },
+    "task_prompt": {
+      "title": "Task Prompt",
+      "type": "string"
+    },
+    "task_manifest": {
+      "additionalProperties": true,
+      "title": "Task Manifest",
+      "type": "object"
+    }
+  },
+  "required": [
+    "task_id",
+    "agent_id",
+    "context_root",
+    "system_prompt_file",
+    "task_prompt_file",
+    "task_manifest_file",
+    "output_file",
+    "system_prompt",
+    "task_prompt",
+    "task_manifest"
+  ],
+  "title": "AgentExecutionPackageSpec",
+  "type": "object"
+}

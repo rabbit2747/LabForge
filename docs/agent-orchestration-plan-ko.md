@@ -118,6 +118,35 @@ output/<lab>/
 
 이 구조는 OpenAI, Claude CLI, MCP adapter 중 어떤 runtime을 연결하더라도 agent 역할, 작업 지시, 출력 계약이 흔들리지 않게 하기 위한 것이다.
 
+### Phase 3.2. Agent Execution Package
+
+`agents plan-run`은 LLM을 호출하지 않고 agent 실행 준비 상태를 출력한다.
+
+```powershell
+python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
+```
+
+`agents run --dry-run`은 실제 LLM 호출 전에 agent별 실행 패키지를 만든다.
+
+```powershell
+python -m labforge agents run output/scenario-02-agents --dry-run --context-root examples/scenario-02-ad-domain-compromise
+```
+
+생성되는 파일은 다음과 같다.
+
+```text
+output/<lab>/
+`-- .ai/
+    `-- run/
+        |-- run-plan.yaml
+        |-- 01-scenario-designer.package.yaml
+        |-- 02-mitre-mapper.package.yaml
+        `-- ...
+```
+
+각 package에는 system prompt, task prompt, task manifest, output file 위치, context file 누락 여부가 함께 들어간다.
+이 단계까지는 여전히 dry-run이며, OpenAI/Claude/MCP adapter는 다음 단계에서 붙인다.
+
 ### Phase 4. Provider Execution Layer
 
 - Docker Compose start/stop/reset script

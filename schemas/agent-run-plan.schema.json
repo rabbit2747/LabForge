@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "AgentRunStepSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "adapter": {
+          "default": "manual",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "mode": {
+          "const": "dry-run",
+          "default": "dry-run",
+          "title": "Mode",
+          "type": "string"
+        },
+        "status": {
+          "default": "ready",
+          "enum": [
+            "ready",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "system_prompt_file": {
+          "title": "System Prompt File",
+          "type": "string"
+        },
+        "task_prompt_file": {
+          "title": "Task Prompt File",
+          "type": "string"
+        },
+        "task_manifest_file": {
+          "title": "Task Manifest File",
+          "type": "string"
+        },
+        "output_file": {
+          "title": "Output File",
+          "type": "string"
+        },
+        "context_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Context Files",
+          "type": "array"
+        },
+        "missing_context_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Context Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "agent_id",
+        "phase",
+        "system_prompt_file",
+        "task_prompt_file",
+        "task_manifest_file",
+        "output_file"
+      ],
+      "title": "AgentRunStepSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "context_root": {
+      "title": "Context Root",
+      "type": "string"
+    },
+    "mode": {
+      "const": "dry-run",
+      "default": "dry-run",
+      "title": "Mode",
+      "type": "string"
+    },
+    "adapter": {
+      "default": "manual",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/AgentRunStepSpec"
+      },
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "context_root"
+  ],
+  "title": "AgentRunPlanSpec",
+  "type": "object"
+}

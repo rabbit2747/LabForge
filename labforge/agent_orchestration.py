@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -59,6 +60,46 @@ class OrchestrationPlanSpec(AgentModel):
                 if agent_id not in agent_ids:
                     raise ValueError(f"unknown agent id in phase plan: {agent_id}")
         return self
+
+
+class AgentRunStepSpec(AgentModel):
+    task_id: str
+    agent_id: str
+    phase: str
+    adapter: str = "manual"
+    mode: Literal["dry-run"] = "dry-run"
+    status: Literal["ready", "blocked"] = "ready"
+    system_prompt_file: str
+    task_prompt_file: str
+    task_manifest_file: str
+    output_file: str
+    context_files: list[str] = Field(default_factory=list)
+    missing_context_files: list[str] = Field(default_factory=list)
+
+
+class AgentRunPlanSpec(AgentModel):
+    workspace: str
+    context_root: str
+    mode: Literal["dry-run"] = "dry-run"
+    adapter: str = "manual"
+    steps: list[AgentRunStepSpec] = Field(default_factory=list)
+
+
+class AgentExecutionPackageSpec(AgentModel):
+    task_id: str
+    agent_id: str
+    adapter: str = "manual"
+    mode: Literal["dry-run"] = "dry-run"
+    context_root: str
+    system_prompt_file: str
+    task_prompt_file: str
+    task_manifest_file: str
+    output_file: str
+    context_files: list[str] = Field(default_factory=list)
+    missing_context_files: list[str] = Field(default_factory=list)
+    system_prompt: str
+    task_prompt: str
+    task_manifest: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -517,7 +558,7 @@ def render_agent_task_prompt(spec: LabSpec, role: AgentRole, order: int) -> str:
         "",
         f"- Write the primary result to `{output_file}`.",
         "- Keep `task_id` unchanged.",
-        "- Set `status` to one of `not-started`, `in-progress`, `blocked`, or `complete`.",
+        "- Set `status` to one of `not-started`, `draft`, `complete`, `blocked`, or `needs-review`.",
         "- Put reviewable evidence, generated files, and open questions in the matching YAML fields.",
         "- Do not write directly to LabForge core files unless the orchestrator asks for a patch.",
         "",
@@ -543,6 +584,147 @@ def pydantic_errors(prefix: str, exc: ValidationError) -> list[str]:
         f"{prefix}: {'.'.join(str(item) for item in error['loc'])}: {error['msg']}"
         for error in exc.errors()
     ]
+
+
+def workspace_relative(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root.parent).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def task_file_id(path: Path) -> str:
+    name = path.name
+    return name.removesuffix(".yaml")
+
+
+def create_agent_run_plan(
+    path: Path,
+    *,
+    adapter: str = "manual",
+    context_root: Path | None = None,
+) -> AgentRunPlanSpec:
+    root = agent_workspace_root(path)
+    resolved_context_root = (context_root or root.parent).resolve()
+    tasks_dir = root / "tasks"
+    prompts_dir = root / "prompts"
+    task_prompts_dir = prompts_dir / "tasks"
+    steps: list[AgentRunStepSpec] = []
+
+    for task_path in sorted(tasks_dir.glob("*.yaml")):
+        task = AgentTaskSpec.model_validate(load_yaml(task_path))
+        order_prefix = task.task_id.split("-", 1)[0]
+        system_prompt_file = prompts_dir / f"{order_prefix}-{task.agent_id}.system.md"
+        task_prompt_file = task_prompts_dir / f"{task.task_id}.task.md"
+        output_path = root.parent / task.output_file
+        missing_context_files = [
+            item
+            for item in task.context_files
+            if not (resolved_context_root / item).exists()
+        ]
+        missing_required = [
+            path
+            for path in (system_prompt_file, task_prompt_file, output_path)
+            if not path.exists()
+        ]
+        status: Literal["ready", "blocked"] = "blocked" if missing_required else "ready"
+        steps.append(
+            AgentRunStepSpec(
+                task_id=task.task_id,
+                agent_id=task.agent_id,
+                phase=task.phase,
+                adapter=adapter,
+                status=status,
+                system_prompt_file=workspace_relative(root, system_prompt_file),
+                task_prompt_file=workspace_relative(root, task_prompt_file),
+                task_manifest_file=workspace_relative(root, task_path),
+                output_file=task.output_file,
+                context_files=task.context_files,
+                missing_context_files=missing_context_files,
+            )
+        )
+
+    return AgentRunPlanSpec(
+        workspace=str(root),
+        context_root=str(resolved_context_root),
+        adapter=adapter,
+        steps=steps,
+    )
+
+
+def run_plan_to_json(plan: AgentRunPlanSpec) -> str:
+    return json.dumps(plan.model_dump(), ensure_ascii=False, indent=2) + "\n"
+
+
+def run_plan_to_markdown(plan: AgentRunPlanSpec) -> str:
+    lines = [
+        "# Agent Run Plan",
+        "",
+        f"- Workspace: `{plan.workspace}`",
+        f"- Context root: `{plan.context_root}`",
+        f"- Mode: `{plan.mode}`",
+        f"- Adapter: `{plan.adapter}`",
+        "",
+        "| Order | Task | Agent | Phase | Status | Missing Context |",
+        "|---:|---|---|---|---|---|",
+    ]
+    for order, step in enumerate(plan.steps, start=1):
+        missing = ", ".join(step.missing_context_files) if step.missing_context_files else "-"
+        lines.append(
+            f"| {order} | `{step.task_id}` | `{step.agent_id}` | {step.phase} | {step.status} | {missing} |"
+        )
+    lines.append("")
+    lines.append("This is an execution readiness plan only. No LLM call is performed.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def create_agent_execution_packages(
+    path: Path,
+    *,
+    adapter: str = "manual",
+    agent_id: str | None = None,
+    context_root: Path | None = None,
+) -> list[Path]:
+    root = agent_workspace_root(path)
+    validate_errors = validate_agent_workspace(root)
+    if validate_errors:
+        raise ValueError("agent workspace validation failed before run package creation")
+
+    run_dir = root / "run"
+    plan = create_agent_run_plan(root, adapter=adapter, context_root=context_root)
+    written: list[Path] = []
+    plan_path = run_dir / "run-plan.yaml"
+    write_text(plan_path, dump_yaml(plan.model_dump()))
+    written.append(plan_path)
+
+    for step in plan.steps:
+        if agent_id and step.agent_id != agent_id:
+            continue
+        system_prompt_path = root.parent / step.system_prompt_file
+        task_prompt_path = root.parent / step.task_prompt_file
+        task_manifest_path = root.parent / step.task_manifest_file
+        task_manifest = load_yaml(task_manifest_path)
+        package = AgentExecutionPackageSpec(
+            task_id=step.task_id,
+            agent_id=step.agent_id,
+            adapter=adapter,
+            context_root=plan.context_root,
+            system_prompt_file=step.system_prompt_file,
+            task_prompt_file=step.task_prompt_file,
+            task_manifest_file=step.task_manifest_file,
+            output_file=step.output_file,
+            context_files=step.context_files,
+            missing_context_files=step.missing_context_files,
+            system_prompt=system_prompt_path.read_text(encoding="utf-8"),
+            task_prompt=task_prompt_path.read_text(encoding="utf-8"),
+            task_manifest=task_manifest,
+        )
+        package_path = run_dir / f"{step.task_id}.package.yaml"
+        write_text(package_path, dump_yaml(package.model_dump()))
+        written.append(package_path)
+
+    return written
 
 
 def validate_agent_workspace(path: Path) -> list[str]:
@@ -652,4 +834,6 @@ AGENT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "agent-result.schema.json": AgentResultSpec,
     "agent-decision-log.schema.json": AgentDecisionLog,
     "orchestration-plan.schema.json": OrchestrationPlanSpec,
+    "agent-run-plan.schema.json": AgentRunPlanSpec,
+    "agent-execution-package.schema.json": AgentExecutionPackageSpec,
 }

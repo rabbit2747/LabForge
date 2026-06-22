@@ -7,7 +7,11 @@ from .model import LabSpec
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .agent_orchestration import (
+    create_agent_execution_packages,
+    create_agent_run_plan,
     render_agent_list,
+    run_plan_to_json,
+    run_plan_to_markdown,
     scaffold_agent_workspace,
     validate_agent_workspace,
 )
@@ -122,6 +126,46 @@ def command_agents_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_agents_plan_run(args: argparse.Namespace) -> int:
+    context_root = Path(args.context_root) if args.context_root else None
+    plan = create_agent_run_plan(Path(args.workspace), adapter=args.adapter, context_root=context_root)
+    if args.out:
+        out = Path(args.out)
+        write_text(out, run_plan_to_json(plan) if args.format == "json" else run_plan_to_markdown(plan))
+        print(f"Rendered agent run plan: {out.resolve()}")
+    elif args.format == "json":
+        print(run_plan_to_json(plan))
+    else:
+        print(run_plan_to_markdown(plan))
+    return 0
+
+
+def command_agents_run(args: argparse.Namespace) -> int:
+    if not args.dry_run:
+        print("Agent execution currently supports --dry-run only. Configure an adapter before live LLM execution.")
+        return 1
+    errors = validate_agent_workspace(Path(args.workspace))
+    if errors:
+        print("Agent workspace validation failed:")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    try:
+        written = create_agent_execution_packages(
+            Path(args.workspace),
+            adapter=args.adapter,
+            agent_id=args.agent,
+            context_root=Path(args.context_root) if args.context_root else None,
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    print(f"Created dry-run agent execution packages under: {(Path(args.workspace) / '.ai' / 'run').resolve() if Path(args.workspace).name != '.ai' else (Path(args.workspace) / 'run').resolve()}")
+    for path in written:
+        print(f"- {path}")
+    return 0
+
+
 def command_services_check(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     result = service_check(spec)
@@ -226,6 +270,20 @@ def main(argv: list[str] | None = None) -> int:
     agents_validate_parser = agents_sub.add_parser("validate", help="Validate a dry-run agent workspace")
     agents_validate_parser.add_argument("workspace")
     agents_validate_parser.set_defaults(func=command_agents_validate)
+    agents_plan_run_parser = agents_sub.add_parser("plan-run", help="Create an agent execution readiness plan")
+    agents_plan_run_parser.add_argument("workspace")
+    agents_plan_run_parser.add_argument("--adapter", default="manual")
+    agents_plan_run_parser.add_argument("--context-root", help="Scenario directory used to resolve task context files")
+    agents_plan_run_parser.add_argument("--format", choices=["text", "json"], default="text")
+    agents_plan_run_parser.add_argument("--out")
+    agents_plan_run_parser.set_defaults(func=command_agents_plan_run)
+    agents_run_parser = agents_sub.add_parser("run", help="Create dry-run agent execution packages")
+    agents_run_parser.add_argument("workspace")
+    agents_run_parser.add_argument("--dry-run", action="store_true", help="Create execution packages without calling an LLM")
+    agents_run_parser.add_argument("--adapter", default="manual")
+    agents_run_parser.add_argument("--agent", help="Only package one agent_id")
+    agents_run_parser.add_argument("--context-root", help="Scenario directory used to resolve task context files")
+    agents_run_parser.set_defaults(func=command_agents_run)
 
     services_parser = sub.add_parser("services", help="Service artifact utilities")
     services_sub = services_parser.add_subparsers(dest="services_command", required=True)
