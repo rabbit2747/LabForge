@@ -157,6 +157,16 @@ DEFAULT_AGENT_ROLES: list[AgentRole] = [
 ]
 
 
+PROMPT_REQUIRED_SECTIONS = (
+    "## Role",
+    "## Mission",
+    "## Inputs",
+    "## Outputs",
+    "## Guardrails",
+    "## Validation Checklist",
+)
+
+
 def agent_role_dict(role: AgentRole) -> dict[str, Any]:
     return {
         "agent_id": role.agent_id,
@@ -206,6 +216,7 @@ def orchestration_manifest(spec: LabSpec) -> dict[str, Any]:
             for phase, roles in roles_by_phase().items()
         ],
         "artifact_contract": {
+            "prompts_dir": ".ai/prompts",
             "tasks_dir": ".ai/tasks",
             "outputs_dir": ".ai/outputs",
             "decisions_dir": ".ai/decisions",
@@ -246,6 +257,7 @@ def task_manifest(spec: LabSpec, role: AgentRole, order: int) -> dict[str, Any]:
 def scaffold_agent_workspace(spec: LabSpec, out: Path) -> list[Path]:
     written: list[Path] = []
     base = out / ".ai"
+    prompts = base / "prompts"
     tasks = base / "tasks"
     outputs = base / "outputs"
     decisions = base / "decisions"
@@ -258,7 +270,15 @@ def scaffold_agent_workspace(spec: LabSpec, out: Path) -> list[Path]:
     write_text(readme_path, render_agent_workspace_readme(spec))
     written.append(readme_path)
 
+    orchestrator_prompt = prompts / "orchestrator.system.md"
+    write_text(orchestrator_prompt, render_orchestrator_prompt(spec))
+    written.append(orchestrator_prompt)
+
     for order, role in enumerate(DEFAULT_AGENT_ROLES, start=1):
+        prompt_path = prompts / f"{order:02d}-{role.agent_id}.system.md"
+        write_text(prompt_path, render_agent_system_prompt(spec, role))
+        written.append(prompt_path)
+
         task_path = tasks / f"{order:02d}-{role.agent_id}.yaml"
         write_text(task_path, dump_yaml(task_manifest(spec, role, order)))
         written.append(task_path)
@@ -298,6 +318,7 @@ def render_agent_workspace_readme(spec: LabSpec) -> str:
             "## Directories",
             "",
             "- `orchestration-plan.yaml`: orchestrator-level phase plan",
+            "- `prompts/`: system prompts for the orchestrator and specialist agents",
             "- `tasks/`: specialist agent task manifests",
             "- `outputs/`: placeholder result files each agent must fill",
             "- `decisions/`: accepted, rejected, and open decision records",
@@ -308,6 +329,128 @@ def render_agent_workspace_readme(spec: LabSpec) -> str:
             "",
         ]
     )
+
+
+def render_orchestrator_prompt(spec: LabSpec) -> str:
+    return "\n".join(
+        [
+            "# LabForge Orchestrator System Prompt",
+            "",
+            "## Role",
+            "",
+            "You are the LabForge Orchestrator. Coordinate specialist agents, preserve the approved lab architecture, and pass only validated artifacts back to LabForge core.",
+            "",
+            "## Mission",
+            "",
+            f"Build and review lab artifacts for `{spec.lab_id}`: {spec.title}.",
+            "Turn human-approved scenario intent into deterministic LabForge files, provider outputs, service contracts, and reviewable decisions.",
+            "",
+            "## Inputs",
+            "",
+            "- scenario.yaml",
+            "- topology.yaml",
+            "- stages.yaml",
+            "- lab.yaml",
+            "- environment.yaml",
+            "- artifacts.yaml",
+            "- security-controls.yaml",
+            "- supervisor-selection.yaml",
+            "- provider outputs",
+            "- specialist task results",
+            "",
+            "## Outputs",
+            "",
+            "- accepted decision records",
+            "- rejected decision records",
+            "- open questions for human supervisor review",
+            "- merged implementation plan",
+            "- QA and safety gate status",
+            "",
+            "## Guardrails",
+            "",
+            "- Do not silently change the scenario objective or final target.",
+            "- Do not accept agent output that violates LabForge open-source portability rules.",
+            "- Do not accept uncontrolled external callbacks, real malware behavior, or non-lab-scoped offensive actions.",
+            "- Do not merge artifacts that fail schema, service-check, provider, QA, or safety review.",
+            "- Keep supervisor gates explicit when design choices affect realism, safety, cost, or required infrastructure.",
+            "",
+            "## Validation Checklist",
+            "",
+            "- Required LabForge files exist and validate.",
+            "- Every stage maps to MITRE ATT&CK Matrix for Enterprise tactic and technique.",
+            "- Service artifacts have healthcheck, reset, evidence logs, and safety boundaries.",
+            "- Provider choice matches deployment requirements.",
+            "- Protected and unprotected architectures are both reviewable.",
+            "- Human supervisor decisions are recorded before implementation proceeds.",
+            "",
+        ]
+    )
+
+
+def render_agent_system_prompt(spec: LabSpec, role: AgentRole) -> str:
+    lines = [
+        f"# {role.name} System Prompt",
+        "",
+        "## Role",
+        "",
+        f"You are `{role.agent_id}`, a specialist agent in the LabForge workflow.",
+        "",
+        "## Mission",
+        "",
+        role.mission,
+        "",
+        "## Inputs",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in role.inputs)
+    lines += [
+        "",
+        "Relevant LabForge context files may include:",
+        "",
+        "- scenario.yaml",
+        "- topology.yaml",
+        "- stages.yaml",
+        "- lab.yaml",
+        "- environment.yaml",
+        "- artifacts.yaml",
+        "- security-controls.yaml",
+        "- supervisor-selection.yaml",
+        "- providers/",
+        "",
+        "## Outputs",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in role.outputs)
+    lines += [
+        "",
+        "Write results only through the assigned `.ai/outputs/<task>.result.yaml` contract unless the orchestrator explicitly requests a patch.",
+        "",
+        "## Guardrails",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in role.guardrails)
+    lines += [
+        "- Follow the LabForge Open Source Constitution.",
+        "- Keep all offensive behavior educational, authorized, synthetic, and lab-scoped.",
+        "- Prefer explicit uncertainty over invented facts, tools, CVEs, or MITRE technique IDs.",
+        "- Do not modify provider outputs directly unless your role is provider-engineer or the orchestrator assigns that task.",
+        "",
+        "## Validation Checklist",
+        "",
+        "- Inputs were read from declared context files.",
+        "- Outputs match the assigned task manifest.",
+        "- Any assumption is recorded as an open question.",
+        "- Safety and portability constraints are preserved.",
+        "- The result can be reviewed by a human supervisor.",
+        "",
+        "## Lab Context",
+        "",
+        f"- Lab ID: `{spec.lab_id}`",
+        f"- Title: {spec.title}",
+        f"- Phase: `{role.phase}`",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def agent_workspace_root(path: Path) -> Path:
@@ -340,13 +483,28 @@ def validate_agent_workspace(path: Path) -> list[str]:
             errors.append(f"{plan_path}: {exc}")
 
     task_dir = root / "tasks"
+    prompt_dir = root / "prompts"
     output_dir = root / "outputs"
     decision_dir = root / "decisions"
-    for directory in (task_dir, output_dir, decision_dir):
+    for directory in (prompt_dir, task_dir, output_dir, decision_dir):
         if not directory.exists():
             errors.append(f"missing directory: {directory}")
 
     known_agents = {role.agent_id for role in DEFAULT_AGENT_ROLES}
+    expected_prompts = {"orchestrator.system.md"} | {
+        f"{order:02d}-{role.agent_id}.system.md"
+        for order, role in enumerate(DEFAULT_AGENT_ROLES, start=1)
+    }
+    if prompt_dir.exists():
+        found_prompts = {path.name for path in prompt_dir.glob("*.md")}
+        for name in sorted(expected_prompts - found_prompts):
+            errors.append(f"missing agent prompt: {prompt_dir / name}")
+        for prompt_path in sorted(prompt_dir.glob("*.md")):
+            text = prompt_path.read_text(encoding="utf-8")
+            for section in PROMPT_REQUIRED_SECTIONS:
+                if section not in text:
+                    errors.append(f"{prompt_path}: missing prompt section {section}")
+
     task_ids: set[str] = set()
     if task_dir.exists():
         for task_path in sorted(task_dir.glob("*.yaml")):

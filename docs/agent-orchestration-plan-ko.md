@@ -73,6 +73,37 @@ python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --o
 python -m labforge agents validate output/scenario-02-agents
 ```
 
+### Phase 3.1. Agent System Prompt Scaffold
+
+`agents scaffold`는 이제 dry-run task뿐 아니라 실제 LLM adapter가 사용할 수 있는 system prompt scaffold도 생성한다.
+
+```text
+output/<lab>/
+`-- .ai/
+    |-- prompts/
+    |   |-- orchestrator.system.md
+    |   |-- 01-scenario-designer.system.md
+    |   |-- 02-mitre-mapper.system.md
+    |   |-- 03-infrastructure-architect.system.md
+    |   |-- 04-security-controls.system.md
+    |   |-- 05-provider-engineer.system.md
+    |   |-- 06-service-builder.system.md
+    |   |-- 07-content-guide.system.md
+    |   |-- 08-qa-playtester.system.md
+    |   `-- 09-safety-reviewer.system.md
+```
+
+각 prompt는 다음 section을 반드시 가진다.
+
+- `Role`
+- `Mission`
+- `Inputs`
+- `Outputs`
+- `Guardrails`
+- `Validation Checklist`
+
+이 구조는 OpenAI, Claude CLI, MCP adapter 중 어떤 runtime을 연결하더라도 agent 역할과 출력 계약이 흔들리지 않게 하기 위한 것이다.
+
 ### Phase 4. Provider Execution Layer
 
 - Docker Compose start/stop/reset script
