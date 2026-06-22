@@ -340,7 +340,7 @@ def command_agents_run(args: argparse.Namespace) -> int:
     prepared = []
     executed = []
     for path in written:
-        if path.name == "run-plan.yaml":
+        if path.name == "run-plan.yaml" or not path.name.endswith(".package.yaml"):
             continue
         if args.execute:
             executed.append(adapter.execute(path))

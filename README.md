@@ -191,6 +191,8 @@ python -m labforge agents adapters
 python -m labforge agents plan-run output/scenario-02-agents --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter openai --agent scenario-designer --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents run output/scenario-02-agents --dry-run --adapter codex --agent scenario-designer --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents run output/scenario-02-agents --dry-run --adapter claude-code --agent mitre-mapper --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
 python -m labforge agents review output/scenario-02-agents --write
 python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
@@ -201,9 +203,10 @@ python -m labforge agents decide output/scenario-02-agents --decision accepted -
 system prompt, task prompt, task manifest, output contract, and context status
 for each specialist agent. The `manual` adapter writes `.manual.md` invocation
 files for human-operated LLM sessions. The `openai` and `claude-cli` adapters
-support live execution only when `--execute` is explicitly provided. The `mcp`
-adapter writes a JSON handoff file for an external MCP-capable orchestrator. See
-`docs/live-agent-adapters.md`.
+support live execution only when `--execute` is explicitly provided. The `codex`
+and `claude-code` adapters support Codex CLI and Claude Code CLI workflows. The
+`mcp` adapter writes a JSON handoff file for an external MCP-capable
+orchestrator. See `docs/live-agent-adapters.md`.
 
 `agents review` aggregates `.ai/outputs/*.result.yaml` files into
 `.ai/reviews/agent-review.{yaml,md}` and returns a non-zero status when the

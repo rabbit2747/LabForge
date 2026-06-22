@@ -10,7 +10,9 @@ prepare handoff files or call a live LLM runtime. Live calls are opt-in.
 |---|---:|---|
 | `manual` | no | Create copy/paste Markdown instructions for a human-operated LLM session. |
 | `openai` | yes | Call the OpenAI Responses API and write a LabForge agent result YAML. |
+| `codex` | yes | Call Codex CLI with `codex exec` and write a LabForge agent result YAML. |
 | `claude-cli` | yes | Call a local Claude CLI process and write a LabForge agent result YAML. |
+| `claude-code` | yes | Call Claude Code non-interactive CLI mode and write a LabForge agent result YAML. |
 | `mcp` | no | Create a JSON handoff file for an external MCP-capable orchestrator. |
 
 ## Safe Default
@@ -47,6 +49,44 @@ The adapter writes:
 If the model returns plain prose instead of a YAML object, LabForge preserves
 the prose as a `needs-review` result rather than discarding it.
 
+## Codex CLI Adapter
+
+Requirements:
+
+- `codex` on `PATH`, or `LABFORGE_CODEX_BIN`
+- optional `LABFORGE_CODEX_MODEL`, default `gpt-5.2`
+- optional `LABFORGE_CODEX_REASONING_EFFORT`, default `medium`
+- optional `LABFORGE_CODEX_SANDBOX`, default `read-only`
+- optional `LABFORGE_CODEX_FULL_AUTO=true`
+- optional `LABFORGE_CODEX_ARGS`
+- optional `LABFORGE_LLM_TIMEOUT`, default `300` seconds
+
+Dry-run command:
+
+```powershell
+python -m labforge agents run output/my-lab-agents --adapter codex --dry-run --agent scenario-designer --context-root examples/my-lab
+```
+
+Execute one agent:
+
+```powershell
+$env:LABFORGE_CODEX_MODEL = "gpt-5.2"
+$env:LABFORGE_CODEX_REASONING_EFFORT = "medium"
+$env:LABFORGE_CODEX_SANDBOX = "read-only"
+python -m labforge agents run output/my-lab-agents --adapter codex --execute --agent scenario-designer --context-root examples/my-lab
+```
+
+The adapter uses `codex exec --skip-git-repo-check` and sends the LabForge
+package prompt through standard input. Dry-run mode writes:
+
+- `.ai/run/<task>.package.codex.prompt.md`
+- `.ai/run/<task>.package.codex.command.ps1`
+
+Execute mode writes:
+
+- `.ai/run/<task>.package.codex.transcript.json`
+- `.ai/outputs/<task>.result.yaml`
+
 ## Claude CLI Adapter
 
 Requirements:
@@ -64,6 +104,37 @@ python -m labforge agents run output/my-lab-agents --adapter claude-cli --execut
 
 LabForge sends the package prompt through standard input and captures stdout,
 stderr, return code, and command metadata in a transcript file.
+
+## Claude Code Adapter
+
+Requirements:
+
+- `claude` on `PATH`, or `LABFORGE_CLAUDE_CODE_BIN`
+- optional `LABFORGE_CLAUDE_CODE_ARGS`, default `--print`
+- optional `LABFORGE_LLM_TIMEOUT`, default `300` seconds
+
+Dry-run command:
+
+```powershell
+python -m labforge agents run output/my-lab-agents --adapter claude-code --dry-run --agent mitre-mapper --context-root examples/my-lab
+```
+
+Execute one agent:
+
+```powershell
+$env:LABFORGE_CLAUDE_CODE_ARGS = "--print"
+python -m labforge agents run output/my-lab-agents --adapter claude-code --execute --agent mitre-mapper --context-root examples/my-lab
+```
+
+Dry-run mode writes:
+
+- `.ai/run/<task>.package.claude-code.prompt.md`
+- `.ai/run/<task>.package.claude-code.command.ps1`
+
+Execute mode writes:
+
+- `.ai/run/<task>.package.claude-code.transcript.json`
+- `.ai/outputs/<task>.result.yaml`
 
 ## MCP Handoff Adapter
 

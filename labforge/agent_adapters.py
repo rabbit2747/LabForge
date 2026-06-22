@@ -210,6 +210,139 @@ class ClaudeCliAdapter(AgentAdapter):
         return write_live_execution_outputs(self.name, package, package_path, completed.stdout, transcript)
 
 
+class CodexCliAdapter(AgentAdapter):
+    name = "codex"
+    status: Literal["available", "not-implemented"] = "available"
+    description = "Execute agent packages through Codex CLI (`codex exec`) and write LabForge result YAML."
+    live_execution = True
+    requires = [
+        "codex CLI on PATH",
+        "optional LABFORGE_CODEX_MODEL",
+        "optional LABFORGE_CODEX_REASONING_EFFORT",
+        "optional LABFORGE_CODEX_SANDBOX",
+    ]
+
+    def prepare(self, package_path: Path) -> AgentAdapterPrepareResult:
+        package = AgentExecutionPackageSpec.model_validate(load_yaml(package_path))
+        prompt_path = package_path.with_suffix(".codex.prompt.md")
+        command_path = package_path.with_suffix(".codex.command.ps1")
+        write_text(prompt_path, render_live_prompt(package))
+        write_text(command_path, render_codex_command(package, prompt_path))
+        return AgentAdapterPrepareResult(
+            adapter=self.name,
+            task_id=package.task_id,
+            status="prepared",
+            package_file=str(package_path),
+            invocation_file=str(command_path),
+            message="Codex CLI prompt and command files created. No LLM was called.",
+        )
+
+    def execute(self, package_path: Path) -> AgentAdapterExecutionResult:
+        package = AgentExecutionPackageSpec.model_validate(load_yaml(package_path))
+        codex = shutil.which(os.environ.get("LABFORGE_CODEX_BIN", "codex"))
+        if not codex:
+            return execution_failure(self.name, package, package_path, "Codex CLI was not found on PATH.")
+
+        args = codex_command_args(codex, package)
+        prompt = render_live_prompt(package)
+        try:
+            completed = subprocess.run(
+                args,
+                input=prompt,
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                timeout=int(os.environ.get("LABFORGE_LLM_TIMEOUT", "300")),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return execution_failure(self.name, package, package_path, f"Codex CLI execution failed: {exc}")
+
+        transcript = {
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "command": args,
+        }
+        if completed.returncode != 0:
+            return write_live_execution_outputs(
+                self.name,
+                package,
+                package_path,
+                completed.stdout,
+                transcript,
+                status="failed",
+                message=f"Codex CLI returned {completed.returncode}: {completed.stderr.strip()}",
+            )
+        return write_live_execution_outputs(self.name, package, package_path, completed.stdout, transcript)
+
+
+class ClaudeCodeAdapter(AgentAdapter):
+    name = "claude-code"
+    status: Literal["available", "not-implemented"] = "available"
+    description = "Execute agent packages through Claude Code non-interactive CLI mode and write LabForge result YAML."
+    live_execution = True
+    requires = ["claude CLI on PATH", "optional LABFORGE_CLAUDE_CODE_ARGS"]
+
+    def prepare(self, package_path: Path) -> AgentAdapterPrepareResult:
+        package = AgentExecutionPackageSpec.model_validate(load_yaml(package_path))
+        prompt_path = package_path.with_suffix(".claude-code.prompt.md")
+        command_path = package_path.with_suffix(".claude-code.command.ps1")
+        write_text(prompt_path, render_live_prompt(package))
+        write_text(command_path, render_claude_code_command(prompt_path))
+        return AgentAdapterPrepareResult(
+            adapter=self.name,
+            task_id=package.task_id,
+            status="prepared",
+            package_file=str(package_path),
+            invocation_file=str(command_path),
+            message="Claude Code prompt and command files created. No LLM was called.",
+        )
+
+    def execute(self, package_path: Path) -> AgentAdapterExecutionResult:
+        package = AgentExecutionPackageSpec.model_validate(load_yaml(package_path))
+        claude = shutil.which(os.environ.get("LABFORGE_CLAUDE_CODE_BIN", "claude"))
+        if not claude:
+            return execution_failure(self.name, package, package_path, "Claude Code CLI was not found on PATH.")
+
+        default_args = ["--print"]
+        configured_args = split_optional_args(os.environ.get("LABFORGE_CLAUDE_CODE_ARGS"))
+        args = [claude, *(configured_args or default_args)]
+        prompt = render_live_prompt(package)
+        try:
+            completed = subprocess.run(
+                args,
+                input=prompt,
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                cwd=package.context_root,
+                timeout=int(os.environ.get("LABFORGE_LLM_TIMEOUT", "300")),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return execution_failure(self.name, package, package_path, f"Claude Code execution failed: {exc}")
+
+        transcript = {
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "command": args,
+            "cwd": package.context_root,
+        }
+        if completed.returncode != 0:
+            return write_live_execution_outputs(
+                self.name,
+                package,
+                package_path,
+                completed.stdout,
+                transcript,
+                status="failed",
+                message=f"Claude Code returned {completed.returncode}: {completed.stderr.strip()}",
+            )
+        return write_live_execution_outputs(self.name, package, package_path, completed.stdout, transcript)
+
+
 class McpAdapter(AgentAdapter):
     name = "mcp"
     status: Literal["available", "not-implemented"] = "available"
@@ -280,6 +413,55 @@ def openai_request_payload(package: AgentExecutionPackageSpec) -> dict[str, Any]
         ],
         "text": {"format": {"type": "text"}},
     }
+
+
+def codex_command_args(codex: str, package: AgentExecutionPackageSpec) -> list[str]:
+    model = os.environ.get("LABFORGE_CODEX_MODEL", "gpt-5.2")
+    effort = os.environ.get("LABFORGE_CODEX_REASONING_EFFORT", "medium")
+    sandbox = os.environ.get("LABFORGE_CODEX_SANDBOX", "read-only")
+    args = [
+        codex,
+        "exec",
+        "--skip-git-repo-check",
+        "-m",
+        model,
+        "--config",
+        f"model_reasoning_effort={effort}",
+        "--sandbox",
+        sandbox,
+        "-C",
+        package.context_root,
+    ]
+    if truthy_env("LABFORGE_CODEX_FULL_AUTO"):
+        args.append("--full-auto")
+    args.extend(split_optional_args(os.environ.get("LABFORGE_CODEX_ARGS")))
+    return args
+
+
+def render_codex_command(package: AgentExecutionPackageSpec, prompt_path: Path) -> str:
+    codex = os.environ.get("LABFORGE_CODEX_BIN", "codex")
+    args = codex_command_args(codex, package)
+    escaped_args = " ".join(powershell_quote(arg) for arg in args)
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"Get-Content -Raw {powershell_quote(str(prompt_path))} | & {escaped_args}",
+            "",
+        ]
+    )
+
+
+def render_claude_code_command(prompt_path: Path) -> str:
+    claude = os.environ.get("LABFORGE_CLAUDE_CODE_BIN", "claude")
+    args = [claude, *(split_optional_args(os.environ.get("LABFORGE_CLAUDE_CODE_ARGS")) or ["--print"])]
+    escaped_args = " ".join(powershell_quote(arg) for arg in args)
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"Get-Content -Raw {powershell_quote(str(prompt_path))} | & {escaped_args}",
+            "",
+        ]
+    )
 
 
 def render_live_prompt(package: AgentExecutionPackageSpec, *, include_system: bool = True) -> str:
@@ -414,6 +596,14 @@ def split_optional_args(value: str | None) -> list[str]:
     return shlex.split(value)
 
 
+def truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def render_manual_invocation(package: AgentExecutionPackageSpec, package_path: Path) -> str:
     lines = [
         f"# Manual Agent Invocation - {package.task_id}",
@@ -475,7 +665,9 @@ def adapter_registry() -> dict[str, AgentAdapter]:
     return {
         "manual": ManualAdapter(),
         "openai": OpenAiAdapter(),
+        "codex": CodexCliAdapter(),
         "claude-cli": ClaudeCliAdapter(),
+        "claude-code": ClaudeCodeAdapter(),
         "mcp": McpAdapter(),
     }
 
