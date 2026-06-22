@@ -929,3 +929,47 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - 선택된 security control을 provider placement matrix와 Docker Compose control service 환경변수에 반영
 
 다음 구현 우선순위는 실제 OpenAI/Claude/MCP adapter live execution, provider별 deploy/destroy, VM/AD provisioning, 실제 취약 서비스 구현 자동화, 그리고 마지막 단계의 scenario 02-10 변환/검증이다.
+
+## 17. 2026-06-22 추가 반영 사항
+
+최근 구현으로 LabForge의 표준 제작 흐름은 다음처럼 정리된다.
+
+```text
+1. labforge intake template
+   사람이 시나리오 아이디어를 적을 Markdown/YAML 입력지를 만든다.
+
+2. labforge intake scaffold
+   작성된 scenario-intake.yaml을 LabForge 초안 파일 묶음으로 변환한다.
+
+3. labforge validate / lint
+   스키마 오류와 placeholder, 약한 구조를 점검한다.
+
+4. labforge controls list / apply
+   감독자가 firewall, WAF, IDS, SIEM, EDR 같은 보안장치를 선택한다.
+
+5. labforge doctor / plan
+   현재 PC, WSL, Docker, VM/hybrid 필요성을 판단하고 실행 계획을 만든다.
+
+6. labforge services scaffold / materialize
+   서비스 구현 계약과 안전한 placeholder runtime을 만든다.
+
+7. labforge package
+   provider 산출물, 문서, 실행 계획, lint, QA smoke 결과를 감독자 검토 패키지로 묶는다.
+
+8. labforge agents scaffold / run --dry-run / review / decide
+   Orchestrator LLM과 specialist agent가 수행할 작업 패키지와 검토 흐름을 만든다.
+```
+
+현재 추가된 주요 명령은 다음과 같다.
+
+| 명령 | 목적 |
+|---|---|
+| `intake template` | 시나리오 기획자가 작성할 입력 템플릿 생성 |
+| `intake scaffold` | intake YAML을 LabForge lab 초안으로 변환 |
+| `lint` | placeholder, 약한 시작점, healthcheck 누락 등 품질 점검 |
+| `controls list` | 선택 가능한 보안장치 catalog 확인 |
+| `controls apply` | 감독자의 보안장치 선택을 `supervisor-selection.yaml`에 반영 |
+| `package` | 감독자 검토용 산출물 묶음 생성 |
+
+이 단계까지의 LabForge는 실제 취약 서비스 코드를 자동으로 완성하는 도구가 아니라, 시나리오 원고를 안전하고 검토 가능한 인프라 설계/구현 계약/agent 작업 패키지로 바꾸는 프레임워크다.
+실제 취약 서비스 구현, 실제 VM/AD provisioning, 실제 LLM live execution은 다음 개발 단계에 남아 있다.
