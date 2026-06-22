@@ -5,6 +5,8 @@ from pathlib import Path
 
 from .model import LabSpec
 from .doctor import inspect_host, report_to_json, report_to_markdown
+from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .io import write_text
 from .providers.factory import list_providers
 from .render import build_lab, render_docs
 from .schema import export_schemas
@@ -66,6 +68,28 @@ def command_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_plan(args: argparse.Namespace) -> int:
+    lab_root = Path(args.lab)
+    spec = LabSpec.load(lab_root)
+    out = Path(args.out) if args.out else Path("output") / spec.lab_id
+    plan = create_execution_plan(
+        spec,
+        lab_root,
+        out,
+        provider=args.provider,
+        profile=args.profile,
+    )
+    if args.out:
+        write_text(out / "docs" / "execution-plan.md", plan_to_markdown(plan))
+        write_text(out / "docs" / "execution-plan.json", plan_to_json(plan))
+        print(f"Rendered execution plan: {(out / 'docs' / 'execution-plan.md').resolve()}")
+    elif args.format == "json":
+        print(plan_to_json(plan))
+    else:
+        print(plan_to_markdown(plan))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="labforge")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -98,6 +122,14 @@ def main(argv: list[str] | None = None) -> int:
     doctor_parser.add_argument("--lab", help="Optional lab root used to include deployment-model advice")
     doctor_parser.add_argument("--format", choices=["text", "json"], default="text")
     doctor_parser.set_defaults(func=command_doctor)
+
+    plan_parser = sub.add_parser("plan", help="Create a host-aware lab execution plan")
+    plan_parser.add_argument("lab")
+    plan_parser.add_argument("--out")
+    plan_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    plan_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
+    plan_parser.add_argument("--format", choices=["text", "json"], default="text")
+    plan_parser.set_defaults(func=command_plan)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
