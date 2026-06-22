@@ -102,3 +102,41 @@ not live inside reusable template metadata.
 Two labs may both use `python-flask-web`, but they should still feel different
 because their business workflows, data, attack surfaces, internal topology,
 security controls, and final objectives are scenario-specific.
+
+## Built-In Infrastructure Templates
+
+Initial built-in templates:
+
+- `python-flask-web`: generic Flask HTTP service with `/`, `/metadata`, and
+  `/healthz`.
+- `attacker-workstation-ssh`: Linux learner workstation with SSH and common
+  diagnostic tools.
+- `controlled-drop`: lab-scoped submission receiver with resettable local state.
+
+Use them from `artifacts.yaml`:
+
+```yaml
+service_artifacts:
+  - service: entry-service
+    source_path: services/entry-service
+    runtime: Python web application
+    template:
+      id: python-flask-web
+    purpose: First learner-facing business service.
+    attack_surface:
+      - Scenario-specific workflow endpoint.
+    healthcheck: GET /healthz must return 200.
+    reset: Restore baseline data.
+    evidence_logs:
+      - application.log
+    safety_boundaries:
+      - Vulnerable behavior must remain lab-scoped.
+```
+
+Materialize the selected templates:
+
+```powershell
+python -m labforge services templates
+python -m labforge services materialize <lab-root> --force
+python -m labforge services verify <lab-root>
+```

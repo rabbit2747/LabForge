@@ -75,6 +75,58 @@ jobs:
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
           python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual
 
+      - name: Validate service infrastructure templates
+        run: |
+          python -m labforge init --out output/template-lab --lab-id template-lab --title "Template Lab" --force
+          python -m labforge services templates
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("output/template-lab/artifacts.yaml")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace("runtime: Linux learner workstation", "runtime: Linux learner workstation\n  template:\n    id: attacker-workstation-ssh")
+          text = text.replace("runtime: Replace with service runtime", "runtime: Python web application\n  template:\n    id: python-flask-web")
+          text += """
+          - service: controlled-drop
+            source_path: services/controlled-drop
+            runtime: Controlled drop service
+            template:
+              id: controlled-drop
+            purpose: Lab-scoped final submission receiver.
+            attack_surface: []
+            seed_inputs: []
+            noise_inputs: []
+            healthcheck: GET /healthz must return 200.
+            reset: Clear submitted training objects.
+            evidence_logs:
+              - submissions.log
+            safety_boundaries:
+              - Accept only synthetic lab submissions.
+          """
+          path.write_text(text, encoding="utf-8")
+          topology = Path("output/template-lab/topology.yaml")
+          topology.write_text(topology.read_text(encoding="utf-8") + """
+          - name: controlled-drop
+            role: final submission service
+            exposed: false
+            networks:
+              - corp_net
+            expose:
+              - "8080"
+            healthcheck:
+              test: ["CMD", "sh", "-lc", "true"]
+              interval: 10s
+              timeout: 3s
+              retries: 10
+          """, encoding="utf-8")
+          PY
+          python -m labforge validate output/template-lab
+          python -m labforge services scaffold output/template-lab --force
+          python -m labforge services materialize output/template-lab --force
+          test -f output/template-lab/services/entry-service/Dockerfile
+          test -f output/template-lab/services/attacker-workstation/Dockerfile
+          test -f output/template-lab/services/controlled-drop/Dockerfile
+          python -m labforge services verify output/template-lab
+
       - name: Export schemas
         run: python -m labforge schema export --out output/schemas
 

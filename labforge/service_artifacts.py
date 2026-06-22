@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
+from .service_templates import render_template_files
 
 
 RECOMMENDED_DIRECTORIES = ("seed", "noise", "tests")
@@ -169,7 +170,7 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
         service_root.mkdir(parents=True, exist_ok=True)
         service = services_by_name.get(artifact.service, {})
         port = service_runtime_port(service)
-        files = {
+        files = render_template_files(artifact, port) or {
             "Dockerfile": render_runtime_dockerfile(artifact, port),
             "app.py": render_runtime_app(artifact, port),
             "seed/metadata.json": render_runtime_metadata(artifact, port),

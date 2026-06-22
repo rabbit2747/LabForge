@@ -59,6 +59,7 @@ python -m labforge agents scaffold examples/scenario-02-ad-domain-compromise --o
 python -m labforge agents validate output/scenario-02-agents
 python -m labforge services scaffold examples/scenario-02-ad-domain-compromise
 python -m labforge services check examples/scenario-02-ad-domain-compromise
+python -m labforge services templates
 python -m labforge services verify examples/scenario-02-ad-domain-compromise
 python -m labforge services plan examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-plan
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
@@ -139,11 +140,13 @@ PowerShell scripts automatically detect whether Docker is available in the
 current shell or in any WSL distro on Windows, then run through the first usable
 runtime. The provider also consumes `service_artifacts` contracts to document
 service build contexts, reset behavior, healthchecks, evidence logs, and safety
-boundaries. `services materialize` can generate safe runnable placeholder
-Docker service runtimes from those contracts, but LabForge does not yet generate
-full vulnerable service source code, production VM infrastructure, complete
-Ansible roles, complete Terraform modules, or production-grade enforcement logic
-for WAF, IDS, SIEM, or EDR controls.
+boundaries. `services materialize` can generate safe runnable Docker service
+runtimes from built-in infrastructure templates such as `python-flask-web`,
+`attacker-workstation-ssh`, and `controlled-drop`, or fall back to a generic
+safe runtime when no template is selected. LabForge does not yet generate full
+scenario-specific vulnerable service source code, production VM infrastructure,
+complete Ansible roles, complete Terraform modules, or production-grade
+enforcement logic for WAF, IDS, SIEM, or EDR controls.
 
 The `doctor` command now detects whether the current machine should run lab
 work directly from the host shell, from WSL, or through a VM/hybrid provider.
@@ -211,8 +214,8 @@ provider-specific starter files so provider engineers can complete the runnable
 implementation without reverse-engineering the scenario spec.
 
 QA smoke checks can validate the current lab definition, service artifact
-contracts, optional placeholder runtime materialization, and provider build in
-one pass:
+contracts, optional service runtime materialization, and provider build in one
+pass:
 
 ```powershell
 python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force

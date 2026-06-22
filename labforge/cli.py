@@ -39,6 +39,7 @@ from .qa import run_qa_smoke, run_release_gate
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
+from .service_templates import list_service_templates
 from .service_artifacts import (
     apply_service_result,
     materialize_service_runtimes,
@@ -426,6 +427,21 @@ def command_services_agent_packages(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_templates(args: argparse.Namespace) -> int:
+    lines = [
+        "# Service Templates",
+        "",
+        "| Template | Description | Aliases |",
+        "|---|---|---|",
+    ]
+    for template in list_service_templates():
+        aliases = ", ".join(f"`{alias}`" for alias in template.aliases) or "-"
+        lines.append(f"| `{template.template_id}` | {template.description} | {aliases} |")
+    lines.append("")
+    print("\n".join(lines))
+    return 0
+
+
 def command_services_apply_result(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     report = apply_service_result(
@@ -474,7 +490,7 @@ def command_services_scaffold(args: argparse.Namespace) -> int:
 def command_services_materialize(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     written = materialize_service_runtimes(spec, force=args.force)
-    print(f"Materialized service runtime placeholders under: {Path(args.lab).resolve()}")
+    print(f"Materialized service runtimes under: {Path(args.lab).resolve()}")
     if written:
         for path in written:
             print(f"- {path}")
@@ -691,6 +707,8 @@ def main(argv: list[str] | None = None) -> int:
 
     services_parser = sub.add_parser("services", help="Service artifact utilities")
     services_sub = services_parser.add_subparsers(dest="services_command", required=True)
+    services_templates_parser = services_sub.add_parser("templates", help="List built-in service infrastructure templates")
+    services_templates_parser.set_defaults(func=command_services_templates)
     services_check_parser = services_sub.add_parser("check", help="Validate service artifact directories")
     services_check_parser.add_argument("lab")
     services_check_parser.set_defaults(func=command_services_check)

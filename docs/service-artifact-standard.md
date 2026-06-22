@@ -83,18 +83,21 @@ Create placeholder service directories and hooks:
 python -m labforge services scaffold <lab-root>
 ```
 
-Create safe runnable Docker placeholder runtimes from service contracts:
+Create runnable service runtimes from service contracts. If a built-in service
+template is selected, LabForge uses that infrastructure template. Otherwise it
+falls back to a safe generic runtime:
 
 ```powershell
 python -m labforge services materialize <lab-root>
 python -m labforge services materialize <lab-root> --force
 ```
 
-`services materialize` writes `Dockerfile`, `app.py`, and `seed/metadata.json`
-files for each declared service artifact. These files are intentionally safe
-placeholder runtimes. They expose `/`, `/metadata`, and `/healthz` so provider
-engineers and QA agents can validate build contexts before real service code is
-implemented.
+`services materialize` writes runtime files such as `Dockerfile`, `app.py`,
+`healthcheck.sh`, `reset.sh`, `seed/metadata.json`, and smoke tests for each
+declared service artifact. Built-in templates provide reusable infrastructure
+parts only. Scenario-specific vulnerable behavior, clues, final objects, and
+solution paths still belong in scenario-specific service code or instructor-only
+artifacts.
 
 Validate that every declared service artifact has a matching implementation
 directory and required files:
