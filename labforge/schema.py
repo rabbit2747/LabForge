@@ -12,6 +12,7 @@ from .linting import LINT_SCHEMA_MODELS
 from .packaging import PACKAGE_SCHEMA_MODELS
 from .provider_lifecycle import PROVIDER_LIFECYCLE_SCHEMA_MODELS
 from .qa import QA_SCHEMA_MODELS
+from .service_artifacts import SERVICE_ARTIFACT_SCHEMA_MODELS
 from .service_verification import SERVICE_VERIFICATION_SCHEMA_MODELS
 from .spec_models import SCHEMA_MODELS
 
@@ -25,6 +26,7 @@ def export_schemas(out: Path) -> list[Path]:
         **IMPLEMENTATION_SCHEMA_MODELS,
         **INTAKE_SCHEMA_MODELS,
         **QA_SCHEMA_MODELS,
+        **SERVICE_ARTIFACT_SCHEMA_MODELS,
         **SERVICE_VERIFICATION_SCHEMA_MODELS,
         **PROVIDER_LIFECYCLE_SCHEMA_MODELS,
         **LINT_SCHEMA_MODELS,

@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "ServiceResultApplyItem": {
+      "additionalProperties": true,
+      "properties": {
+        "target_path": {
+          "title": "Target Path",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "would-write",
+            "written",
+            "skipped",
+            "failed"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_path",
+        "action"
+      ],
+      "title": "ServiceResultApplyItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "service": {
+      "title": "Service",
+      "type": "string"
+    },
+    "result_file": {
+      "title": "Result File",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "dry_run": {
+      "default": false,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "applied": {
+      "items": {
+        "$ref": "#/$defs/ServiceResultApplyItem"
+      },
+      "title": "Applied",
+      "type": "array"
+    },
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "service",
+    "result_file",
+    "status"
+  ],
+  "title": "ServiceResultApplyReport",
+  "type": "object"
+}

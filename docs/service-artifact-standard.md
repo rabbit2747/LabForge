@@ -148,3 +148,54 @@ Agent workflows should:
 - create or review service code against this contract
 - reject services that lack reset or safety boundaries
 - produce QA results tied to each `service_artifacts` entry
+
+## Applying Service Builder Results
+
+Service builders may return implementation changes through a schema-valid
+service result file. LabForge can apply those changes to exactly one declared
+service directory.
+
+```yaml
+task_id: service-build-entry-service
+status: complete
+service: entry-service
+summary: Implemented the entry service runtime, healthcheck, reset hook, and tests.
+service_changes:
+  - target_path: app.py
+    content: |
+      print("implemented service")
+  - target_path: healthcheck.sh
+    executable: true
+    content: |
+      #!/usr/bin/env sh
+      set -eu
+      curl -fsS http://127.0.0.1:8080/healthz
+findings: []
+open_questions: []
+```
+
+Apply the result:
+
+```powershell
+python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --dry-run
+python -m labforge services apply-result <lab-root> --result service-build-entry-service.result.yaml --force
+```
+
+Safety rules:
+
+- `service` must match a declared `service_artifacts` item.
+- `target_path` is always relative to that service's `source_path`.
+- absolute paths and `..` traversal are rejected.
+- existing files are not overwritten unless `--force` is provided.
+- `source_path`, when used instead of inline `content`, is relative to the
+  result file directory.
+- only the selected service directory can be modified.
+
+This creates the missing link between manual or LLM-assisted service
+implementation and deterministic LabForge verification:
+
+```powershell
+python -m labforge services apply-result <lab-root> --result <agent-result.yaml> --force
+python -m labforge services verify <lab-root> --strict
+python -m labforge qa release-gate <lab-root> --out output/release-gate --provider docker-compose --profile protected
+```

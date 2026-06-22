@@ -50,6 +50,26 @@ jobs:
           python -m labforge services scaffold output/starter-lab
           python -m labforge services materialize output/starter-lab --force
           python -m labforge services check output/starter-lab
+          cat > output/starter-entry-service.result.yaml <<'YAML'
+          task_id: service-build-entry-service
+          status: complete
+          service: entry-service
+          summary: Replace placeholder runtime with a tiny deterministic service file.
+          service_changes:
+            - target_path: app.py
+              content: |
+                print("implemented service")
+            - target_path: healthcheck.sh
+              executable: true
+              content: |
+                #!/usr/bin/env sh
+                set -eu
+                echo ok
+          findings: []
+          open_questions: []
+          YAML
+          python -m labforge services apply-result output/starter-lab --result output/starter-entry-service.result.yaml --force --out output/starter-apply-result.md
+          python -m labforge services apply-result output/starter-lab --result output/starter-entry-service.result.yaml --dry-run --force --format json > output/starter-apply-result.json
           python -m labforge services verify output/starter-lab
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
           python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual

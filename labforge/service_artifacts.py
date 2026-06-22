@@ -6,8 +6,11 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
-from .io import dump_yaml, write_text
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 
 
@@ -30,6 +33,49 @@ class ServiceHookRun:
     returncode: int
     stdout: str
     stderr: str
+
+
+class ServiceArtifactModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class ServiceChangeSpec(ServiceArtifactModel):
+    target_path: str
+    content: str | None = None
+    source_path: str | None = None
+    executable: bool = False
+
+    @model_validator(mode="after")
+    def validate_change_source(self) -> "ServiceChangeSpec":
+        if bool(self.content is not None) == bool(self.source_path):
+            raise ValueError("exactly one of content or source_path is required")
+        return self
+
+
+class ServiceResultSpec(ServiceArtifactModel):
+    task_id: str
+    status: Literal["complete", "needs-review"]
+    service: str
+    summary: str = ""
+    service_changes: list[ServiceChangeSpec] = Field(default_factory=list)
+    findings: list[dict | str] = Field(default_factory=list)
+    open_questions: list[dict | str] = Field(default_factory=list)
+
+
+class ServiceResultApplyItem(ServiceArtifactModel):
+    target_path: str
+    action: Literal["would-write", "written", "skipped", "failed"]
+    message: str = ""
+
+
+class ServiceResultApplyReport(ServiceArtifactModel):
+    lab_id: str
+    service: str
+    result_file: str
+    status: Literal["passed", "failed"]
+    dry_run: bool = False
+    applied: list[ServiceResultApplyItem] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 def declared_service_artifacts(spec: LabSpec):
@@ -185,6 +231,162 @@ def run_service_hooks(
             )
         )
     return runs, errors
+
+
+def apply_service_result(
+    spec: LabSpec,
+    result_file: Path,
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+) -> ServiceResultApplyReport:
+    result_path = result_file.resolve()
+    result = ServiceResultSpec.model_validate(load_yaml(result_path))
+    artifacts = {artifact.service: artifact for artifact in declared_service_artifacts(spec)}
+    artifact = artifacts.get(result.service)
+    if not artifact:
+        return ServiceResultApplyReport(
+            lab_id=spec.lab_id,
+            service=result.service,
+            result_file=str(result_path),
+            status="failed",
+            dry_run=dry_run,
+            errors=[f"result references unknown service or missing service_artifacts contract: {result.service}"],
+        )
+    if result.status != "complete":
+        return ServiceResultApplyReport(
+            lab_id=spec.lab_id,
+            service=result.service,
+            result_file=str(result_path),
+            status="failed",
+            dry_run=dry_run,
+            errors=[f"result status must be complete before apply, got: {result.status}"],
+        )
+
+    service_root = (spec.root / artifact.source_path).resolve()
+    if not service_root.exists() or not service_root.is_dir():
+        return ServiceResultApplyReport(
+            lab_id=spec.lab_id,
+            service=result.service,
+            result_file=str(result_path),
+            status="failed",
+            dry_run=dry_run,
+            errors=[f"service source_path does not exist: {artifact.source_path}"],
+        )
+
+    applied: list[ServiceResultApplyItem] = []
+    errors: list[str] = []
+    if not result.service_changes:
+        errors.append("result contains no service_changes")
+
+    for change in result.service_changes:
+        target, target_error = resolve_service_target(service_root, change.target_path)
+        if target_error:
+            errors.append(target_error)
+            applied.append(ServiceResultApplyItem(target_path=change.target_path, action="failed", message=target_error))
+            continue
+
+        assert target is not None
+        if target.exists() and not force:
+            message = "target exists; rerun with --force to overwrite"
+            errors.append(f"{change.target_path}: {message}")
+            applied.append(ServiceResultApplyItem(target_path=change.target_path, action="failed", message=message))
+            continue
+
+        content, content_error = service_change_content(change, result_path.parent)
+        if content_error:
+            errors.append(f"{change.target_path}: {content_error}")
+            applied.append(ServiceResultApplyItem(target_path=change.target_path, action="failed", message=content_error))
+            continue
+
+        if dry_run:
+            applied.append(ServiceResultApplyItem(target_path=change.target_path, action="would-write"))
+            continue
+
+        assert content is not None
+        write_text(target, content)
+        if change.executable:
+            make_executable(target)
+        applied.append(ServiceResultApplyItem(target_path=change.target_path, action="written"))
+
+    status: Literal["passed", "failed"] = "failed" if errors else "passed"
+    return ServiceResultApplyReport(
+        lab_id=spec.lab_id,
+        service=result.service,
+        result_file=str(result_path),
+        status=status,
+        dry_run=dry_run,
+        applied=applied,
+        errors=errors,
+    )
+
+
+def resolve_service_target(service_root: Path, target_path: str) -> tuple[Path | None, str | None]:
+    raw = Path(target_path)
+    if raw.is_absolute():
+        return None, f"target_path must be relative to the service root: {target_path}"
+    if any(part == ".." for part in raw.parts):
+        return None, f"target_path may not contain parent traversal: {target_path}"
+    resolved = (service_root / raw).resolve()
+    try:
+        resolved.relative_to(service_root)
+    except ValueError:
+        return None, f"target_path escapes the service root: {target_path}"
+    return resolved, None
+
+
+def service_change_content(change: ServiceChangeSpec, result_dir: Path) -> tuple[str | None, str | None]:
+    if change.content is not None:
+        return change.content, None
+    assert change.source_path is not None
+    source = Path(change.source_path)
+    if source.is_absolute():
+        return None, f"source_path must be relative to the result file directory: {change.source_path}"
+    if any(part == ".." for part in source.parts):
+        return None, f"source_path may not contain parent traversal: {change.source_path}"
+    source_path = (result_dir / source).resolve()
+    try:
+        source_path.relative_to(result_dir.resolve())
+    except ValueError:
+        return None, f"source_path escapes the result file directory: {change.source_path}"
+    if not source_path.exists() or not source_path.is_file():
+        return None, f"source_path does not exist: {change.source_path}"
+    return source_path.read_text(encoding="utf-8"), None
+
+
+def make_executable(path: Path) -> None:
+    try:
+        current = path.stat().st_mode
+        path.chmod(current | 0o111)
+    except OSError:
+        pass
+
+
+def service_result_apply_to_markdown(report: ServiceResultApplyReport) -> str:
+    lines = [
+        f"# Service Result Apply Report - {report.service}",
+        "",
+        f"- Lab ID: `{report.lab_id}`",
+        f"- Result file: `{report.result_file}`",
+        f"- Status: `{report.status}`",
+        f"- Dry run: `{str(report.dry_run).lower()}`",
+        "",
+        "| Target | Action | Message |",
+        "|---|---|---|",
+    ]
+    if not report.applied:
+        lines.append("| - | - | No service changes were applied. |")
+    for item in report.applied:
+        lines.append(f"| `{item.target_path}` | `{item.action}` | {item.message or '-'} |")
+    if report.errors:
+        lines += [
+            "",
+            "## Errors",
+            "",
+        ]
+        lines.extend(f"- {error}" for error in report.errors)
+    lines.append("")
+    return "\n".join(lines)
 
 
 def shell_command_for_script(script: Path) -> list[str] | None:
@@ -380,3 +582,9 @@ def render_runtime_metadata(artifact, port: int) -> str:
         "safety_boundaries": artifact.safety_boundaries,
     }
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+SERVICE_ARTIFACT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "service-result.schema.json": ServiceResultSpec,
+    "service-result-apply-report.schema.json": ServiceResultApplyReport,
+}
