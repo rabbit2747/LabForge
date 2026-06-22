@@ -798,12 +798,12 @@ examples/scenario-02-ad-domain-compromise
 
 한계:
 
-- 실제 취약 서비스 자동 생성은 하지 않는다.
-- Docker Compose 외 provider는 skeleton만 있고, 아직 실제 산출물을 생성하지 않는다.
-- protected/unprotected profile은 문서와 Docker Compose scaffold/runtime script 수준으로 분리되었지만, Ansible/Terraform/Ludus/Hybrid provider에는 아직 깊게 반영되지 않았다.
-- security control은 현재 diagram overlay, 문서화, Docker Compose placeholder 서비스 수준이며, 실제 WAF/IDS/SIEM/EDR 엔진 구성은 아직 생성하지 않는다.
+- 실제 취약 서비스 자동 생성은 아직 하지 않는다. 다만 `services materialize`로 안전한 Docker placeholder runtime은 생성할 수 있다.
+- Docker Compose 외 provider는 실제 인프라 배포를 수행하지 않는다. 다만 Ansible/Terraform/Ludus/Hybrid provider는 provider plan, inventory, security profile, starter file을 생성한다.
+- protected/unprotected profile은 문서, Docker Compose scaffold/runtime script, provider skeleton 산출물에 반영된다. 실제 WAF/IDS/SIEM/EDR 엔진 구성과 enforcement logic은 아직 생성하지 않는다.
+- security control은 diagram overlay, 문서화, Docker Compose placeholder 서비스, provider placement matrix 수준이다.
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
-- generated `docker-compose.yml`은 runnable scaffold이며, 실제 서비스 구현 디렉토리는 별도로 작성해야 한다.
+- generated `docker-compose.yml`은 runnable scaffold이며, placeholder runtime 이후 실제 취약 서비스 구현은 service builder 또는 agent가 작성해야 한다.
 
 ## 14. 수정된 개발 단계 제안
 
@@ -823,15 +823,15 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 
 4. Provider Execution Layer
 
-   Docker Compose runtime script는 1차 구현되었다. 다음에는 Hybrid/Ludus/Ansible/Terraform provider를 고도화한다.
+   Docker Compose runtime script는 1차 구현되었다. Hybrid/Ludus/Ansible/Terraform provider는 deterministic skeleton 산출물을 생성한다. 다음에는 provider별 실제 deploy/destroy와 VM/AD provisioning을 고도화한다.
 
 5. Service Artifact Standard
 
-   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다.
+   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다. `services materialize`는 실제 취약 코드가 아닌 안전한 placeholder runtime을 생성한다.
 
 6. LLM Adapter
 
-   OpenAI, Claude CLI, MCP adapter를 붙인다. 이 단계 전까지는 dry-run orchestration만 사용한다.
+   `manual` adapter는 구현되었다. OpenAI, Claude CLI, MCP adapter는 registry slot만 있으며 실제 live execution은 아직 붙이지 않는다.
 
 7. Scenario Production
 
@@ -853,21 +853,25 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 5. python -m labforge doctor --lab <scenario-root>
 6. python -m labforge plan <scenario-root> --provider <provider> --profile <profile>
 7. python -m labforge services scaffold <scenario-root>
-8. python -m labforge services check <scenario-root>
-9. python -m labforge services healthcheck <scenario-root>
-10. python -m labforge services reset <scenario-root> --service <service-name>
-11. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
-12. python -m labforge agents validate output/<scenario>-agents
-13. validation error, host 환경 문제, service artifact 문제, hook 문제, agent task 설계 문제 수정
-14. python -m labforge schema export --out schemas
-15. python -m labforge docs <scenario-root> --out output/<scenario>-docs
-16. 감독자가 문서, 다이어그램, service artifact, agent task를 검토
-17. 보안장치 선택
-18. python -m labforge build <scenario-root> --out output/<scenario>
-19. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
+8. python -m labforge services materialize <scenario-root> --force
+9. python -m labforge services check <scenario-root>
+10. python -m labforge services healthcheck <scenario-root>
+11. python -m labforge services reset <scenario-root> --service <service-name>
+12. python -m labforge agents scaffold <scenario-root> --out output/<scenario>-agents
+13. python -m labforge agents run output/<scenario>-agents --dry-run --adapter manual --context-root <scenario-root>
+14. python -m labforge agents review output/<scenario>-agents --write
+15. python -m labforge agents decide output/<scenario>-agents --decision accepted --task-id <task-id> --reason "<reason>"
+16. validation error, host 환경 문제, service artifact 문제, hook 문제, agent task 설계 문제 수정
+17. python -m labforge schema export --out schemas
+18. python -m labforge docs <scenario-root> --out output/<scenario>-docs
+19. 감독자가 문서, 다이어그램, service artifact, agent task를 검토
+20. 보안장치 선택
+21. python -m labforge qa smoke <scenario-root> --out output/<scenario>-qa --provider <provider> --profile <profile> --materialize --force
+22. python -m labforge build <scenario-root> --out output/<scenario>
+23. 생성된 provider 산출물을 기반으로 실제 실습 환경 개발
 ```
 
-현재 MVP에서는 8번 이후의 보안장치 선택과 multi-provider 반영이 완성되지 않았지만, 프레임워크 방향은 이 흐름을 기준으로 잡고 있다.
+현재 MVP는 이 흐름 중 실제 LLM live execution, 실제 취약 서비스 구현, 실제 VM/AD provisioning을 제외한 대부분의 검증/문서화/스캐폴드 단계를 제공한다.
 
 ## 16. v0.2 현재 반영 상태
 
@@ -907,13 +911,19 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge agents scaffold <lab>` 명령으로 dry-run agent workspace 생성 추가
 - `python -m labforge agents validate <workspace>` 명령으로 agent task/output/decision artifact 검증 추가
 - `python -m labforge services scaffold <lab>` 명령으로 service artifact 구현 디렉토리와 hook placeholder 생성 추가
+- `python -m labforge services materialize <lab>` 명령으로 안전한 Docker placeholder runtime 생성 추가
 - `python -m labforge services check <lab>` 명령으로 service artifact 구현 디렉토리 검증 추가
 - `python -m labforge services healthcheck <lab>` 명령으로 service healthcheck hook 실행 추가
 - `python -m labforge services reset <lab>` 명령으로 service reset hook 실행 추가
 - agent 관련 JSON Schema export 추가
+- `python -m labforge agents adapters` 명령과 `manual` adapter 추가
+- `python -m labforge agents plan-run`, `agents run --dry-run`, `agents review`, `agents decide` 명령 추가
+- `python -m labforge qa smoke` 명령으로 schema/service/provider smoke gate 추가
 - scenario-02 예제를 v0.2 구조로 확장
 - `artifacts.yaml`의 `service_artifacts` 계약 추가
 - 서비스 구현 표준 문서와 생성 산출물 `docs/service-artifact-contract.md` 추가
 - Docker Compose provider가 `service_artifacts` 계약을 읽어 build context, service labels, `docs/provider-service-plan.md`에 반영
+- Ansible/Terraform/Ludus/Hybrid provider가 provider plan, inventory, security profile, starter file 생성
+- 선택된 security control을 provider placement matrix와 Docker Compose control service 환경변수에 반영
 
-다음 구현 우선순위는 Hybrid/Ludus/Ansible/Terraform provider 고도화와 service artifact hook을 실제 Docker/VM 서비스 상태 검증으로 발전시키는 것이다. 실제 LLM adapter는 dry-run orchestration artifact와 schema 검증이 안정화된 뒤 연결한다.
+다음 구현 우선순위는 실제 OpenAI/Claude/MCP adapter live execution, provider별 deploy/destroy, VM/AD provisioning, 실제 취약 서비스 구현 자동화, 그리고 마지막 단계의 scenario 02-10 변환/검증이다.
