@@ -140,3 +140,53 @@ python -m labforge services templates
 python -m labforge services materialize <lab-root> --force
 python -m labforge services verify <lab-root>
 ```
+
+## Vulnerability Plugin Contracts
+
+Vulnerability plugins describe scenario-specific vulnerable behavior that may be
+implemented on top of reusable infrastructure templates. They are contracts, not
+complete generated exploits or answer keys.
+
+Initial built-in plugin contracts:
+
+- `ssti-preview`
+- `stored-xss-review`
+- `idor-object-access`
+- `ssrf-internal-fetch`
+- `diagnostic-command-injection`
+
+Use them from `artifacts.yaml`:
+
+```yaml
+service_artifacts:
+  - service: entry-service
+    source_path: services/entry-service
+    runtime: Python web application
+    template:
+      id: python-flask-web
+    vulnerability_plugins:
+      - id: ssti-preview
+        workflow: document preview
+        template_engine: jinja2
+        execution_boundary: lab container only
+    purpose: First learner-facing business service.
+    attack_surface:
+      - Scenario-specific preview endpoint.
+    healthcheck: GET /healthz must return 200.
+    reset: Restore baseline data.
+    evidence_logs:
+      - application.log
+    safety_boundaries:
+      - Vulnerable behavior must remain lab-scoped.
+```
+
+Materialization writes plugin contract files under the service directory:
+
+```text
+services/<service>/plugins/ssti-preview.contract.yaml
+```
+
+The plugin contract tells service builders what the scenario must define, which
+MITRE techniques are commonly involved, and which safety boundaries must be
+preserved. It does not generate the final vulnerable route or the learner's
+solution path by itself.

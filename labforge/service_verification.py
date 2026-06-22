@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .model import LabSpec
 from .service_artifacts import REQUIRED_FILES, RUNTIME_FILES, declared_service_artifacts, service_check
+from .service_templates import template_id_for_artifact
+from .vulnerability_plugins import declared_vulnerability_plugins, get_vulnerability_plugin
 
 
 class ServiceVerificationModel(BaseModel):
@@ -79,6 +81,7 @@ def verify_services(spec: LabSpec) -> ServiceVerificationReport:
         verify_seed_noise_tests(findings, artifact, service_root, artifact.source_path)
         verify_contract_depth(findings, artifact, service_root, artifact.source_path)
         verify_template_boundaries(findings, artifact, service_root, artifact.source_path)
+        verify_vulnerability_plugins(findings, artifact, service_root, artifact.source_path)
 
     status: Literal["passed", "warning", "failed"]
     if any(item.severity == "error" for item in findings):
@@ -244,6 +247,61 @@ def verify_template_boundaries(findings: list[ServiceVerificationFinding], artif
                 message="No evidence logs are declared for instructor review.",
             )
         )
+
+
+def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], artifact, service_root: Path, source_path: str) -> None:
+    template_id = template_id_for_artifact(artifact)
+    for declared in declared_vulnerability_plugins(artifact):
+        plugin_id = str(declared.get("id", "")).strip()
+        if not plugin_id:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=artifact.service,
+                    category="vulnerability-plugin",
+                    path=f"{source_path}/labforge-service.yaml",
+                    message="Vulnerability plugin declaration is missing an id.",
+                )
+            )
+            continue
+        plugin = get_vulnerability_plugin(plugin_id)
+        if not plugin:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=artifact.service,
+                    category="vulnerability-plugin",
+                    path=f"{source_path}/labforge-service.yaml",
+                    message=f"Unknown vulnerability plugin `{plugin_id}` requires supervisor review.",
+                )
+            )
+            continue
+        compatible = {item.lower() for item in plugin.compatible_templates}
+        if template_id and template_id.lower() not in compatible:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=artifact.service,
+                    category="vulnerability-plugin",
+                    path=f"{source_path}/labforge-service.yaml",
+                    message=f"Plugin `{plugin.plugin_id}` is not declared compatible with template/runtime `{template_id}`.",
+                )
+            )
+        serialized = json.dumps(declared, ensure_ascii=False).lower()
+        marker = first_template_puzzle_marker(serialized)
+        if marker:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=artifact.service,
+                    category="vulnerability-plugin",
+                    path=f"{source_path}/labforge-service.yaml",
+                    message=(
+                        f"Vulnerability plugin configuration contains puzzle-like marker `{marker}`. "
+                        "Keep answer keys and exact payloads in instructor-only artifacts."
+                    ),
+                )
+            )
 
 
 def parse_service_name(message: str) -> str:

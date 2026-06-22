@@ -99,6 +99,11 @@ parts only. Scenario-specific vulnerable behavior, clues, final objects, and
 solution paths still belong in scenario-specific service code or instructor-only
 artifacts.
 
+When `vulnerability_plugins` are declared, materialization also writes reviewable
+contract files under `services/<service>/plugins/*.contract.yaml`. These files
+describe the scenario-specific behavior that service builders must implement;
+they do not generate final answers or fixed exploit chains.
+
 Validate that every declared service artifact has a matching implementation
 directory and required files:
 

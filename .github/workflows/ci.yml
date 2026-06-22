@@ -79,12 +79,14 @@ jobs:
         run: |
           python -m labforge init --out output/template-lab --lab-id template-lab --title "Template Lab" --force
           python -m labforge services templates
+          python -m labforge services vulnerability-plugins
           python - <<'PY'
           from pathlib import Path
           path = Path("output/template-lab/artifacts.yaml")
           text = path.read_text(encoding="utf-8")
           text = text.replace("runtime: Linux learner workstation", "runtime: Linux learner workstation\n  template:\n    id: attacker-workstation-ssh")
           text = text.replace("runtime: Replace with service runtime", "runtime: Python web application\n  template:\n    id: python-flask-web")
+          text = text.replace("purpose: First learner-facing service.", "vulnerability_plugins:\n  - id: ssti-preview\n    workflow: document preview\n    template_engine: jinja2\n    execution_boundary: lab container only\n  purpose: First learner-facing service.")
           text += """
           - service: controlled-drop
             source_path: services/controlled-drop
@@ -123,6 +125,7 @@ jobs:
           python -m labforge services scaffold output/template-lab --force
           python -m labforge services materialize output/template-lab --force
           test -f output/template-lab/services/entry-service/Dockerfile
+          test -f output/template-lab/services/entry-service/plugins/ssti-preview.contract.yaml
           test -f output/template-lab/services/attacker-workstation/Dockerfile
           test -f output/template-lab/services/controlled-drop/Dockerfile
           python -m labforge services verify output/template-lab

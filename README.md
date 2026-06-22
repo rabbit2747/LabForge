@@ -60,6 +60,7 @@ python -m labforge agents validate output/scenario-02-agents
 python -m labforge services scaffold examples/scenario-02-ad-domain-compromise
 python -m labforge services check examples/scenario-02-ad-domain-compromise
 python -m labforge services templates
+python -m labforge services vulnerability-plugins
 python -m labforge services verify examples/scenario-02-ad-domain-compromise
 python -m labforge services plan examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-plan
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual

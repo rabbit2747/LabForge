@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_templates import render_template_files
+from .vulnerability_plugins import render_vulnerability_plugin_contracts
 
 
 RECOMMENDED_DIRECTORIES = ("seed", "noise", "tests")
@@ -175,6 +176,7 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             "app.py": render_runtime_app(artifact, port),
             "seed/metadata.json": render_runtime_metadata(artifact, port),
         }
+        files.update(render_vulnerability_plugin_contracts(artifact))
         for filename, content in files.items():
             path = service_root / filename
             if path.exists() and not force:

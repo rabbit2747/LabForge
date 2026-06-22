@@ -40,6 +40,7 @@ from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
 from .service_templates import list_service_templates
+from .vulnerability_plugins import list_vulnerability_plugins
 from .service_artifacts import (
     apply_service_result,
     materialize_service_runtimes,
@@ -442,6 +443,24 @@ def command_services_templates(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_vulnerability_plugins(args: argparse.Namespace) -> int:
+    lines = [
+        "# Vulnerability Plugins",
+        "",
+        "These are scenario-specific behavior contracts, not complete puzzle generators.",
+        "",
+        "| Plugin | Compatible Templates | MITRE | Description |",
+        "|---|---|---|---|",
+    ]
+    for plugin in list_vulnerability_plugins():
+        templates = ", ".join(f"`{item}`" for item in plugin.compatible_templates)
+        mitre = ", ".join(f"`{item}`" for item in plugin.mitre_techniques)
+        lines.append(f"| `{plugin.plugin_id}` | {templates} | {mitre} | {plugin.description} |")
+    lines.append("")
+    print("\n".join(lines))
+    return 0
+
+
 def command_services_apply_result(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     report = apply_service_result(
@@ -709,6 +728,8 @@ def main(argv: list[str] | None = None) -> int:
     services_sub = services_parser.add_subparsers(dest="services_command", required=True)
     services_templates_parser = services_sub.add_parser("templates", help="List built-in service infrastructure templates")
     services_templates_parser.set_defaults(func=command_services_templates)
+    services_vuln_plugins_parser = services_sub.add_parser("vulnerability-plugins", help="List built-in scenario-specific vulnerability plugin contracts")
+    services_vuln_plugins_parser.set_defaults(func=command_services_vulnerability_plugins)
     services_check_parser = services_sub.add_parser("check", help="Validate service artifact directories")
     services_check_parser.add_argument("lab")
     services_check_parser.set_defaults(func=command_services_check)
