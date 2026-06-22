@@ -7,7 +7,7 @@ from typing import Any
 from labforge.io import dump_yaml, write_text
 from labforge.model import LabSpec
 from labforge.providers.base import Provider
-from labforge.security_controls import has_selected_category, selected_controls
+from labforge.security_controls import control_placements, has_selected_category, selected_controls
 
 
 class DockerComposeProvider(Provider):
@@ -141,6 +141,11 @@ def add_security_control_services(spec: LabSpec, compose: dict[str, Any]) -> Non
 
     for control in controls:
         service_name = f"control-{control.category}-{control.control_id}"
+        placement = next(
+            (item for item in control_placements(spec) if item["id"] == control.control_id),
+            {},
+        )
+        scope = placement.get("scope", {})
         entry: dict[str, Any] = {
             "image": "alpine:3.20",
             "command": [
@@ -158,7 +163,8 @@ def add_security_control_services(spec: LabSpec, compose: dict[str, Any]) -> Non
                 "LABFORGE_CONTROL_ID": control.control_id,
                 "LABFORGE_CONTROL_CATEGORY": control.category,
                 "LABFORGE_CONTROL_MODE": control.mode,
-                "LABFORGE_MONITORED_NETWORKS": ",".join(networks),
+                "LABFORGE_MONITORED_NETWORKS": ",".join(scope.get("networks") or networks),
+                "LABFORGE_MONITORED_SERVICES": ",".join(scope.get("services") or []),
             },
             "labels": [
                 "labforge.generated=true",
@@ -189,6 +195,7 @@ def render_security_plan(spec: LabSpec, profile: str) -> str:
         return "\n".join(lines)
 
     controls = selected_controls(spec)
+    placements = control_placements(spec)
     lines += [
         "The protected provider output materializes selected controls as Compose services.",
         "These services are safe scaffolds: they mark placement, networking, labels, and log volumes so a later implementation can replace them with real WAF/IDS/SIEM/EDR components.",
@@ -204,6 +211,18 @@ def render_security_plan(spec: LabSpec, profile: str) -> str:
             f"  - Compose service: `control-{control.category}-{control.control_id}`",
             f"  - Purpose: {control.description or control.name}",
         ]
+    lines += [
+        "",
+        "## Placement Matrix",
+        "",
+        "| Control | Networks | Services | Effect |",
+        "|---|---|---|---|",
+    ]
+    for placement in placements:
+        scope = placement.get("scope", {})
+        networks = ", ".join(scope.get("networks", [])) or "-"
+        services = ", ".join(scope.get("services", [])) or "-"
+        lines.append(f"| `{placement['id']}` | {networks} | {services} | {placement['effect']} |")
     lines += [
         "",
         "## Provider Effects",

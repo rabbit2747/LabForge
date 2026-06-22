@@ -4,7 +4,7 @@ from typing import Any
 
 from labforge.io import dump_yaml
 from labforge.model import LabSpec
-from labforge.security_controls import selected_controls
+from labforge.security_controls import control_placements, selected_controls
 
 
 def provider_plan(spec: LabSpec, provider: str, profile: str, status: str) -> dict[str, Any]:
@@ -37,6 +37,7 @@ def provider_plan(spec: LabSpec, provider: str, profile: str, status: str) -> di
             }
             for control in selected_controls(spec)
         ],
+        "control_placements": control_placements(spec) if profile == "protected" else [],
     }
 
 
@@ -86,6 +87,7 @@ def render_provider_readme(spec: LabSpec, provider: str, profile: str, status: s
 
 def render_security_profile(spec: LabSpec, provider: str, profile: str) -> str:
     controls = selected_controls(spec)
+    placements = control_placements(spec)
     lines = [
         f"# {provider} Security Profile - {spec.title}",
         "",
@@ -112,6 +114,21 @@ def render_security_profile(spec: LabSpec, provider: str, profile: str) -> str:
             f"  - Mode: `{control.mode}`",
             f"  - Purpose: {control.description or control.name}",
         ]
+    lines += [
+        "",
+        "## Placement Matrix",
+        "",
+        "| Control | Category | Mode | Networks | Services | Effect |",
+        "|---|---|---|---|---|---|",
+    ]
+    for placement in placements:
+        scope = placement.get("scope", {})
+        networks = ", ".join(scope.get("networks", [])) or "-"
+        services = ", ".join(scope.get("services", [])) or "-"
+        lines.append(
+            f"| `{placement['id']}` | {placement['category']} | {placement['mode']} | "
+            f"{networks} | {services} | {placement['effect']} |"
+        )
     lines += [
         "",
         "## Provider Expectations",
