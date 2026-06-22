@@ -287,6 +287,7 @@ def write_runtime_scripts(out: Path) -> None:
         "validate": ["config"],
         "start": ["up", "--build", "-d"],
         "stop": ["down"],
+        "destroy": ["down", "-v"],
         "reset": ["down", "-v", "&&", "up", "--build", "-d"],
     }
     for name, args in scripts.items():
@@ -500,6 +501,7 @@ def render_scripts_readme() -> str:
             "| `validate.ps1` / `validate.sh` | Run `docker compose config`. |",
             "| `start.ps1` / `start.sh` | Build and start the lab. |",
             "| `stop.ps1` / `stop.sh` | Stop the lab without deleting volumes. |",
+            "| `destroy.ps1` / `destroy.sh` | Stop the lab and delete Compose volumes. |",
             "| `reset.ps1` / `reset.sh` | Delete volumes and rebuild the lab. |",
             "| `services-healthcheck.ps1` / `services-healthcheck.sh` | Run service `healthcheck.sh` hooks copied into the generated lab. |",
             "| `services-reset.ps1` / `services-reset.sh` | Run service `reset.sh` hooks copied into the generated lab. |",

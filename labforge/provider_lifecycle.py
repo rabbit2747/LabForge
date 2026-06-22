@@ -112,6 +112,10 @@ def docker_compose_commands(
     *,
     remove_volumes: bool = False,
 ) -> list[list[str]]:
+    output_dir = compose_file.parent
+    script = lifecycle_script(output_dir, action, remove_volumes=remove_volumes)
+    if script:
+        return [script]
     compose = ["docker", "compose", "-f", str(compose_file)]
     if action == "deploy":
         return [[*compose, "up", "--build", "-d"]]
@@ -121,6 +125,33 @@ def docker_compose_commands(
             command.append("-v")
         return [command]
     return [[*compose, "ps"]]
+
+
+def lifecycle_script(
+    output_dir: Path,
+    action: Literal["deploy", "destroy", "status"],
+    *,
+    remove_volumes: bool = False,
+) -> list[str] | None:
+    if action == "status":
+        return None
+    script_name = "start" if action == "deploy" else ("destroy" if remove_volumes else "stop")
+    if platform.system().lower() == "windows":
+        script = output_dir / "scripts" / f"{script_name}.ps1"
+        if script.exists():
+            return [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ]
+        return None
+    script = output_dir / "scripts" / f"{script_name}.sh"
+    if script.exists():
+        return ["sh", str(script)]
+    return None
 
 
 def render_lifecycle_result(result: ProviderLifecycleResult) -> str:
