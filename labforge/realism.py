@@ -124,7 +124,7 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
             IndustryCapability(
                 id="customer-auth",
                 description="Customer authentication, MFA, session, SSO, or identity gateway.",
-                keywords=["customer auth", "customer login", "mfa", "sso", "identity gateway", "iam"],
+                keywords=["customer auth", "customer login", "customer-identity", "mfa", "sso", "identity gateway", "identity-gateway", "iam"],
                 min_keyword_matches=1,
                 recommended_services=["customer-identity-gateway", "session-service", "mfa-service"],
                 recommended_zones=["dmz", "application"],

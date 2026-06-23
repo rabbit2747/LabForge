@@ -489,7 +489,7 @@ def environment_from_intake(intake: ScenarioIntake) -> dict:
 def industry_zone_names(industry: str) -> list[str]:
     zone_map = {
         "supply-chain": ["attacker", "public edge", "corporate", "development", "build", "release", "customer", "security monitoring"],
-        "securities": ["attacker", "public or internet edge", "dmz", "application", "core trading", "data", "settlement", "compliance", "security monitoring"],
+        "securities": ["attacker", "public or internet edge", "dmz", "application", "core trading", "data", "settlement", "compliance", "management", "security monitoring"],
         "healthcare": ["attacker", "public edge", "dmz", "clinical", "administrative", "data", "security monitoring"],
         "manufacturing": ["attacker", "public edge", "corporate", "engineering", "ot", "data", "security monitoring"],
         "active-directory": ["attacker", "public edge", "workstation", "server", "domain services", "data", "management", "security monitoring"],
@@ -609,6 +609,8 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
     scenario_text = scenario_search_text(intake)
     service_text = service_name.lower()
     plugins: list[dict] = []
+    if service_text in {"attacker-workstation", "controlled-drop"}:
+        return plugins
 
     if any(word in scenario_text for word in ["ssti", "server-side template", "template injection", "jinja", "preview", "render"]):
         if any(word in service_text for word in ["portal", "entry", "support", "hr", "public"]):
@@ -637,7 +639,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
             )
 
     if any(word in scenario_text for word in ["ssrf", "server-side request", "internal fetch", "webhook", "url fetch", "metadata"]):
-        if any(word in service_text for word in ["portal", "entry", "support", "wiki", "import", "webhook"]):
+        if any(word in service_text for word in ["portal", "entry", "support", "wiki", "import", "webhook", "gateway"]):
             plugins.append(
                 {
                     "id": "ssrf-internal-fetch",
@@ -649,7 +651,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
             )
 
     if any(word in scenario_text for word in ["idor", "object", "export", "sensitive data", "dataset", "file", "archive"]):
-        if any(word in service_text for word in ["api", "object", "store", "file", "data", "sensitive", "customer"]):
+        if any(word in service_text for word in ["api", "object", "store", "file", "data", "sensitive", "customer", "export", "report", "compliance", "audit"]):
             plugins.append(
                 {
                     "id": "idor-object-access",
@@ -661,7 +663,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
             )
 
     if any(word in scenario_text for word in ["command injection", "diagnostic", "shell", "foothold", "command execution", "rce"]):
-        if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search"]):
+        if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search", "jump-host"]):
             plugins.append(
                 {
                     "id": "diagnostic-command-injection",
@@ -1173,14 +1175,25 @@ def securities_profile(request: NaturalLanguageScenarioRequest) -> dict:
         "attacker_infrastructure": common_attacker_infrastructure(),
         "target_infrastructure": [
             "investor-portal: public account and support surface",
+            "customer-identity-gateway: customer login, MFA, and session service",
             "api-gateway: customer and partner API gateway",
             "market-data-service: internal market data service",
             "trade-ops-console: operations console for trade exceptions",
             "settlement-db: settlement and reconciliation data store",
+            "trade-data-warehouse: trade records and compliance data warehouse",
             "compliance-export: controlled final export service",
         ],
         "security_controls": common_security_controls() + ["Fraud monitoring feed", "Transaction anomaly logging"],
-        "stages": generic_stage_chain("investor-portal", "trade-ops-console", "compliance-export"),
+        "stages": [
+            stage("stage-01", "Identify the investor portal rendering or request-routing weakness.", "Inspect normal investor support workflows and confirm a bounded public-facing application exploit path such as template preview abuse or internal URL fetch behavior.", "Initial Access", ["T1190 Exploit Public-Facing Application"], ["investor-portal"]),
+            stage("stage-02", "Establish a bounded foothold in the application tier.", "Use the entry weakness to collect service identity, environment, and internal routing context without touching real financial systems.", "Execution", ["T1059 Command and Scripting Interpreter"], ["investor-portal", "attacker-workstation"]),
+            stage("stage-03", "Discover trading application services.", "Enumerate application-tier service names and distinguish market data, trade operations, settlement, and compliance systems from operational noise.", "Discovery", ["T1046 Network Service Discovery"], ["api-gateway", "market-data-service"]),
+            stage("stage-04", "Access trade operations context.", "Use internal documentation or gateway metadata to learn how trade exception reviews and approval queues are handled.", "Discovery", ["T1083 File and Directory Discovery"], ["trade-ops-console"]),
+            stage("stage-05", "Abuse a trade exception review workflow.", "Submit controlled content or metadata that is reviewed by a privileged trade operations role and collect lab-scoped context exposed by that review.", "Credential Access", ["T1539 Steal Web Session Cookie"], ["trade-ops-console"]),
+            stage("stage-06", "Reach settlement metadata.", "Use the discovered operations context to query settlement or reconciliation records and identify the relevant controlled export identifier.", "Collection", ["T1005 Data from Local System"], ["settlement-db"]),
+            stage("stage-07", "Retrieve the compliance export object.", "Use the export identifier and discovered proof material to access the synthetic compliance export through the intended lab path.", "Collection", ["T1020 Automated Exfiltration"], ["compliance-export"]),
+            stage("stage-08", "Submit final proof.", "Submit the controlled compliance export proof to the drop service and verify completion evidence.", "Exfiltration", ["T1041 Exfiltration Over C2 Channel"], ["controlled-drop"]),
+        ],
     }
 
 
@@ -1194,11 +1207,21 @@ def healthcare_profile(request: NaturalLanguageScenarioRequest) -> dict:
             "patient-portal: public appointment and message service",
             "identity-gateway: staff and patient identity gateway",
             "ehr-api: electronic health record API",
+            "billing-claims-adapter: synthetic billing and insurance integration",
             "clinical-workstation: internal clinical workstation",
             "audit-export-service: final controlled export service",
         ],
         "security_controls": common_security_controls() + ["PHI-safe synthetic data boundary", "Clinical audit logging"],
-        "stages": generic_stage_chain("patient-portal", "ehr-api", "audit-export-service"),
+        "stages": [
+            stage("stage-01", "Identify the patient portal weakness.", "Inspect appointment, message, or document-preview workflows and confirm a bounded public-facing exploit condition.", "Initial Access", ["T1190 Exploit Public-Facing Application"], ["patient-portal"]),
+            stage("stage-02", "Establish a bounded portal foothold.", "Collect runtime identity, route metadata, and clinical network clues from the portal context while staying inside synthetic lab data.", "Execution", ["T1059 Command and Scripting Interpreter"], ["patient-portal", "attacker-workstation"]),
+            stage("stage-03", "Discover identity and clinical APIs.", "Enumerate internal identity gateway and EHR API surfaces reachable from the application tier.", "Discovery", ["T1046 Network Service Discovery"], ["identity-gateway", "ehr-api"]),
+            stage("stage-04", "Correlate synthetic patient and staff context.", "Use normal metadata and audit views to identify which synthetic records or staff workflow unlock the next stage.", "Discovery", ["T1087 Account Discovery"], ["identity-gateway", "ehr-api"]),
+            stage("stage-05", "Abuse a clinical review or workstation workflow.", "Use a lab-scoped review, diagnostic, or session workflow to expose privileged clinical context.", "Credential Access", ["T1539 Steal Web Session Cookie"], ["clinical-workstation"]),
+            stage("stage-06", "Access the audit export service.", "Use discovered authorization gaps or export metadata to request the controlled clinical audit export.", "Collection", ["T1005 Data from Local System"], ["audit-export-service"]),
+            stage("stage-07", "Verify synthetic data boundaries.", "Confirm the retrieved object is synthetic training data and contains no real protected health information.", "Collection", ["T1119 Automated Collection"], ["audit-export-service"]),
+            stage("stage-08", "Submit final proof.", "Submit the controlled audit export proof to the drop service.", "Exfiltration", ["T1041 Exfiltration Over C2 Channel"], ["controlled-drop"]),
+        ],
     }
 
 
@@ -1217,7 +1240,16 @@ def manufacturing_profile(request: NaturalLanguageScenarioRequest) -> dict:
             "production-report-store: final controlled export service",
         ],
         "security_controls": common_security_controls() + ["IT/OT segmentation", "Passive OT monitoring"],
-        "stages": generic_stage_chain("supplier-portal", "engineering-wiki", "production-report-store"),
+        "stages": [
+            stage("stage-01", "Identify the supplier portal weakness.", "Inspect supplier document, maintenance request, or quote-preview workflows and confirm a bounded public-facing application exploit path.", "Initial Access", ["T1190 Exploit Public-Facing Application"], ["supplier-portal"]),
+            stage("stage-02", "Establish a bounded IT foothold.", "Use the entry weakness to collect host, route, and service context from the supplier portal tier.", "Execution", ["T1059 Command and Scripting Interpreter"], ["supplier-portal", "attacker-workstation"]),
+            stage("stage-03", "Reach engineering knowledge systems.", "Use standard tunneling or internal service discovery to access engineering documentation without direct OT manipulation.", "Command and Control", ["T1090 Proxy"], ["engineering-wiki"]),
+            stage("stage-04", "Separate useful engineering clues from noise.", "Review realistic maintenance notes, recipe documentation, and production change records to find MES and historian paths.", "Discovery", ["T1083 File and Directory Discovery"], ["engineering-wiki"]),
+            stage("stage-05", "Discover bounded production services.", "Enumerate MES, historian, and jump-host surfaces that are intentionally simulated for the lab.", "Discovery", ["T1046 Network Service Discovery"], ["mes-api", "historian", "ot-jump-host"]),
+            stage("stage-06", "Abuse an operations diagnostic or trust workflow.", "Use a scenario-approved internal workflow to reach production report metadata while avoiding any destructive control action.", "Lateral Movement", ["T1210 Exploitation of Remote Services"], ["ot-jump-host", "mes-api"]),
+            stage("stage-07", "Retrieve the production report object.", "Use discovered historian or MES metadata to access the controlled production report export.", "Collection", ["T1005 Data from Local System"], ["historian", "production-report-store"]),
+            stage("stage-08", "Submit final proof.", "Submit the controlled production report proof to the drop service.", "Exfiltration", ["T1041 Exfiltration Over C2 Channel"], ["controlled-drop"]),
+        ],
     }
 
 
