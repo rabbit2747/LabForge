@@ -125,6 +125,27 @@ By default, `pipeline gate` is a reporting command and exits successfully after
 writing the gate files. Use `--strict` in CI or automation when the command
 should fail unless the workspace is ready for supervisor or release-gate work.
 
+## MVP Matrix
+
+`qa mvp-matrix` is the regression command for the natural-language product
+path. It creates fresh pipeline workspaces from built-in scenario prompts for
+supply-chain, securities, healthcare, and manufacturing profiles, then runs the
+pipeline gate and strict release gate for each case.
+
+```bash
+python -m labforge qa mvp-matrix \
+  --out output/mvp-matrix \
+  --provider docker-compose \
+  --profile protected \
+  --force
+```
+
+The command passes only when every case reaches `release-candidate` and the
+release gate reports `release_ready: true`. It is intentionally broader than a
+single scenario test so changes to intake profiles, plugin compatibility,
+realism checks, service materialization, or provider output cannot quietly
+collapse different industries back into one generic lab shape.
+
 ## Status Semantics
 
 - `complete`: all pipeline steps completed without blocking warnings.

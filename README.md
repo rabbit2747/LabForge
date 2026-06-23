@@ -91,6 +91,7 @@ python -m labforge services apply-result examples/scenario-02-ad-domain-compromi
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
 python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
 python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/scenario-02-release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
+python -m labforge qa mvp-matrix --out output/mvp-matrix --provider docker-compose --profile protected --force
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -408,6 +409,15 @@ verification fail the gate, which is useful before a lab is handed to learners:
 
 ```powershell
 python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
+```
+
+The MVP matrix checks the natural-language product path across multiple built-in
+industry profiles. It creates a pipeline workspace for supply-chain, securities,
+healthcare, and manufacturing prompts, then runs each workspace through the
+pipeline gate and strict release gate:
+
+```powershell
+python -m labforge qa mvp-matrix --out output/mvp-matrix --provider docker-compose --profile protected --force
 ```
 
 The current example scenario can materialize runnable MVP services. A release

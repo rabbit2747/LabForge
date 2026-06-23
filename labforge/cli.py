@@ -32,6 +32,7 @@ from .implementation_plan import (
     implementation_plan_to_markdown,
 )
 from .intake import create_intake_from_prompt, create_intake_template, normalize_prompt_text, scaffold_lab_from_intake
+from .mvp_matrix import run_mvp_matrix
 from .packaging import create_supervisor_package
 from .pipeline import create_lab_pipeline, evaluate_pipeline_gate, pipeline_gate_to_markdown, pipeline_result_to_markdown
 from .agent_orchestration import (
@@ -1014,6 +1015,22 @@ def command_qa_release_gate(args: argparse.Namespace) -> int:
     return 0 if report.status == "passed" else 1
 
 
+def command_qa_mvp_matrix(args: argparse.Namespace) -> int:
+    report = run_mvp_matrix(
+        Path(args.out),
+        provider=args.provider,
+        profile=args.profile,
+        adapter=args.adapter,
+        force=args.force,
+    )
+    print(f"MVP matrix status: {report.status}")
+    for case in report.cases:
+        print(f"- {case.case_id}: {case.status} ({case.pipeline_decision or '-'} / {case.release_gate_status or '-'})")
+    print(f"- {(Path(args.out) / 'mvp-matrix-report.md').resolve()}")
+    print(f"- {(Path(args.out) / 'mvp-matrix-report.yaml').resolve()}")
+    return 0 if report.status == "passed" else 1
+
+
 def command_provider_lifecycle(args: argparse.Namespace) -> int:
     result = provider_lifecycle(
         Path(args.output),
@@ -1443,6 +1460,16 @@ def main(argv: list[str] | None = None) -> int:
     qa_release_gate_parser.add_argument("--agent-results", help="Directory containing agent *.result.yaml files, including industry realism reviewer output")
     qa_release_gate_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
     qa_release_gate_parser.set_defaults(func=command_qa_release_gate)
+    qa_mvp_matrix_parser = qa_sub.add_parser(
+        "mvp-matrix",
+        help="Run the natural-language to release-gate MVP matrix across built-in industry profiles",
+    )
+    qa_mvp_matrix_parser.add_argument("--out", required=True)
+    qa_mvp_matrix_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    qa_mvp_matrix_parser.add_argument("--profile", default="protected", choices=["unprotected", "protected"])
+    qa_mvp_matrix_parser.add_argument("--adapter", default="manual")
+    qa_mvp_matrix_parser.add_argument("--force", action="store_true", help="Replace the matrix output directory")
+    qa_mvp_matrix_parser.set_defaults(func=command_qa_mvp_matrix)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)
