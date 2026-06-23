@@ -15,7 +15,7 @@ from .implementation_plan import (
     implementation_plan_to_json,
     implementation_plan_to_markdown,
 )
-from .intake import create_intake_template, scaffold_lab_from_intake
+from .intake import create_intake_from_prompt, create_intake_template, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
 from .agent_orchestration import (
     append_agent_decision,
@@ -109,6 +109,36 @@ def command_intake_template(args: argparse.Namespace) -> int:
         force=args.force,
     )
     print(f"Rendered scenario intake template: {Path(args.out).resolve()}")
+    if written:
+        for path in written:
+            print(f"- {path}")
+    else:
+        print("No files written. Existing files were left unchanged. Use --force to overwrite.")
+    return 0
+
+
+def command_intake_from_prompt(args: argparse.Namespace) -> int:
+    if args.prompt and args.prompt_file:
+        print("Use either --prompt or --prompt-file, not both.")
+        return 2
+    if args.prompt_file:
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+    else:
+        prompt = args.prompt or ""
+    if not prompt.strip():
+        print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
+        return 2
+    written = create_intake_from_prompt(
+        Path(args.out),
+        prompt=prompt,
+        lab_id=args.lab_id,
+        title=args.title,
+        industry=args.industry,
+        difficulty=args.difficulty,
+        provider=args.provider,
+        force=args.force,
+    )
+    print(f"Created natural-language scenario intake package: {Path(args.out).resolve()}")
     if written:
         for path in written:
             print(f"- {path}")
@@ -778,6 +808,25 @@ def main(argv: list[str] | None = None) -> int:
     intake_template_parser.add_argument("--title", required=True)
     intake_template_parser.add_argument("--force", action="store_true")
     intake_template_parser.set_defaults(func=command_intake_template)
+    intake_from_prompt_parser = intake_sub.add_parser(
+        "from-prompt",
+        help="Create a scenario intake package from a natural-language prompt",
+    )
+    prompt_source = intake_from_prompt_parser.add_mutually_exclusive_group(required=True)
+    prompt_source.add_argument("--prompt", help="Natural-language scenario prompt")
+    prompt_source.add_argument("--prompt-file", help="Path to a file containing the scenario prompt")
+    intake_from_prompt_parser.add_argument("--out", required=True)
+    intake_from_prompt_parser.add_argument("--lab-id")
+    intake_from_prompt_parser.add_argument("--title")
+    intake_from_prompt_parser.add_argument("--industry", help="Optional target industry override")
+    intake_from_prompt_parser.add_argument("--difficulty", default="intermediate")
+    intake_from_prompt_parser.add_argument(
+        "--provider",
+        default="auto",
+        choices=["auto", "docker-compose", "hybrid", "ansible", "terraform", "ludus"],
+    )
+    intake_from_prompt_parser.add_argument("--force", action="store_true")
+    intake_from_prompt_parser.set_defaults(func=command_intake_from_prompt)
     intake_scaffold_parser = intake_sub.add_parser("scaffold", help="Create a LabForge draft from scenario-intake.yaml")
     intake_scaffold_parser.add_argument("--from", dest="from_file", required=True)
     intake_scaffold_parser.add_argument("--out", required=True)

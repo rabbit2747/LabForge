@@ -27,6 +27,7 @@ class IntakeStage(IntakeModel):
 class ScenarioIntake(IntakeModel):
     lab_id: str
     title: str
+    target_industry: str = "enterprise"
     audience: str = "junior red-team learner"
     summary: str = "Describe the scenario in one paragraph."
     inspiration: list[str] = Field(default_factory=list)
@@ -40,6 +41,24 @@ class ScenarioIntake(IntakeModel):
     open_questions: list[str] = Field(default_factory=list)
 
 
+class NaturalLanguageScenarioRequest(IntakeModel):
+    lab_id: str
+    title: str
+    prompt: str
+    industry: str = "enterprise"
+    difficulty: str = "intermediate"
+    preferred_provider: str = "auto"
+    audience: str = "junior red-team learner"
+
+
+class NaturalLanguageIntakePackage(IntakeModel):
+    request: NaturalLanguageScenarioRequest
+    inferred_intake: ScenarioIntake
+    assumptions: list[str] = Field(default_factory=list)
+    next_commands: list[str] = Field(default_factory=list)
+    generated_files: list[str] = Field(default_factory=list)
+
+
 def create_intake_template(out: Path, *, lab_id: str, title: str, force: bool = False) -> list[Path]:
     out.mkdir(parents=True, exist_ok=True)
     intake = default_intake(lab_id, title)
@@ -47,6 +66,64 @@ def create_intake_template(out: Path, *, lab_id: str, title: str, force: bool = 
         out / "scenario-intake.md": render_intake_markdown(intake),
         out / "scenario-intake.yaml": dump_yaml(intake.model_dump()),
         out / "llm-transformation-brief.md": render_llm_transformation_brief(intake),
+    }
+    written: list[Path] = []
+    for path, content in files.items():
+        if path.exists() and not force:
+            continue
+        write_text(path, content)
+        written.append(path)
+    return written
+
+
+def create_intake_from_prompt(
+    out: Path,
+    *,
+    prompt: str,
+    lab_id: str | None = None,
+    title: str | None = None,
+    industry: str | None = None,
+    difficulty: str = "intermediate",
+    provider: str = "auto",
+    force: bool = False,
+) -> list[Path]:
+    out.mkdir(parents=True, exist_ok=True)
+    inferred_title = title or infer_title_from_prompt(prompt)
+    inferred_lab_id = lab_id or slugify(inferred_title)
+    inferred_industry = normalize_industry(industry or infer_industry_from_prompt(prompt))
+    request = NaturalLanguageScenarioRequest(
+        lab_id=inferred_lab_id,
+        title=inferred_title,
+        prompt=prompt.strip(),
+        industry=inferred_industry,
+        difficulty=difficulty,
+        preferred_provider=provider,
+    )
+    intake = intake_from_natural_language_request(request)
+    package = NaturalLanguageIntakePackage(
+        request=request,
+        inferred_intake=intake,
+        assumptions=natural_language_assumptions(request),
+        next_commands=[
+            f"python -m labforge intake scaffold --from {out / 'scenario-intake.yaml'} --out output/{inferred_lab_id}-draft --force",
+            f"python -m labforge agents scaffold output/{inferred_lab_id}-draft --out output/{inferred_lab_id}-agents",
+            f"python -m labforge agents run output/{inferred_lab_id}-agents --adapter <manual|codex|claude-code|openai> --agent scenario-designer --context-root output/{inferred_lab_id}-draft --dry-run",
+            f"python -m labforge realism check output/{inferred_lab_id}-draft --industry {inferred_industry}",
+        ],
+        generated_files=[
+            "scenario-prompt.md",
+            "scenario-intake.yaml",
+            "scenario-intake.md",
+            "natural-language-intake-package.yaml",
+            "llm-transformation-brief.md",
+        ],
+    )
+    files = {
+        out / "scenario-prompt.md": render_source_prompt_markdown(request),
+        out / "scenario-intake.yaml": dump_yaml(intake.model_dump()),
+        out / "scenario-intake.md": render_intake_markdown(intake),
+        out / "natural-language-intake-package.yaml": dump_yaml(package.model_dump()),
+        out / "llm-transformation-brief.md": render_natural_language_transformation_brief(package),
     }
     written: list[Path] = []
     for path, content in files.items():
@@ -70,6 +147,40 @@ def scaffold_lab_from_intake(intake_path: Path, out: Path, *, force: bool = Fals
     return written
 
 
+def intake_from_natural_language_request(request: NaturalLanguageScenarioRequest) -> ScenarioIntake:
+    profile = scenario_profile_for_request(request)
+    return ScenarioIntake(
+        lab_id=request.lab_id,
+        title=request.title,
+        target_industry=request.industry,
+        audience=request.audience,
+        summary=(
+            "Natural-language scenario draft. The source prompt must remain the authority until "
+            "the scenario-designer agent and supervisor approve the final LabForge specification."
+        ),
+        inspiration=profile["inspiration"],
+        final_objective=profile["final_objective"],
+        learner_entrypoint=profile["learner_entrypoint"],
+        safety_boundaries=[
+            "Lab-internal network only.",
+            "No real external command-and-control or third-party victim infrastructure.",
+            "No destructive behavior outside resettable lab state.",
+            "All offensive behavior must be bounded to approved training services.",
+        ],
+        attacker_infrastructure=profile["attacker_infrastructure"],
+        target_infrastructure=profile["target_infrastructure"],
+        security_controls=profile["security_controls"],
+        stages=[IntakeStage(**stage) for stage in profile["stages"]],
+        open_questions=[
+            "Which real-world incident or intrusion pattern should be used as the primary inspiration?",
+            "Which vulnerabilities should be implemented as real bounded services instead of documentation-only placeholders?",
+            "Which provider is required for realism: Docker-only, hybrid VM, AD lab, or another target environment?",
+            "Which safety controls should be mandatory in the protected architecture?",
+            "Which learner-visible clues are acceptable, and which facts must remain instructor-only?",
+        ],
+    )
+
+
 def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
     return {
         "lab.yaml": dump_yaml(
@@ -87,6 +198,7 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
             {
                 "id": intake.lab_id,
                 "title": intake.title,
+                "target_industry": intake.target_industry,
                 "summary": intake.summary,
                 "final_objective": intake.final_objective,
                 "learner_entrypoint": intake.learner_entrypoint,
@@ -273,6 +385,264 @@ def service_names_from_intake(intake: ScenarioIntake) -> list[str]:
     return sorted(set(names), key=names.index)
 
 
+def infer_title_from_prompt(prompt: str) -> str:
+    text = " ".join(prompt.strip().split())
+    if not text:
+        return "Untitled Lab Scenario"
+    sentence = re.split(r"[.!?\n]", text, maxsplit=1)[0].strip()
+    if len(sentence) > 72:
+        sentence = sentence[:72].rsplit(" ", 1)[0].strip()
+    return sentence or "Untitled Lab Scenario"
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug or "lab-scenario"
+
+
+def infer_industry_from_prompt(prompt: str) -> str:
+    text = prompt.lower()
+    keyword_map = {
+        "securities": ["securities", "brokerage", "trading", "market data", "stock", "증권", "거래소", "주식"],
+        "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "의료", "병원", "환자"],
+        "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "제조", "공장"],
+        "retail": ["retail", "commerce", "pos", "loyalty", "e-commerce", "커머스", "쇼핑", "pos"],
+        "education": ["university", "school", "student", "lms", "교육", "대학교", "학생"],
+        "public-sector": ["government", "municipal", "public sector", "agency", "공공", "정부", "지자체"],
+        "supply-chain": ["supply chain", "ci/cd", "build pipeline", "release", "update channel", "공급망", "빌드", "배포"],
+        "active-directory": ["active directory", "domain controller", "kerberos", "ldap", "windows domain", "ad ", "도메인"],
+    }
+    for industry, keywords in keyword_map.items():
+        if any(keyword in text for keyword in keywords):
+            return industry
+    return "enterprise"
+
+
+def normalize_industry(value: str) -> str:
+    normalized = slugify(value)
+    aliases = {
+        "finance": "securities",
+        "financial": "securities",
+        "financial-services": "securities",
+        "medical": "healthcare",
+        "hospital": "healthcare",
+        "ad": "active-directory",
+        "windows-domain": "active-directory",
+    }
+    return aliases.get(normalized, normalized or "enterprise")
+
+
+def natural_language_assumptions(request: NaturalLanguageScenarioRequest) -> list[str]:
+    provider_note = {
+        "auto": "Provider is unresolved. LabForge will start with a conservative draft and ask provider agents to decide whether Docker-only is realistic.",
+        "docker-compose": "Docker Compose is preferred, but the provider agent must flag any Windows, AD, endpoint, OT, or hypervisor realism gaps.",
+        "hybrid": "Hybrid deployment is preferred, so VM-backed assets may be required for realistic enterprise behavior.",
+        "ansible": "Ansible is preferred, so generated implementation should target host provisioning rather than only containers.",
+        "terraform": "Terraform is preferred, so generated implementation should include infrastructure resources and lifecycle boundaries.",
+        "ludus": "Ludus-style range deployment is preferred for VM-heavy cyber range assets.",
+    }.get(request.preferred_provider, "Provider preference is custom and must be reviewed.")
+    return [
+        "The user prompt is treated as intent, not as a complete or trusted technical specification.",
+        "The inferred scenario intake is a draft for LLM and supervisor review.",
+        "Industry realism must be reviewed by a dedicated industry-realism-reviewer agent before implementation.",
+        provider_note,
+    ]
+
+
+def scenario_profile_for_request(request: NaturalLanguageScenarioRequest) -> dict:
+    if request.industry == "supply-chain":
+        return supply_chain_profile(request)
+    if request.industry == "active-directory":
+        return active_directory_profile(request)
+    if request.industry == "securities":
+        return securities_profile(request)
+    if request.industry == "healthcare":
+        return healthcare_profile(request)
+    if request.industry == "manufacturing":
+        return manufacturing_profile(request)
+    return enterprise_profile(request)
+
+
+def common_attacker_infrastructure() -> list[str]:
+    return [
+        "attacker-workstation: learner-controlled Linux shell host with browser-accessible tunnel support",
+        "controlled-drop: final controlled submission service",
+    ]
+
+
+def common_security_controls() -> list[str]:
+    return [
+        "Firewall / segmentation",
+        "IDS east-west sensor",
+        "Central log collection",
+        "Application access logs",
+        "Supervisor-selectable protected/unprotected profile",
+    ]
+
+
+def enterprise_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["General enterprise intrusion chain derived from the natural-language scenario prompt."],
+        "final_objective": "Reach the declared sensitive business object and submit it to the controlled drop service.",
+        "learner_entrypoint": "Externally reachable business web service identified from the scenario prompt.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "public-entry-service: external business application",
+            "internal-portal: intranet service containing operational clues",
+            "identity-service: directory or SSO-like identity service",
+            "file-service: internal document and evidence store",
+            "sensitive-data-service: final collection target",
+        ],
+        "security_controls": common_security_controls(),
+        "stages": generic_stage_chain("public-entry-service", "internal-portal", "sensitive-data-service"),
+    }
+
+
+def supply_chain_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["Supply-chain intrusion pattern involving support, release, trusted build, and customer environments."],
+        "final_objective": "Compromise a trusted release path and reach a customer-side controlled sensitive object.",
+        "learner_entrypoint": "Public support or partner-facing portal.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "support-portal: externally reachable support application",
+            "internal-wiki: internal knowledge base",
+            "release-bastion: release network jump host",
+            "release-console: release operations application",
+            "build-server: trusted build pipeline",
+            "update-server: signed update channel",
+            "customer-agent: customer-side update consumer",
+            "customer-api: customer business API",
+            "object-store: customer export object store",
+        ],
+        "security_controls": common_security_controls() + ["Build provenance logging", "Release approval workflow"],
+        "stages": [
+            stage("stage-01", "Identify the support portal weakness.", "Inspect normal portal behavior and confirm the initial public-facing exploit path.", "Initial Access", ["T1190 Exploit Public-Facing Application"], ["support-portal"]),
+            stage("stage-02", "Obtain a bounded foothold on the support host.", "Use the initial weakness to establish lab-scoped shell or command execution and collect local context.", "Execution", ["T1059 Command and Scripting Interpreter"], ["support-portal", "attacker-workstation"]),
+            stage("stage-03", "Pivot to internal knowledge resources.", "Use standard tunneling or proxying to reach the internal wiki from the foothold path.", "Command and Control", ["T1090 Proxy"], ["support-portal", "internal-wiki"]),
+            stage("stage-04", "Discover release operations clues.", "Read realistic internal documentation and separate useful release topology from operational noise.", "Discovery", ["T1083 File and Directory Discovery"], ["internal-wiki"]),
+            stage("stage-05", "Move into the release network.", "Exploit a bounded internal service weakness and establish access to the release-side host.", "Lateral Movement", ["T1210 Exploitation of Remote Services"], ["release-bastion"]),
+            stage("stage-06", "Abuse release operator trust.", "Use an application-layer weakness such as stored XSS or workflow abuse to obtain build context.", "Credential Access", ["T1539 Steal Web Session Cookie"], ["release-console"]),
+            stage("stage-07", "Create a trusted modified build.", "Submit the approved patch artifact through the build workflow and verify signed build metadata.", "Defense Evasion", ["T1553 Subvert Trust Controls"], ["build-server"]),
+            stage("stage-08", "Publish to the customer update channel.", "Publish the signed manifest to the target customer channel through the release workflow.", "Impact", ["T1484 Domain or Tenant Policy Modification"], ["update-server"]),
+            stage("stage-09", "Observe customer-side callback or update effects.", "Wait for or trigger the lab-scoped customer agent update behavior and collect allowed diagnostics.", "Command and Control", ["T1105 Ingress Tool Transfer"], ["customer-agent"]),
+            stage("stage-10", "Collect and submit the final customer object.", "Use discovered customer API metadata to retrieve the controlled object and submit proof.", "Collection", ["T1005 Data from Local System"], ["customer-api", "object-store", "controlled-drop"]),
+        ],
+    }
+
+
+def active_directory_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["Enterprise Windows domain compromise pattern with identity abuse and internal collection."],
+        "final_objective": "Compromise the domain-backed path to a sensitive internal file or application object.",
+        "learner_entrypoint": "Externally reachable employee service or VPN-like access broker.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "employee-portal: externally reachable employee application",
+            "windows-workstation: domain-joined workstation",
+            "domain-controller: Windows Server Active Directory domain controller",
+            "file-share: domain file server",
+            "admin-workstation: privileged operator workstation",
+            "sensitive-share: final controlled data location",
+        ],
+        "security_controls": common_security_controls() + ["Windows event forwarding", "Endpoint telemetry", "AD audit policy"],
+        "stages": [
+            stage("stage-01", "Identify the employee-facing initial access path.", "Inspect the public service and establish a bounded first foothold.", "Initial Access", ["T1190 Exploit Public-Facing Application"], ["employee-portal"]),
+            stage("stage-02", "Enumerate domain context.", "Collect hostname, user, domain, group, and network context from the foothold.", "Discovery", ["T1087 Account Discovery"], ["windows-workstation", "domain-controller"]),
+            stage("stage-03", "Find reachable internal shares and services.", "Map internal SMB, LDAP, Kerberos, and application services available to the current identity.", "Discovery", ["T1046 Network Service Discovery"], ["domain-controller", "file-share"]),
+            stage("stage-04", "Acquire or abuse a domain credential path.", "Use the scenario-approved identity weakness to gain a more useful domain context.", "Credential Access", ["T1555 Credentials from Password Stores"], ["windows-workstation"]),
+            stage("stage-05", "Move laterally to a domain host.", "Use an approved remote service path to access a second host.", "Lateral Movement", ["T1021 Remote Services"], ["admin-workstation"]),
+            stage("stage-06", "Reach the sensitive share and collect proof.", "Use discovered ACLs and domain context to retrieve the final controlled file.", "Collection", ["T1039 Data from Network Shared Drive"], ["sensitive-share", "controlled-drop"]),
+        ],
+    }
+
+
+def securities_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["Financial-sector intrusion pattern involving public investor services and internal trade operations systems."],
+        "final_objective": "Reach a controlled trade, settlement, or compliance export object and submit proof.",
+        "learner_entrypoint": "Public investor or customer support portal.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "investor-portal: public account and support surface",
+            "api-gateway: customer and partner API gateway",
+            "market-data-service: internal market data service",
+            "trade-ops-console: operations console for trade exceptions",
+            "settlement-db: settlement and reconciliation data store",
+            "compliance-export: controlled final export service",
+        ],
+        "security_controls": common_security_controls() + ["Fraud monitoring feed", "Transaction anomaly logging"],
+        "stages": generic_stage_chain("investor-portal", "trade-ops-console", "compliance-export"),
+    }
+
+
+def healthcare_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["Healthcare provider intrusion pattern involving patient portal, clinical systems, and audit exports."],
+        "final_objective": "Reach a controlled patient or clinical audit export without using real patient data.",
+        "learner_entrypoint": "Public patient portal or appointment service.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "patient-portal: public appointment and message service",
+            "identity-gateway: staff and patient identity gateway",
+            "ehr-api: electronic health record API",
+            "clinical-workstation: internal clinical workstation",
+            "audit-export-service: final controlled export service",
+        ],
+        "security_controls": common_security_controls() + ["PHI-safe synthetic data boundary", "Clinical audit logging"],
+        "stages": generic_stage_chain("patient-portal", "ehr-api", "audit-export-service"),
+    }
+
+
+def manufacturing_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["Manufacturing enterprise intrusion pattern crossing IT services into bounded OT-style visibility."],
+        "final_objective": "Reach a controlled production report or engineering export without affecting real industrial systems.",
+        "learner_entrypoint": "Public supplier or maintenance portal.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "supplier-portal: public supplier access application",
+            "engineering-wiki: internal engineering documentation",
+            "mes-api: manufacturing execution API",
+            "historian: bounded process-history data service",
+            "ot-jump-host: simulated operations jump host",
+            "production-report-store: final controlled export service",
+        ],
+        "security_controls": common_security_controls() + ["IT/OT segmentation", "Passive OT monitoring"],
+        "stages": generic_stage_chain("supplier-portal", "engineering-wiki", "production-report-store"),
+    }
+
+
+def generic_stage_chain(entry: str, internal: str, final: str) -> list[dict]:
+    return [
+        stage("stage-01", "Identify the external entry weakness.", "Inspect normal business behavior and confirm the initial access condition.", "Initial Access", ["T1190 Exploit Public-Facing Application"], [entry]),
+        stage("stage-02", "Establish a bounded foothold.", "Use the entry weakness to obtain lab-scoped execution or session access.", "Execution", ["T1059 Command and Scripting Interpreter"], [entry, "attacker-workstation"]),
+        stage("stage-03", "Discover internal services.", "Enumerate reachable hosts, names, and application surfaces from the foothold.", "Discovery", ["T1046 Network Service Discovery"], [entry, internal]),
+        stage("stage-04", "Access internal operational context.", "Reach internal documentation or an operations application and identify the next trust boundary.", "Discovery", ["T1083 File and Directory Discovery"], [internal]),
+        stage("stage-05", "Move laterally or abuse trust.", "Use a scenario-approved internal weakness or trust relationship to access the next system.", "Lateral Movement", ["T1210 Exploitation of Remote Services"], [internal]),
+        stage("stage-06", "Collect the final controlled object.", "Use discovered metadata and authorized lab paths to retrieve and submit the final object.", "Collection", ["T1005 Data from Local System"], [final, "controlled-drop"]),
+    ]
+
+
+def stage(
+    stage_id: str,
+    learner_goal: str,
+    expected_action: str,
+    mitre_tactic: str,
+    mitre_techniques: list[str],
+    infrastructure_touched: list[str],
+) -> dict:
+    return {
+        "stage_id": stage_id,
+        "learner_goal": learner_goal,
+        "expected_action": expected_action,
+        "evidence": [f"{stage_id}_completed"],
+        "mitre_tactic": mitre_tactic,
+        "mitre_techniques": mitre_techniques,
+        "infrastructure_touched": infrastructure_touched,
+    }
+
+
 def normalize_service_name(value: str) -> str:
     raw = value.split(":", 1)[0].strip().lower()
     raw = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
@@ -363,6 +733,7 @@ def render_intake_markdown(intake: ScenarioIntake) -> str:
         "",
         f"- Lab ID: `{intake.lab_id}`",
         f"- Title: {intake.title}",
+        f"- Target industry: `{intake.target_industry}`",
         f"- Audience: {intake.audience}",
         "",
         "## Scenario Summary",
@@ -450,6 +821,92 @@ def render_llm_transformation_brief(intake: ScenarioIntake) -> str:
     )
 
 
+def render_source_prompt_markdown(request: NaturalLanguageScenarioRequest) -> str:
+    return "\n".join(
+        [
+            f"# Source Scenario Prompt - {request.title}",
+            "",
+            "This file preserves the original natural-language scenario intent.",
+            "Treat this prompt as the source of user intent. The generated YAML files are draft interpretations.",
+            "",
+            "## Metadata",
+            "",
+            f"- Lab ID: `{request.lab_id}`",
+            f"- Industry: `{request.industry}`",
+            f"- Difficulty: `{request.difficulty}`",
+            f"- Preferred provider: `{request.preferred_provider}`",
+            f"- Audience: `{request.audience}`",
+            "",
+            "## Prompt",
+            "",
+            request.prompt,
+            "",
+        ]
+    )
+
+
+def render_natural_language_transformation_brief(package: NaturalLanguageIntakePackage) -> str:
+    intake = package.inferred_intake
+    request = package.request
+    lines = [
+        f"# Natural-Language Scenario Transformation Brief - {request.title}",
+        "",
+        "You are turning a natural-language cyber range idea into a LabForge scenario package.",
+        "The user did not provide a complete LabForge specification. You must design one, document assumptions, and preserve safety boundaries.",
+        "",
+        "## Source Prompt",
+        "",
+        request.prompt,
+        "",
+        "## Draft Inference",
+        "",
+        f"- Lab ID: `{request.lab_id}`",
+        f"- Industry: `{request.industry}`",
+        f"- Difficulty: `{request.difficulty}`",
+        f"- Preferred provider: `{request.preferred_provider}`",
+        "",
+        "## Required Agent Work",
+        "",
+        "1. `scenario-designer`: convert the prompt into a coherent stage-by-stage red-team lab, selecting realistic vulnerabilities and business services.",
+        "2. `mitre-mapper`: map every stage to MITRE ATT&CK Matrix for Enterprise tactics and techniques.",
+        "3. `infrastructure-architect`: produce unprotected and protected architecture, provider requirements, network boundaries, and host requirements.",
+        "4. `industry-realism-reviewer`: verify that UI, services, data, architecture, and workflows match the declared industry.",
+        "5. `safety-reviewer`: reject external C2, real victim data, destructive payloads, or uncontrolled exploit behavior.",
+        "6. `provider-engineer` and `service-builder`: implement only after the design is accepted by a supervisor.",
+        "",
+        "## Transformation Rules",
+        "",
+        "- Keep generated internal contracts, code, and prompts in English.",
+        "- Do not treat the heuristic intake as final truth.",
+        "- Prefer realistic bounded services over fake text-only simulators.",
+        "- If Docker-only cannot represent the scenario realistically, recommend a hybrid or VM provider.",
+        "- Produce both unprotected and protected architecture views.",
+        "- Avoid magic strings, hidden endpoints, or solver-only knowledge that learners cannot discover from the lab.",
+        "- Keep all callback, exploit, and collection behavior inside lab-controlled infrastructure.",
+        "",
+        "## Assumptions to Review",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in package.assumptions)
+    lines += [
+        "",
+        "## Draft Scenario Intake",
+        "",
+        "```json",
+        json.dumps(intake.model_dump(), ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Suggested Next Commands",
+        "",
+        "```powershell",
+    ]
+    lines.extend(package.next_commands)
+    lines += ["```", ""]
+    return "\n".join(lines)
+
+
 INTAKE_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "scenario-intake.schema.json": ScenarioIntake,
+    "natural-language-scenario-request.schema.json": NaturalLanguageScenarioRequest,
+    "natural-language-intake-package.schema.json": NaturalLanguageIntakePackage,
 }

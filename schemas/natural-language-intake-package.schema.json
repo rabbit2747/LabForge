@@ -1,0 +1,227 @@
+{
+  "$defs": {
+    "IntakeStage": {
+      "additionalProperties": true,
+      "properties": {
+        "stage_id": {
+          "title": "Stage Id",
+          "type": "string"
+        },
+        "learner_goal": {
+          "title": "Learner Goal",
+          "type": "string"
+        },
+        "expected_action": {
+          "title": "Expected Action",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "mitre_tactic": {
+          "default": "",
+          "title": "Mitre Tactic",
+          "type": "string"
+        },
+        "mitre_techniques": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mitre Techniques",
+          "type": "array"
+        },
+        "infrastructure_touched": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Infrastructure Touched",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage_id",
+        "learner_goal",
+        "expected_action"
+      ],
+      "title": "IntakeStage",
+      "type": "object"
+    },
+    "NaturalLanguageScenarioRequest": {
+      "additionalProperties": true,
+      "properties": {
+        "lab_id": {
+          "title": "Lab Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "industry": {
+          "default": "enterprise",
+          "title": "Industry",
+          "type": "string"
+        },
+        "difficulty": {
+          "default": "intermediate",
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "preferred_provider": {
+          "default": "auto",
+          "title": "Preferred Provider",
+          "type": "string"
+        },
+        "audience": {
+          "default": "junior red-team learner",
+          "title": "Audience",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lab_id",
+        "title",
+        "prompt"
+      ],
+      "title": "NaturalLanguageScenarioRequest",
+      "type": "object"
+    },
+    "ScenarioIntake": {
+      "additionalProperties": true,
+      "properties": {
+        "lab_id": {
+          "title": "Lab Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "target_industry": {
+          "default": "enterprise",
+          "title": "Target Industry",
+          "type": "string"
+        },
+        "audience": {
+          "default": "junior red-team learner",
+          "title": "Audience",
+          "type": "string"
+        },
+        "summary": {
+          "default": "Describe the scenario in one paragraph.",
+          "title": "Summary",
+          "type": "string"
+        },
+        "inspiration": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inspiration",
+          "type": "array"
+        },
+        "final_objective": {
+          "default": "Describe the final object, proof, or business impact.",
+          "title": "Final Objective",
+          "type": "string"
+        },
+        "learner_entrypoint": {
+          "default": "Describe what the learner can access at the beginning.",
+          "title": "Learner Entrypoint",
+          "type": "string"
+        },
+        "safety_boundaries": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Safety Boundaries",
+          "type": "array"
+        },
+        "attacker_infrastructure": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attacker Infrastructure",
+          "type": "array"
+        },
+        "target_infrastructure": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Infrastructure",
+          "type": "array"
+        },
+        "security_controls": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Security Controls",
+          "type": "array"
+        },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/IntakeStage"
+          },
+          "title": "Stages",
+          "type": "array"
+        },
+        "open_questions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Open Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lab_id",
+        "title"
+      ],
+      "title": "ScenarioIntake",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "request": {
+      "$ref": "#/$defs/NaturalLanguageScenarioRequest"
+    },
+    "inferred_intake": {
+      "$ref": "#/$defs/ScenarioIntake"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    },
+    "generated_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Generated Files",
+      "type": "array"
+    }
+  },
+  "required": [
+    "request",
+    "inferred_intake"
+  ],
+  "title": "NaturalLanguageIntakePackage",
+  "type": "object"
+}

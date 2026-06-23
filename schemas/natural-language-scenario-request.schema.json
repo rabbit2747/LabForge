@@ -1,0 +1,44 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "prompt": {
+      "title": "Prompt",
+      "type": "string"
+    },
+    "industry": {
+      "default": "enterprise",
+      "title": "Industry",
+      "type": "string"
+    },
+    "difficulty": {
+      "default": "intermediate",
+      "title": "Difficulty",
+      "type": "string"
+    },
+    "preferred_provider": {
+      "default": "auto",
+      "title": "Preferred Provider",
+      "type": "string"
+    },
+    "audience": {
+      "default": "junior red-team learner",
+      "title": "Audience",
+      "type": "string"
+    }
+  },
+  "required": [
+    "lab_id",
+    "title",
+    "prompt"
+  ],
+  "title": "NaturalLanguageScenarioRequest",
+  "type": "object"
+}

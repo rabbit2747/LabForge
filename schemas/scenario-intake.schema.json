@@ -61,6 +61,11 @@
       "title": "Title",
       "type": "string"
     },
+    "target_industry": {
+      "default": "enterprise",
+      "title": "Target Industry",
+      "type": "string"
+    },
     "audience": {
       "default": "junior red-team learner",
       "title": "Audience",
