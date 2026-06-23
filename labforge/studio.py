@@ -234,6 +234,7 @@ def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
         ("Quickstart", path / "supervisor-package" / "generated" / "QUICKSTART.md"),
         ("Endpoints", path / "supervisor-package" / "generated" / "endpoints.json"),
         ("Release gate", path / "release-gate" / "release-gate-report.md"),
+        ("Verified MVP", path / "mvp" / "verified-mvp.md"),
     ]
     return [{"name": name, "complete": item.exists(), "path": str(item)} for name, item in checks]
 
@@ -295,7 +296,11 @@ def create_verified_mvp_scenario(workspace: Path, payload: dict) -> dict:
         "profile": str(payload.get("profile", "protected")).strip() or "protected",
         "materialize": bool(payload.get("materialize", True)),
     }
-    return run_release_gate_for_scenario(workspace, scenario_id, release_payload)
+    run_release_gate_for_scenario(workspace, scenario_id, release_payload)
+    write_verified_mvp_manifest(workspace, scenario_id)
+    detail = read_scenario_detail(workspace, scenario_id)
+    detail["last_release_gate"] = detail.get("release_gate", {})
+    return detail
 
 
 def review_scenario(workspace: Path, scenario_id: str, payload: dict) -> dict:
@@ -422,6 +427,92 @@ def run_release_gate_for_scenario(workspace: Path, scenario_id: str, payload: di
     detail = read_scenario_detail(workspace, scenario_id)
     detail["last_release_gate"] = release_gate_payload(path, report.model_dump())
     return detail
+
+
+def write_verified_mvp_manifest(workspace: Path, scenario_id: str) -> dict:
+    path = safe_scenario_path(workspace, scenario_id)
+    detail = read_scenario_detail(workspace, scenario_id)
+    release_gate = detail.get("release_gate") or {}
+    manifest = {
+        "scenario_id": detail.get("scenario_id"),
+        "title": detail.get("title"),
+        "industry": detail.get("industry"),
+        "status": "verified" if release_gate.get("release_ready") else "not-ready",
+        "pipeline_gate": detail.get("pipeline_gate", {}),
+        "release_gate": release_gate,
+        "endpoints": detail.get("endpoints", {}),
+        "learner_entrypoints": learner_entrypoints_from_manifest(detail.get("endpoints", {})),
+        "reports": detail.get("reports", []),
+        "next_commands": (detail.get("pipeline_gate") or {}).get("next_commands", []),
+    }
+    out_dir = path / "mvp"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "verified-mvp.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (out_dir / "verified-mvp.md").write_text(render_verified_mvp_markdown(manifest), encoding="utf-8", newline="\n")
+    return manifest
+
+
+def learner_entrypoints_from_manifest(endpoint_manifest: dict) -> list[dict]:
+    if not isinstance(endpoint_manifest, dict):
+        return []
+    entries: list[dict] = []
+    for item in endpoint_manifest.get("published_endpoints", []):
+        if not isinstance(item, dict):
+            continue
+        entries.append(
+            {
+                "service": item.get("service", ""),
+                "role": item.get("role", ""),
+                "protocol": item.get("protocol", ""),
+                "connect": item.get("connect") or item.get("url") or "",
+                "health_url": item.get("health_url", ""),
+            }
+        )
+    return entries
+
+
+def render_verified_mvp_markdown(manifest: dict) -> str:
+    pipeline_gate = manifest.get("pipeline_gate") or {}
+    release_gate = manifest.get("release_gate") or {}
+    lines = [
+        f"# Verified MVP - {manifest.get('title') or manifest.get('scenario_id')}",
+        "",
+        f"- Scenario ID: `{manifest.get('scenario_id')}`",
+        f"- Industry: `{manifest.get('industry')}`",
+        f"- Status: `{manifest.get('status')}`",
+        f"- Pipeline decision: `{pipeline_gate.get('decision', '-')}`",
+        f"- Release ready: `{str(release_gate.get('release_ready', False)).lower()}`",
+        "",
+        "## Learner Entrypoints",
+        "",
+    ]
+    entrypoints = manifest.get("learner_entrypoints") or []
+    if entrypoints:
+        lines.extend(["| Service | Role | Protocol | Connect | Health |", "|---|---|---|---|---|"])
+        for item in entrypoints:
+            lines.append(
+                f"| `{item.get('service', '')}` | {item.get('role', '') or '-'} | `{item.get('protocol', '')}` | "
+                f"`{item.get('connect', '') or '-'}` | `{item.get('health_url', '') or '-'}` |"
+            )
+    else:
+        lines.append("No learner-facing endpoints were published.")
+    lines.extend(["", "## Release Gate Checks", ""])
+    checks = release_gate.get("checks") or []
+    if checks:
+        lines.extend(["| Check | Status | Messages |", "|---|---|---|"])
+        for check in checks:
+            messages = "<br>".join(check.get("messages", [])) if isinstance(check, dict) else "-"
+            lines.append(f"| `{check.get('name', '-')}` | {check.get('status', '-')} | {messages or '-'} |")
+    else:
+        lines.append("No release gate checks were recorded.")
+    commands = manifest.get("next_commands") or []
+    lines.extend(["", "## Next Commands", ""])
+    if commands:
+        lines.extend(f"```bash\n{command}\n```" for command in commands)
+    else:
+        lines.append("No next command suggested.")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def run_service_healthcheck(generated_dir: Path, *, timeout_seconds: int) -> dict:
@@ -708,6 +799,8 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Last Stop", "supervisor-package/lifecycle/studio-stop-last.md"),
         ("Release Gate", "release-gate/release-gate-report.md"),
         ("Release Gate YAML", "release-gate/release-gate-report.yaml"),
+        ("Verified MVP", "mvp/verified-mvp.md"),
+        ("Verified MVP JSON", "mvp/verified-mvp.json"),
         ("Provider README", "supervisor-package/generated/README.md"),
         ("Docker Compose", "supervisor-package/generated/docker-compose.yml"),
         ("Workflow Report", "workflow/workflow-report.md"),

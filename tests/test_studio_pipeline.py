@@ -86,7 +86,11 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(detail["last_release_gate"]["status"], "passed")
             self.assertTrue(detail["last_release_gate"]["release_ready"])
             self.assertTrue(any(step["name"] == "Release gate" and step["complete"] for step in detail["steps"]))
+            self.assertTrue(any(step["name"] == "Verified MVP" and step["complete"] for step in detail["steps"]))
             self.assertTrue(any(report["name"] == "Release Gate" for report in detail["reports"]))
+            self.assertTrue(any(report["name"] == "Verified MVP" for report in detail["reports"]))
+            self.assertTrue((workspace / str(detail["scenario_id"]) / "mvp" / "verified-mvp.json").exists())
+            self.assertTrue((workspace / str(detail["scenario_id"]) / "mvp" / "verified-mvp.md").exists())
 
 
 if __name__ == "__main__":

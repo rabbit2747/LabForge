@@ -22,7 +22,9 @@ python -m labforge pipeline create \
 The same workflow is available in LabForge Studio through **Create Full
 Pipeline**. Studio also provides **Create Verified MVP**, which runs the full
 pipeline and immediately runs the strict release gate against the generated lab
-workspace.
+workspace. A successful verified MVP run writes `mvp/verified-mvp.md` and
+`mvp/verified-mvp.json` with the release status, learner entrypoints, generated
+reports, and next commands.
 
 After generation, evaluate the supervisor gate:
 
