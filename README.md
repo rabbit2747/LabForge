@@ -220,10 +220,11 @@ natural language. It creates the design workspace, runs the first supervisor
 review, scaffolds service artifacts, renders service blueprints, creates the
 service implementation plan, materializes safe starter runtimes, packages
 service-builder agent tasks, verifies service quality gates, executes supported
-plugin runtime smoke checks, and writes
+plugin runtime smoke checks, creates the runnable supervisor package, and writes
 `pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
 It also writes a supervisor gate bundle: `pipeline-gate.md`,
-`pipeline-gate.yaml`, and `pipeline-gate.json`.
+`pipeline-gate.yaml`, and `pipeline-gate.json`, plus
+`supervisor-package/generated/` with provider output such as Docker Compose.
 
 The `pipeline gate` command can be rerun at any time to classify the workspace
 as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or

@@ -10,6 +10,7 @@ from .design import create_design_workspace_from_prompt, review_design_workspace
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
+from .packaging import create_supervisor_package
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
 from .service_artifacts import materialize_service_runtimes, scaffold_service_artifacts
 from .service_blueprints import create_service_blueprints, inspect_service_implementation_status
@@ -240,6 +241,43 @@ def create_lab_pipeline(
         )
     )
 
+    package_dir = out / "supervisor-package"
+    try:
+        package = create_supervisor_package(
+            lab_dir,
+            package_dir,
+            provider=provider if provider != "auto" else "docker-compose",
+            profile=profile,
+            materialize=False,
+            force=force,
+            all_profiles=True,
+        )
+        steps.append(
+            PipelineStepResult(
+                id="supervisor-package",
+                title="Create runnable supervisor package",
+                status="done" if package.status == "passed" else ("failed" if package.status == "failed" else "warning"),
+                summary=f"Supervisor package status: {package.status}; artifacts: {len(package.artifacts)}.",
+                artifacts=[
+                    str(package_dir / "package-report.md"),
+                    str(package_dir / "generated"),
+                    str(package_dir / "qa" / "qa-smoke-report.md"),
+                ],
+                warnings=package.warnings[:20],
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - pipeline should preserve packaging failures.
+        steps.append(
+            PipelineStepResult(
+                id="supervisor-package",
+                title="Create runnable supervisor package",
+                status="failed",
+                summary="Supervisor package generation failed.",
+                artifacts=[str(package_dir)],
+                warnings=[str(exc)],
+            )
+        )
+
     workflow_dir = out / "workflow"
     workflow_dir.mkdir(parents=True, exist_ok=True)
     workflow = create_workflow_report(
@@ -381,6 +419,28 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                     required_action="Fix service verification findings before release gate." if service_verification.status != "passed" else "",
                 )
             )
+            runtime_smoke_path = workspace / "plugin-runtime-smoke" / "plugin-runtime-smoke.yaml"
+            if runtime_smoke_path.exists():
+                runtime_smoke = load_yaml(runtime_smoke_path)
+                runtime_status = str(runtime_smoke.get("status", "failed"))
+                runtime_items = runtime_smoke.get("items", [])
+                items.append(
+                    PipelineGateItem(
+                        name="plugin-runtime-smoke",
+                        status="passed" if runtime_status == "passed" else ("failed" if runtime_status == "failed" else "warning"),
+                        evidence=[f"status={runtime_status}", f"items={len(runtime_items) if isinstance(runtime_items, list) else 'unknown'}"],
+                        required_action="Fix generated plugin runtime smoke failures before packaging or release gate." if runtime_status != "passed" else "",
+                    )
+                )
+            else:
+                items.append(
+                    PipelineGateItem(
+                        name="plugin-runtime-smoke",
+                        status="missing",
+                        evidence=[str(runtime_smoke_path)],
+                        required_action="Run `python -m labforge qa smoke <lab> --out <workspace>/qa-smoke --materialize --force` or regenerate the pipeline.",
+                    )
+                )
         except Exception as exc:  # noqa: BLE001 - gate should report partial workspace state.
             items.append(
                 PipelineGateItem(
@@ -397,6 +457,42 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                 status="missing",
                 evidence=[str(lab_dir)],
                 required_action="Regenerate the pipeline workspace.",
+            )
+        )
+
+    package_report_path = workspace / "supervisor-package" / "package-report.json"
+    if package_report_path.exists():
+        package_report = json.loads(package_report_path.read_text(encoding="utf-8"))
+        package_status = str(package_report.get("status", "failed"))
+        artifacts = package_report.get("artifacts", [])
+        generated_compose = workspace / "supervisor-package" / "generated" / "docker-compose.yml"
+        evidence = [
+            f"status={package_status}",
+            f"artifacts={len(artifacts) if isinstance(artifacts, list) else 'unknown'}",
+            f"docker_compose={'present' if generated_compose.exists() else 'missing'}",
+        ]
+        package_gate_status: PipelineGateStatus
+        if package_status == "failed" or not generated_compose.exists():
+            package_gate_status = "failed"
+        elif package_status == "warning":
+            package_gate_status = "warning"
+        else:
+            package_gate_status = "passed"
+        items.append(
+            PipelineGateItem(
+                name="supervisor-package",
+                status=package_gate_status,
+                evidence=evidence,
+                required_action="Regenerate the supervisor package before release work." if package_gate_status != "passed" else "",
+            )
+        )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="supervisor-package",
+                status="missing",
+                evidence=[str(package_report_path)],
+                required_action="Run `python -m labforge package <lab> --out <workspace>/supervisor-package --provider docker-compose --profile protected --materialize --force`.",
             )
         )
 
