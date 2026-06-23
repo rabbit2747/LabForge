@@ -280,8 +280,10 @@ The `studio serve` command starts a local web console for scenario authors and
 supervisors. Studio can create scenarios from natural-language text, load a
 prompt from a local file into the form, list multiple scenario workspaces, show
 which design step is complete, run design review, generate fix tasks, package
-fix tasks, review fix-agent results, dry-run fix-result application, and display
-generated reports.
+fix tasks, review fix-agent results, dry-run fix-result application, display
+generated reports, and show generated endpoint manifests with learner-visible
+URLs, SSH commands, health URLs, internal DNS names, and port override
+variables.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system

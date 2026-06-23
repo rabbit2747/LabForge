@@ -203,6 +203,7 @@ def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
     checks = [
         ("Source prompt", path / "lab" / "scenario-prompt.md"),
         ("Pipeline result", path / "pipeline-summary.md"),
+        ("Pipeline gate", path / "pipeline-gate.md"),
         ("Draft lab", path / "lab" / "scenario.yaml"),
         ("Agent workspace", path / "agents" / ".ai" / "orchestration-plan.yaml"),
         ("Run packages", path / "agents" / ".ai" / "run" / "run-plan.yaml"),
@@ -211,6 +212,11 @@ def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
         ("Fix packages", path / "review" / "fix-agent-package-report.md"),
         ("Fix result review", path / "review" / "fix-result-review.md"),
         ("Fix apply report", path / "review" / "fix-apply-report.md"),
+        ("Service status", path / "service-status" / "service-status.md"),
+        ("Plugin smoke", path / "plugin-runtime-smoke" / "plugin-runtime-smoke.md"),
+        ("Supervisor package", path / "supervisor-package" / "package-report.md"),
+        ("Quickstart", path / "supervisor-package" / "generated" / "QUICKSTART.md"),
+        ("Endpoints", path / "supervisor-package" / "generated" / "endpoints.json"),
     ]
     return [{"name": name, "complete": item.exists(), "path": str(item)} for name, item in checks]
 
@@ -305,6 +311,7 @@ def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     summary["reports"] = available_reports(path)
     summary["fix_tasks"] = read_fix_tasks(path)
     summary["service_status"] = read_service_status(path)
+    summary["endpoints"] = read_endpoint_manifest(path)
     return summary
 
 
@@ -331,6 +338,7 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Scenario Prompt", "lab/scenario-prompt.md"),
         ("Pipeline Summary", "pipeline-summary.md"),
         ("Pipeline Gate", "pipeline-gate.md"),
+        ("Pipeline Result", "pipeline-result.yaml"),
         ("Design Summary", "design-workspace-summary.md"),
         ("Design Review", "review/design-review-report.md"),
         ("Fix Tasks", "review/design-fix-tasks.md"),
@@ -339,11 +347,34 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Fix Apply Report", "review/fix-apply-report.md"),
         ("Service Blueprints", "service-blueprints/service-blueprints.md"),
         ("Service Status", "service-status/service-status.md"),
+        ("Service Result Review", "service-result-review/service-result-review.md"),
+        ("Plugin Runtime Smoke", "plugin-runtime-smoke/plugin-runtime-smoke.md"),
+        ("Supervisor Package", "supervisor-package/package-report.md"),
+        ("Quickstart", "supervisor-package/generated/QUICKSTART.md"),
+        ("Endpoint Manifest", "supervisor-package/generated/endpoints.json"),
+        ("Provider README", "supervisor-package/generated/README.md"),
+        ("Docker Compose", "supervisor-package/generated/docker-compose.yml"),
+        ("Workflow Report", "workflow/workflow-report.md"),
         ("Realism Report", "review/realism-report.md"),
         ("Lint Report", "review/lint-report.md"),
         ("Agent Review", "review/agent-review.md"),
     ]
     return [{"name": name, "path": rel} for name, rel in candidates if (path / rel).exists()]
+
+
+def read_endpoint_manifest(path: Path) -> dict:
+    manifest_path = path / "supervisor-package" / "generated" / "endpoints.json"
+    if not manifest_path.exists():
+        return {"published_endpoints": [], "internal_services": []}
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - endpoint manifest is optional UI metadata.
+        return {"published_endpoints": [], "internal_services": [], "error": "endpoint manifest could not be parsed"}
+    if not isinstance(data, dict):
+        return {"published_endpoints": [], "internal_services": [], "error": "endpoint manifest is not an object"}
+    data.setdefault("published_endpoints", [])
+    data.setdefault("internal_services", [])
+    return data
 
 
 def read_scenario_file(workspace: Path, scenario_id: str, rel_path: str) -> str:
@@ -544,6 +575,10 @@ def render_studio_html() -> str:
           <pre id="reportViewer">Select a report.</pre>
         </div>
         <div class="panel">
+          <h2>Generated Endpoints</h2>
+          <div id="endpointSummary">${renderEndpoints(s.endpoints || {})}</div>
+        </div>
+        <div class="panel">
           <h2>Fix Tasks</h2>
           <div id="fixTasks">${renderFixTasks(s.fix_tasks || [])}</div>
         </div>
@@ -725,6 +760,37 @@ def render_studio_html() -> str:
           <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="meta">blueprint=${item.blueprint} scaffold=${item.scaffold} runtime=${item.runtime} tests=${item.tests}</span></td>
         </tr>`).join('')}</tbody>
       </table>`;
+    }
+    function renderEndpoints(manifest) {
+      const published = manifest.published_endpoints || [];
+      const internal = manifest.internal_services || [];
+      if (!published.length && !internal.length) return '<div class="empty">No generated endpoint manifest yet. Run Create Full Pipeline or open a pipeline workspace with a supervisor package.</div>';
+      const publishedRows = published.length ? published.map(item => {
+        const main = item.connect || item.url || '-';
+        const health = item.health_url ? `<br><span class="meta">health ${escapeHtml(item.health_url)}</span>` : '';
+        return `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.service)}</code><br><span class="meta">${escapeHtml(item.role)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.protocol)}</code></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(main)}</code>${health}</td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.override_env || '-')}</code></td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="4" style="padding:8px;">No published endpoints.</td></tr>';
+      const internalRows = internal.length ? internal.map(item => `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.service)}</code><br><span class="meta">${escapeHtml(item.role)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.dns || item.service)}</code></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;">${escapeHtml((item.networks || []).join(', ') || '-')}</td>
+        </tr>`).join('') : '<tr><td colspan="3" style="padding:8px;">No internal services.</td></tr>';
+      return `
+        <h3 style="font-size:14px;margin:0 0 8px;">Published</h3>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:14px;">
+          <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Service</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Protocol</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Connect</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Override</th></tr></thead>
+          <tbody>${publishedRows}</tbody>
+        </table>
+        <h3 style="font-size:14px;margin:0 0 8px;">Internal DNS</h3>
+        <table style="width:100%; border-collapse:collapse;">
+          <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Service</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">DNS</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Networks</th></tr></thead>
+          <tbody>${internalRows}</tbody>
+        </table>`;
     }
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
