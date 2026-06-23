@@ -1031,6 +1031,9 @@ def infer_realism_risks(provider_pressure: list[str], attack_themes: list[str]) 
 def normalize_industry(value: str) -> str:
     normalized = slugify(value)
     aliases = {
+        "bank": "securities",
+        "banking": "securities",
+        "regional-bank": "securities",
         "finance": "securities",
         "financial": "securities",
         "financial-services": "securities",

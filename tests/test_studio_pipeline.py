@@ -123,6 +123,36 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue((out / "mvp" / "verified-mvp.md").exists())
             self.assertTrue((out / "release-gate" / "release-gate-report.yaml").exists())
 
+    def test_verified_mvp_cli_accepts_banking_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "banking-cli"
+            code = main(
+                [
+                    "pipeline",
+                    "verified-mvp",
+                    "--prompt",
+                    (
+                        "Create a realistic regional bank red-team lab where a learner starts "
+                        "from a public loan application portal, discovers internal document "
+                        "processing services, abuses an operations review workflow, and "
+                        "retrieves a controlled synthetic suspicious-activity export."
+                    ),
+                    "--out",
+                    str(out),
+                    "--industry",
+                    "banking",
+                    "--provider",
+                    "auto",
+                    "--adapter",
+                    "manual",
+                    "--force",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertTrue((out / "mvp" / "verified-mvp.json").exists())
+            self.assertTrue((out / "release-gate" / "release-gate-report.yaml").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

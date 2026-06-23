@@ -569,7 +569,11 @@ def normalize_industry(value: str) -> str:
     lowered = value.strip().lower().replace("_", "-")
     aliases = {
         "brokerage": "securities",
+        "bank": "securities",
+        "banking": "securities",
+        "regional-bank": "securities",
         "financial": "securities",
+        "financial-services": "securities",
         "finance": "securities",
         "stock-brokerage": "securities",
         "corporate": "enterprise",
