@@ -1,5 +1,29 @@
 {
   "$defs": {
+    "AntiCtfSignal": {
+      "additionalProperties": true,
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "category",
+        "reason"
+      ],
+      "title": "AntiCtfSignal",
+      "type": "object"
+    },
     "IndustryCapability": {
       "additionalProperties": true,
       "properties": {
@@ -27,6 +51,34 @@
           "default": 1,
           "title": "Min Keyword Matches",
           "type": "integer"
+        },
+        "recommended_services": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Services",
+          "type": "array"
+        },
+        "recommended_zones": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Zones",
+          "type": "array"
+        },
+        "recommended_data": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Data",
+          "type": "array"
+        },
+        "recommended_workflows": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Workflows",
+          "type": "array"
         }
       },
       "required": [
@@ -112,6 +164,16 @@
           "default": "",
           "title": "Expected",
           "type": "string"
+        },
+        "code": {
+          "default": "",
+          "title": "Code",
+          "type": "string"
+        },
+        "remediation": {
+          "default": "",
+          "title": "Remediation",
+          "type": "string"
         }
       },
       "required": [
@@ -120,6 +182,43 @@
         "message"
       ],
       "title": "RealismFinding",
+      "type": "object"
+    },
+    "RealismScoreBreakdown": {
+      "additionalProperties": true,
+      "properties": {
+        "infrastructure": {
+          "default": 0,
+          "title": "Infrastructure",
+          "type": "integer"
+        },
+        "services": {
+          "default": 0,
+          "title": "Services",
+          "type": "integer"
+        },
+        "workflows_ui": {
+          "default": 0,
+          "title": "Workflows Ui",
+          "type": "integer"
+        },
+        "data_noise": {
+          "default": 0,
+          "title": "Data Noise",
+          "type": "integer"
+        },
+        "security_controls": {
+          "default": 0,
+          "title": "Security Controls",
+          "type": "integer"
+        },
+        "attack_path": {
+          "default": 0,
+          "title": "Attack Path",
+          "type": "integer"
+        }
+      },
+      "title": "RealismScoreBreakdown",
       "type": "object"
     }
   },
@@ -145,6 +244,14 @@
     "profile": {
       "$ref": "#/$defs/IndustryRealismProfile"
     },
+    "overall_score": {
+      "default": 0,
+      "title": "Overall Score",
+      "type": "integer"
+    },
+    "score_breakdown": {
+      "$ref": "#/$defs/RealismScoreBreakdown"
+    },
     "matched_capabilities": {
       "items": {
         "type": "string"
@@ -157,6 +264,13 @@
         "type": "string"
       },
       "title": "Missing Capabilities",
+      "type": "array"
+    },
+    "anti_ctf_signals": {
+      "items": {
+        "$ref": "#/$defs/AntiCtfSignal"
+      },
+      "title": "Anti Ctf Signals",
       "type": "array"
     },
     "findings": {

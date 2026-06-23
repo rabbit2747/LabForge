@@ -31,6 +31,7 @@ class StudioScenarioSummary(StudioModel):
     title: str
     industry: str = "enterprise"
     status: str = "draft"
+    realism_score: int | None = None
     path: str
     updated_at: str = ""
     steps: list[dict[str, str | bool]] = Field(default_factory=list)
@@ -157,9 +158,11 @@ def studio_state(workspace: Path) -> StudioState:
 def summarize_scenario(path: Path) -> StudioScenarioSummary:
     scenario_yaml = path / "lab" / "scenario.yaml"
     review_yaml = path / "review" / "design-review-report.yaml"
+    realism_json = path / "review" / "realism-report.json"
     title = path.name
     industry = "enterprise"
     status = "created"
+    realism_score = None
     if scenario_yaml.exists():
         scenario = load_yaml(scenario_yaml)
         title = str(scenario.get("title", title))
@@ -168,12 +171,22 @@ def summarize_scenario(path: Path) -> StudioScenarioSummary:
     if review_yaml.exists():
         review = load_yaml(review_yaml)
         status = str(review.get("status", "reviewed"))
+        score = review.get("realism_score")
+        realism_score = int(score) if isinstance(score, int) else realism_score
+    if realism_json.exists() and realism_score is None:
+        try:
+            data = json.loads(realism_json.read_text(encoding="utf-8"))
+            score = data.get("overall_score")
+            realism_score = int(score) if isinstance(score, int) else None
+        except Exception:  # noqa: BLE001 - score is optional UI metadata.
+            realism_score = None
     updated_at = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
     return StudioScenarioSummary(
         scenario_id=path.name,
         title=title,
         industry=industry,
         status=status,
+        realism_score=realism_score,
         path=str(path),
         updated_at=updated_at,
         steps=scenario_steps(path),
@@ -365,6 +378,7 @@ def render_studio_html() -> str:
     .status.warning, .status.needs-agent-output { background: #fff4ed; color: var(--warn); }
     .status.failed { background: #fff1f3; color: var(--fail); }
     .status.passed { background: #ecfdf3; color: var(--ok); }
+    .score { display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:6px; background:#eef2ff; color:#3538cd; font-size:12px; font-weight:700; }
     .steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
     .step { border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-height: 70px; background: #fbfcfd; }
     .step.done { border-color: #9dd6c9; background: #f0fdfa; }
@@ -442,7 +456,7 @@ def render_studio_html() -> str:
       list.innerHTML = scenarios.map(s => `
         <div class="scenario ${s.scenario_id === selectedId ? 'active' : ''}" data-id="${s.scenario_id}">
           <strong>${escapeHtml(s.title)}</strong>
-          <div class="meta"><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span></div>
+          <div class="meta"><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span>${scoreBadge(s.realism_score)}</div>
         </div>`).join('');
       list.querySelectorAll('.scenario').forEach(el => el.onclick = () => selectScenario(el.dataset.id));
     }
@@ -463,7 +477,7 @@ def render_studio_html() -> str:
           <div class="toolbar">
             <div>
               <h2>${escapeHtml(s.title)}</h2>
-              <div class="meta"><span>${escapeHtml(s.scenario_id)}</span><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span></div>
+              <div class="meta"><span>${escapeHtml(s.scenario_id)}</span><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span>${scoreBadge(s.realism_score)}</div>
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button id="applyFixResults">Apply Fix Results Dry Run</button>
@@ -624,6 +638,9 @@ def render_studio_html() -> str:
     }
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function scoreBadge(score) {
+      return Number.isInteger(score) ? `<span class="score">realism ${score}/100</span>` : '';
     }
     loadScenarios();
   </script>

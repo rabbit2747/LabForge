@@ -21,6 +21,18 @@
           "title": "Status",
           "type": "string"
         },
+        "realism_score": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Realism Score"
+        },
         "path": {
           "title": "Path",
           "type": "string"

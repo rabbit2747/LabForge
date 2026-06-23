@@ -21,7 +21,7 @@ from .intake import create_intake_from_prompt, scaffold_lab_from_intake
 from .io import dump_yaml, write_text
 from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .model import LabSpec
-from .realism import check_realism, realism_report_to_json, realism_report_to_markdown
+from .realism import RealismReport, check_realism, realism_report_to_json, realism_report_to_markdown
 from .validate import validate_lab
 
 
@@ -50,6 +50,7 @@ class DesignReviewReport(DesignModel):
     validation_errors: list[str] = Field(default_factory=list)
     lint_status: str = "passed"
     realism_status: str = "passed"
+    realism_score: int = 0
     agent_ready_for_supervisor: bool = False
     artifacts: list[dict[str, str]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -272,6 +273,7 @@ def review_design_workspace(
         validation_errors=validation_errors,
         lint_status=lint_report.status,
         realism_status=realism_report.status,
+        realism_score=realism_report.overall_score,
         agent_ready_for_supervisor=agent_review.ready_for_supervisor,
         artifacts=[
             {"name": "source-prompt", "path": str((lab_dir / "scenario-prompt.md").resolve()), "purpose": "Original natural-language scenario intent."},
@@ -302,7 +304,8 @@ def create_design_fix_tasks(workspace: Path, *, review_dir: Path | None = None) 
     if not review_path.exists():
         review_design_workspace(workspace, out=report_dir, force=True)
     review = DesignReviewReport.model_validate(load_design_yaml(review_path))
-    tasks = fix_tasks_from_review(review)
+    realism_report = load_realism_report(report_dir)
+    tasks = fix_tasks_from_review(review, realism_report=realism_report)
     report = DesignFixTaskReport(
         workspace=str(workspace),
         lab_dir=str(lab_dir),
@@ -744,10 +747,31 @@ def load_design_yaml(path: Path) -> dict:
     return load_yaml(path)
 
 
-def fix_tasks_from_review(review: DesignReviewReport) -> list[DesignFixTask]:
+def load_realism_report(report_dir: Path) -> RealismReport | None:
+    path = report_dir / "realism-report.json"
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return RealismReport.model_validate(data)
+    except Exception:  # noqa: BLE001 - fall back to review warnings if report JSON is unavailable.
+        return None
+
+
+def fix_tasks_from_review(review: DesignReviewReport, *, realism_report: RealismReport | None = None) -> list[DesignFixTask]:
     tasks: list[DesignFixTask] = []
-    for index, warning in enumerate(review.warnings, start=1):
-        tasks.append(fix_task_from_warning(index, warning, review))
+    realism_warning_keys: set[str] = set()
+    if realism_report:
+        for finding in realism_report.findings:
+            if finding.category in {"capability", "zone", "anti-ctf", "service-depth", "noise"}:
+                realism_warning_keys.add(f"{finding.category}: {finding.message}")
+                tasks.append(fix_task_from_realism_finding(len(tasks) + 1, finding, review))
+    for warning in review.warnings:
+        if warning in realism_warning_keys:
+            continue
+        tasks.append(fix_task_from_warning(len(tasks) + 1, warning, review))
     if not review.agent_ready_for_supervisor:
         tasks.append(
             DesignFixTask(
@@ -762,6 +786,31 @@ def fix_tasks_from_review(review: DesignReviewReport) -> list[DesignFixTask]:
             )
         )
     return tasks
+
+
+def fix_task_from_realism_finding(index: int, finding, review: DesignReviewReport) -> DesignFixTask:
+    warning = f"{finding.category}: {finding.message}"
+    base = fix_task_from_warning(index, warning, review)
+    base.source = "realism-report"
+    base.rationale = f"{finding.message} Expected: {finding.expected or '-'}"
+    if finding.remediation:
+        base.required_action = finding.remediation
+    if finding.category == "anti-ctf":
+        base.assigned_agent = "industry-realism-reviewer"
+        base.title = f"Remove CTF-like wording: {finding.code or finding.message}"
+        base.expected_artifacts = ["scenario.yaml", "topology.yaml", "stages.yaml", "artifacts.yaml", "realism rationale"]
+        base.related_files = ["lab/scenario.yaml", "lab/topology.yaml", "lab/stages.yaml", "lab/artifacts.yaml", "review/realism-report.md"]
+    elif finding.category == "service-depth":
+        base.assigned_agent = "infrastructure-architect"
+        base.title = "Increase enterprise service depth"
+        base.expected_artifacts = ["topology.yaml", "environment.yaml", "artifacts.yaml", "service depth rationale"]
+        base.related_files = ["lab/topology.yaml", "lab/environment.yaml", "lab/artifacts.yaml"]
+    elif finding.category == "noise":
+        base.assigned_agent = "industry-realism-reviewer"
+        base.title = "Add realistic operational noise"
+        base.expected_artifacts = ["artifacts.yaml", "seed/noise plan", "realism rationale"]
+        base.related_files = ["lab/artifacts.yaml", "review/realism-report.md"]
+    return base
 
 
 def fix_task_from_warning(index: int, warning: str, review: DesignReviewReport) -> DesignFixTask:
@@ -1198,6 +1247,7 @@ def render_design_review_report(report: DesignReviewReport) -> str:
         f"- Status: `{report.status}`",
         f"- Lint status: `{report.lint_status}`",
         f"- Realism status: `{report.realism_status}`",
+        f"- Realism score: `{report.realism_score}/100`",
         f"- Agent ready for supervisor: `{report.agent_ready_for_supervisor}`",
         "",
         "## Artifacts",

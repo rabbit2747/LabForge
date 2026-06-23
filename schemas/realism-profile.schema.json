@@ -27,6 +27,34 @@
           "default": 1,
           "title": "Min Keyword Matches",
           "type": "integer"
+        },
+        "recommended_services": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Services",
+          "type": "array"
+        },
+        "recommended_zones": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Zones",
+          "type": "array"
+        },
+        "recommended_data": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Data",
+          "type": "array"
+        },
+        "recommended_workflows": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommended Workflows",
+          "type": "array"
         }
       },
       "required": [

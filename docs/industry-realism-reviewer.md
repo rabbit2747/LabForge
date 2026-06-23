@@ -49,6 +49,30 @@ The result must include a verdict for each dimension:
 - Security-control realism.
 - Deployment realism.
 
+The reviewer should compare its judgment with the static score emitted by
+`realism check`, but it must not blindly accept that score. The static score is
+only a pre-check. The reviewer should override it when source code, screenshots,
+seed data, or service behavior proves that the lab is more or less realistic
+than the static files suggest.
+
+## Static Score Inputs
+
+`realism check` emits:
+
+- Overall score, 0-100.
+- Infrastructure realism.
+- Service realism.
+- Workflow/UI realism.
+- Data/noise realism.
+- Security-control realism.
+- Attack-path realism.
+- Anti-CTF signals.
+- Concrete remediation text for each finding.
+
+When creating fix results, include actionable artifacts that can be applied to
+the `lab/` directory through `design apply-fix-results`. For example, prefer a
+specific topology, environment, artifacts, or scenario patch over a vague note.
+
 If UI screenshots or service source are unavailable, mark UI realism as
 `not-reviewable` and request the missing material.
 

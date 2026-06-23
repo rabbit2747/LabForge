@@ -309,12 +309,17 @@ See `docs/workflow-orchestration.md` for the workflow phases and report
 contract.
 
 `realism check` is a fast static pre-check for industry-specific enterprise
-texture. For example, a securities-firm scenario should include public investor
-channels, customer authentication, trading/order flow, market data, settlement,
-compliance, data stores, monitoring, and realistic business noise. It is not the
-final realism decision. The `industry-realism-reviewer` specialist agent reviews
-infrastructure, services, UI, workflows, data, security controls, and operational
-noise before a supervisor accepts the lab. See `docs/realism-profiles.md` and
+texture. It now emits an overall score plus infrastructure, service,
+workflow/UI, data/noise, security-control, and attack-path sub-scores. It also
+flags CTF-like wording such as `flag`, `ctf`, `foothold shell`, or `exploit
+here`, and writes concrete remediation text that `design tasks` can convert into
+specialist-agent fix tasks. For example, a securities-firm scenario should
+include public investor channels, customer authentication, trading/order flow,
+market data, settlement, compliance, data stores, monitoring, and realistic
+business noise. It is not the final realism decision. The
+`industry-realism-reviewer` specialist agent reviews infrastructure, services,
+UI, workflows, data, security controls, and operational noise before a
+supervisor accepts the lab. See `docs/realism-profiles.md` and
 `docs/industry-realism-reviewer.md`.
 
 Non-Docker providers currently generate deterministic scaffold artifacts rather

@@ -6,11 +6,13 @@ firm should look and behave like a brokerage or financial trading organization;
 a healthcare scenario should look like a provider with patient, clinical,
 billing, identity, and audit systems.
 
-`realism check` is a fast static pre-check. It is useful for catching obviously
-missing zones, services, and noise data, but it is not the final realism
-decision. A lab can contain enough keywords to pass a static check and still
-feel fake when the UI, business workflows, data model, service behavior, or
-security operations do not match the target industry.
+`realism check` is a fast static pre-check. It scores the draft lab across
+industry capabilities, zones, services, workflows, data/noise, security
+controls, and attack-path realism. It is useful for catching obviously missing
+zones, services, CTF-like labels, and noise data, but it is not the final
+realism decision. A lab can contain enough keywords to pass a static check and
+still feel fake when the UI, business workflows, data model, service behavior,
+or security operations do not match the target industry.
 
 Final realism review belongs to the `industry-realism-reviewer` specialist
 agent. That agent must inspect the declared industry, infrastructure, services,
@@ -52,6 +54,33 @@ python -m labforge realism check examples/my-lab --industry securities --out out
 python -m labforge realism check examples/my-lab --industry securities --format json --out output/my-lab-realism.json
 ```
 
+The report includes:
+
+- `overall_score`: 0-100 supervisor-facing realism score.
+- `score_breakdown.infrastructure`: network zones, trust boundaries, and
+  service depth.
+- `score_breakdown.services`: required industry capabilities and meaningful
+  service coverage.
+- `score_breakdown.workflows_ui`: whether the stages and visible workflows read
+  like business operations rather than puzzle steps.
+- `score_breakdown.data_noise`: business data, logs, tickets, documents, and
+  benign operational records.
+- `score_breakdown.security_controls`: monitoring, logging, segmentation, and
+  control coverage.
+- `score_breakdown.attack_path`: chain length, ATT&CK mapping texture, and
+  absence of solver-facing shortcuts.
+- `anti_ctf_signals`: terms such as `flag`, `ctf`, `foothold shell`, `exploit
+  here`, or over-explicit CVE hints that should be rewritten as normal business
+  or operations language.
+- `findings[].remediation`: concrete guidance used by `design tasks` to create
+  more specific fix tasks.
+
+Status thresholds:
+
+- `passed`: score is at least 85 and no blocking finding exists.
+- `warning`: score is below 85 or non-blocking findings exist.
+- `failed`: score is below 60 or strict/error findings exist.
+
 Run the independent industry realism reviewer package:
 
 ```powershell
@@ -62,6 +91,22 @@ python -m labforge agents run output/my-lab-agents --dry-run --adapter manual --
 The reviewer should not approve a lab merely because these commands pass.
 Approval requires plausible industry-specific infrastructure, service behavior,
 UI, workflows, data, monitoring, and operational noise.
+
+## Anti-CTF Requirement
+
+LabForge should not generate enterprise systems that speak directly to the
+solver. Avoid UI labels, documents, routes, and seed data such as:
+
+- `flag`, `submit flag`, `CTF`, `pwn`
+- `foothold shell`
+- `exploit here`
+- direct answer text such as `password is ...`
+- internal pages that name the exact CVE instead of exposing realistic version,
+  configuration, and maintenance evidence
+
+Use normal enterprise language instead: diagnostic console, evidence package,
+controlled drop, access review, incident note, change ticket, stale runbook,
+or vendor advisory.
 
 ## Enterprise Profile Expectations
 

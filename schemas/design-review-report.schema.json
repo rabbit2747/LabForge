@@ -45,6 +45,11 @@
       "title": "Realism Status",
       "type": "string"
     },
+    "realism_score": {
+      "default": 0,
+      "title": "Realism Score",
+      "type": "integer"
+    },
     "agent_ready_for_supervisor": {
       "default": false,
       "title": "Agent Ready For Supervisor",
