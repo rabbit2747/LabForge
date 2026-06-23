@@ -468,6 +468,7 @@ def render_live_prompt(package: AgentExecutionPackageSpec, *, include_system: bo
     sections = []
     if include_system:
         sections += ["# System Prompt", "", package.system_prompt.rstrip(), ""]
+    output_contract = service_builder_output_contract(package) if is_service_builder_package(package) else agent_output_contract(package)
     sections += [
         "# Task Prompt",
         "",
@@ -484,18 +485,41 @@ def render_live_prompt(package: AgentExecutionPackageSpec, *, include_system: bo
         "Return only a YAML object that validates against this shape:",
         "",
         "```yaml",
-        f"task_id: {package.task_id}",
-        "status: draft",
-        "summary: Short reviewable summary.",
-        "findings: []",
-        "artifacts: []",
-        "open_questions: []",
+        output_contract,
         "```",
         "",
         f"Keep `task_id` exactly `{package.task_id}`.",
         f"The orchestrator will write your YAML to `{package.output_file}`.",
     ]
     return "\n".join(sections)
+
+
+def agent_output_contract(package: AgentExecutionPackageSpec) -> str:
+    return "\n".join(
+        [
+            f"task_id: {package.task_id}",
+            "status: draft",
+            "summary: Short reviewable summary.",
+            "findings: []",
+            "artifacts: []",
+            "open_questions: []",
+        ]
+    )
+
+
+def service_builder_output_contract(package: AgentExecutionPackageSpec) -> str:
+    service = package.task_manifest.get("service", "service-name")
+    return "\n".join(
+        [
+            f"task_id: {package.task_id}",
+            "status: needs-review",
+            f"service: {service}",
+            "summary: Short reviewable implementation summary.",
+            "service_changes: []",
+            "findings: []",
+            "open_questions: []",
+        ]
+    )
 
 
 def extract_openai_text(response_data: dict[str, Any]) -> str:
@@ -526,19 +550,16 @@ def write_live_execution_outputs(
     output_path = resolve_package_output_path(package_path, package.output_file)
     parsed = extract_yaml_object(text)
     if not parsed:
-        parsed = {
-            "task_id": package.task_id,
-            "status": "needs-review" if status == "complete" else "blocked",
-            "summary": text.strip()[:1000] if text.strip() else message,
-            "findings": [],
-            "artifacts": [{"adapter": adapter, "transcript": str(transcript_path)}],
-            "open_questions": ["Adapter output was not a YAML object and needs supervisor review."],
-        }
+        parsed = fallback_result_object(package, adapter, transcript_path, text, status, message)
     parsed.setdefault("task_id", package.task_id)
     parsed.setdefault("status", "needs-review")
     parsed.setdefault("summary", "")
     parsed.setdefault("findings", [])
-    parsed.setdefault("artifacts", [])
+    if is_service_builder_package(package):
+        parsed.setdefault("service", package.task_manifest.get("service", ""))
+        parsed.setdefault("service_changes", [])
+    else:
+        parsed.setdefault("artifacts", [])
     parsed.setdefault("open_questions", [])
     write_text(output_path, render_yaml_like(parsed) + "\n")
     return AgentAdapterExecutionResult(
@@ -550,6 +571,39 @@ def write_live_execution_outputs(
         transcript_file=str(transcript_path),
         message=message,
     )
+
+
+def fallback_result_object(
+    package: AgentExecutionPackageSpec,
+    adapter: str,
+    transcript_path: Path,
+    text: str,
+    status: Literal["complete", "failed"],
+    message: str,
+) -> dict[str, Any]:
+    summary = text.strip()[:1000] if text.strip() else message
+    if is_service_builder_package(package):
+        return {
+            "task_id": package.task_id,
+            "status": "needs-review" if status == "complete" else "needs-review",
+            "service": package.task_manifest.get("service", ""),
+            "summary": summary,
+            "service_changes": [],
+            "findings": [{"adapter": adapter, "transcript": str(transcript_path)}],
+            "open_questions": ["Adapter output was not a service result YAML object and needs supervisor review."],
+        }
+    return {
+        "task_id": package.task_id,
+        "status": "needs-review" if status == "complete" else "blocked",
+        "summary": summary,
+        "findings": [],
+        "artifacts": [{"adapter": adapter, "transcript": str(transcript_path)}],
+        "open_questions": ["Adapter output was not a YAML object and needs supervisor review."],
+    }
+
+
+def is_service_builder_package(package: AgentExecutionPackageSpec) -> bool:
+    return package.agent_id == "service-builder" or "service" in package.task_manifest
 
 
 def execution_failure(adapter: str, package: AgentExecutionPackageSpec, package_path: Path, message: str) -> AgentAdapterExecutionResult:

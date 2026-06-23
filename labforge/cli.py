@@ -489,6 +489,52 @@ def command_services_agent_packages(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_run_agents(args: argparse.Namespace) -> int:
+    try:
+        adapter = get_agent_adapter(args.adapter)
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
+    if args.execute and not adapter.live_execution:
+        print(f"Agent adapter `{args.adapter}` does not support live execution.")
+        return 1
+
+    root = Path(args.workspace).resolve()
+    package_dir = root / ".ai" / "service-build"
+    if not package_dir.exists():
+        print(f"service-builder package directory not found: {package_dir}")
+        return 1
+    package_files = sorted(package_dir.glob("*.package.yaml"))
+    if args.service:
+        package_files = [
+            path for path in package_files
+            if args.service in path.stem or f"service-build-{args.service}" in path.stem
+        ]
+    if not package_files:
+        print("no service-builder package files matched")
+        return 1
+
+    failed = []
+    for package_file in package_files:
+        if args.execute:
+            result = adapter.execute(package_file)
+            print(f"- {result.task_id}: {result.status} ({result.message})")
+            if result.output_file:
+                print(f"  output: {result.output_file}")
+            if result.transcript_file:
+                print(f"  transcript: {result.transcript_file}")
+            if result.status != "complete":
+                failed.append(result)
+        else:
+            result = adapter.prepare(package_file)
+            print(f"- {result.task_id}: {result.status} ({result.message})")
+            if result.invocation_file:
+                print(f"  invocation: {result.invocation_file}")
+            if result.status != "prepared":
+                failed.append(result)
+    return 1 if failed else 0
+
+
 def command_services_templates(args: argparse.Namespace) -> int:
     lines = [
         "# Service Templates",
@@ -870,6 +916,14 @@ def main(argv: list[str] | None = None) -> int:
     services_agent_packages_parser.add_argument("--out", required=True)
     services_agent_packages_parser.add_argument("--adapter", default="manual")
     services_agent_packages_parser.set_defaults(func=command_services_agent_packages)
+    services_run_agents_parser = services_sub.add_parser("run-agents", help="Prepare or execute service-builder agent packages")
+    services_run_agents_parser.add_argument("workspace", help="Output directory created by services agent-packages")
+    services_run_agents_mode = services_run_agents_parser.add_mutually_exclusive_group()
+    services_run_agents_mode.add_argument("--dry-run", action="store_true", help="Prepare adapter handoff files without calling an LLM. This is the default.")
+    services_run_agents_mode.add_argument("--execute", action="store_true", help="Call the selected live adapter and write service result files.")
+    services_run_agents_parser.add_argument("--adapter", default="manual")
+    services_run_agents_parser.add_argument("--service", help="Only run packages matching one service name")
+    services_run_agents_parser.set_defaults(func=command_services_run_agents)
     services_review_result_parser = services_sub.add_parser("review-result", help="Review a service-builder result before applying it")
     services_review_result_parser.add_argument("lab")
     services_review_result_parser.add_argument("--result", required=True, help="Path to a service result YAML file")

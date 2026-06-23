@@ -178,3 +178,36 @@ python -m labforge agents review output/my-lab-agents --write
 ```
 
 Live adapter output is never treated as automatically approved.
+
+## Service Builder Packages
+
+`services agent-packages` creates service-builder packages under
+`.ai/service-build/`. They use the same adapter layer, but their output contract
+is `service-result.schema.json`, not `agent-result.schema.json`.
+
+Prepare service-builder handoff files:
+
+```powershell
+python -m labforge services agent-packages examples/my-lab --out output/my-lab-service-agents --adapter manual
+python -m labforge services run-agents output/my-lab-service-agents --adapter codex --dry-run --service entry-service
+python -m labforge services run-agents output/my-lab-service-agents --adapter claude-code --dry-run
+```
+
+Execute a service-builder package with a live adapter:
+
+```powershell
+python -m labforge services run-agents output/my-lab-service-agents --adapter codex --execute --service entry-service
+```
+
+The adapter writes service result YAML files under:
+
+```text
+output/my-lab-service-agents/.ai/outputs/
+```
+
+Then supervisors should run:
+
+```powershell
+python -m labforge services review-results examples/my-lab --results output/my-lab-service-agents/.ai/outputs --force
+python -m labforge services apply-results examples/my-lab --results output/my-lab-service-agents/.ai/outputs --execute --force
+```

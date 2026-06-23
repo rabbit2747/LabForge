@@ -65,6 +65,7 @@ python -m labforge services vulnerability-plugins
 python -m labforge services verify examples/scenario-02-ad-domain-compromise
 python -m labforge services plan examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-plan
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
+python -m labforge services run-agents output/scenario-02-service-agents --adapter codex --dry-run --service hr-portal
 python -m labforge services review-results examples/scenario-02-ad-domain-compromise --results output/scenario-02-service-agents/.ai/outputs --force
 python -m labforge services apply-results examples/scenario-02-ad-domain-compromise --results output/scenario-02-service-agents/.ai/outputs
 python -m labforge workflow plan examples/scenario-02-ad-domain-compromise --results output/scenario-02-service-agents/.ai/outputs --provider docker-compose --profile protected
@@ -180,6 +181,7 @@ python -m labforge services materialize output/new-lab --force
 python -m labforge services verify output/new-lab
 python -m labforge services plan output/new-lab --out output/new-lab-service-plan
 python -m labforge services agent-packages output/new-lab --out output/new-lab-service-agents --adapter manual
+python -m labforge services run-agents output/new-lab-service-agents --adapter claude-code --dry-run
 python -m labforge services review-results output/new-lab --results output/new-lab-service-agents/.ai/outputs --force
 python -m labforge services apply-results output/new-lab --results output/new-lab-service-agents/.ai/outputs
 python -m labforge workflow plan output/new-lab --results output/new-lab-service-agents/.ai/outputs --provider docker-compose --profile protected

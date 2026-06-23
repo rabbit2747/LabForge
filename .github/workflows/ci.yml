@@ -80,6 +80,14 @@ jobs:
           python -m labforge services verify output/starter-lab
           python -m labforge services plan output/starter-lab --out output/starter-service-plan
           python -m labforge services agent-packages output/starter-lab --out output/starter-service-agents --adapter manual
+          python -m labforge services run-agents output/starter-service-agents --adapter codex --dry-run --service entry-service
+          test -f output/starter-service-agents/.ai/service-build/service-build-entry-service.package.codex.command.ps1
+          python -m labforge services run-agents output/starter-service-agents --adapter claude-code --dry-run --service entry-service
+          test -f output/starter-service-agents/.ai/service-build/service-build-entry-service.package.claude-code.command.ps1
+          if python -m labforge services run-agents output/starter-service-agents --adapter manual --execute --service entry-service; then
+            echo "manual service-builder adapter unexpectedly allowed live execution"
+            exit 1
+          fi
           python -m labforge workflow status output/starter-lab --results output/starter-service-agents/.ai/outputs --provider docker-compose --profile protected --out output/starter-workflow-with-results.md || true
           grep -q "service_changes:" output/starter-service-agents/.ai/outputs/service-build-entry-service.result.yaml
           if python -m labforge services review-results output/starter-lab --results output/starter-service-agents/.ai/outputs --force --out output/starter-service-batch-review.md; then
