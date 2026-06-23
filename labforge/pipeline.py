@@ -208,7 +208,7 @@ def create_lab_pipeline(
 
     service_agent_dir = out / "service-agents"
     if package_service_agents:
-        agent_files = create_service_agent_packages(spec, service_agent_dir, adapter=adapter)
+        agent_files = create_service_agent_packages(spec, service_agent_dir, adapter=adapter, baseline_from_runtime=materialize)
         steps.append(
             PipelineStepResult(
                 id="service-agent-packages",
@@ -377,6 +377,8 @@ def create_lab_pipeline(
         f"python -m labforge services status {lab_dir}",
     ]
     if package_service_agents:
+        next_commands.append(f"python -m labforge services review-results {lab_dir} --results {service_agent_dir / '.ai' / 'outputs'} --force")
+        next_commands.append(f"python -m labforge services apply-results {lab_dir} --results {service_agent_dir / '.ai' / 'outputs'} --force")
         next_commands.append(f"python -m labforge services run-agents {service_agent_dir} --adapter {adapter} --dry-run")
     else:
         next_commands.append(f"python -m labforge services agent-packages {lab_dir} --out {service_agent_dir} --adapter {adapter}")

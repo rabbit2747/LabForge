@@ -87,6 +87,12 @@ reports, and `lifecycle/*-plan.md` files. The package executes provider
 validation during creation when the provider supports it, then records dry-run
 deploy, status, and destroy commands for the supervisor.
 
+When runtime materialization is enabled, the pipeline writes baseline MVP
+service-builder result files from the generated service code and reviews them in
+`service-result-review/`. These results prove the generated scaffold is
+reviewable and applicable; specialist agents should still refine realism,
+scenario-specific vulnerable behavior, UI, data, and noise before release.
+
 ## Supervisor Gate
 
 The pipeline gate classifies a workspace into one of five decisions:

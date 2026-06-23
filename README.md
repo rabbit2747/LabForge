@@ -263,6 +263,12 @@ the draft `lab/` directory. It is a dry-run by default. Real writes require
 `--execute`, and overwriting existing lab files additionally requires `--force`
 so a supervisor has to make that decision explicitly.
 
+When `pipeline create` materializes runtime scaffolds, it also writes baseline
+MVP service-builder results from those generated files. These baseline results
+make the first package reviewable and applicable without pretending that the lab
+is final: live service-builder agents can still replace or deepen the generated
+service code, UI, data, and vulnerability behavior before supervisor approval.
+
 The `studio serve` command starts a local web console for scenario authors and
 supervisors. Studio can create scenarios from natural-language text, load a
 prompt from a local file into the form, list multiple scenario workspaces, show
