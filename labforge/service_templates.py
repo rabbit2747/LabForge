@@ -261,7 +261,7 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 f"PURPOSE = {artifact.purpose!r}",
                 f"ROLE = {role!r}",
                 f"PORT = {port}",
-                f"ROUTES = {json.dumps(route_payload, ensure_ascii=False)!r}",
+                f"ROUTES = {json.dumps(route_payload, ensure_ascii=False)}",
                 "SEED_DIR = Path('/app/seed')",
                 "STATE_DIR = Path('/state')",
                 "LOG_PATH = Path('/var/log/labforge/service-events.jsonl')",

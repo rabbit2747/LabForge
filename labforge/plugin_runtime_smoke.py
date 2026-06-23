@@ -74,6 +74,9 @@ def run_plugin_runtime_smoke(spec: LabSpec, out: Path | None = None) -> PluginRu
             continue
         isolate_generated_state(module, artifact.service)
         client = module.app.test_client()
+        contract_item = run_service_contract_smoke(artifact.service, module, client)
+        if contract_item:
+            items.append(contract_item)
         for plugin in plugins:
             plugin_id = normalize_template_id(str(plugin.get("id", "")))
             if plugin_id not in SUPPORTED_VULNERABILITY_SCAFFOLDS:
@@ -179,6 +182,18 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
     except Exception as exc:  # noqa: BLE001 - smoke report should preserve route failures.
         return PluginRuntimeSmokeItem(service=service, plugin=plugin_id, status="failed", message=str(exc))
     return PluginRuntimeSmokeItem(service=service, plugin=plugin_id, status="skipped", message="no runtime smoke is defined for this plugin")
+
+
+def run_service_contract_smoke(service: str, module: Any, client: Any) -> PluginRuntimeSmokeItem | None:
+    if not hasattr(module, "ROUTES"):
+        return None
+    try:
+        response = client.get("/api/routes")
+        data = response.get_json(silent=True) or {}
+        routes = data.get("routes")
+        return assert_condition(service, "service-contract", response.status_code == 200 and isinstance(routes, list), "/api/routes", response)
+    except Exception as exc:  # noqa: BLE001 - smoke report should preserve route failures.
+        return PluginRuntimeSmokeItem(service=service, plugin="service-contract", status="failed", message=str(exc), endpoint="/api/routes")
 
 
 def assert_condition(service: str, plugin_id: str, ok: bool, endpoint: str, response: Any) -> PluginRuntimeSmokeItem:
