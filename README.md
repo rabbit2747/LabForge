@@ -198,6 +198,7 @@ python -m labforge agents run output/scenario-02-agents --dry-run --adapter manu
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter openai --agent scenario-designer --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter codex --agent scenario-designer --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter claude-code --agent mitre-mapper --context-root examples/scenario-02-ad-domain-compromise
+python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --agent industry-realism-reviewer --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
 python -m labforge agents review output/scenario-02-agents --write
 python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
@@ -234,11 +235,14 @@ so the workflow can include review/apply readiness in the report.
 See `docs/workflow-orchestration.md` for the workflow phases and report
 contract.
 
-`realism check` validates whether a lab has enough industry-specific enterprise
+`realism check` is a fast static pre-check for industry-specific enterprise
 texture. For example, a securities-firm scenario should include public investor
 channels, customer authentication, trading/order flow, market data, settlement,
-compliance, data stores, monitoring, and realistic business noise. See
-`docs/realism-profiles.md`.
+compliance, data stores, monitoring, and realistic business noise. It is not the
+final realism decision. The `industry-realism-reviewer` specialist agent reviews
+infrastructure, services, UI, workflows, data, security controls, and operational
+noise before a supervisor accepts the lab. See `docs/realism-profiles.md` and
+`docs/industry-realism-reviewer.md`.
 
 Non-Docker providers currently generate deterministic scaffold artifacts rather
 than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and

@@ -216,6 +216,34 @@ DEFAULT_AGENT_ROLES: list[AgentRole] = [
         ["Block uncontrolled malware-like behavior.", "Require explicit lab containment for offensive actions."],
         "qa",
     ),
+    AgentRole(
+        "industry-realism-reviewer",
+        "Industry Realism Reviewer Agent",
+        "Judge whether the lab genuinely resembles the declared target industry across infrastructure, services, UI, workflows, data, security controls, and operational noise.",
+        [
+            "declared target industry",
+            "scenario narrative",
+            "topology and environment model",
+            "service inventory and service artifacts",
+            "UI screenshots or frontend source when available",
+            "seed and noise data plan",
+            "security controls and provider constraints",
+        ],
+        [
+            "industry realism verdict",
+            "industry-specific architecture gaps",
+            "service and UI authenticity gaps",
+            "data and workflow realism gaps",
+            "required redesign recommendations",
+        ],
+        [
+            "Do not approve a lab based on keywords alone.",
+            "Reject generic CTF services renamed with industry labels.",
+            "Treat static realism profile output as a hint, not as a final verdict.",
+            "Flag any service, UI, workflow, data object, or control that would feel implausible to a practitioner from the target industry.",
+        ],
+        "qa",
+    ),
 ]
 
 
@@ -300,6 +328,28 @@ def orchestration_manifest(spec: LabSpec) -> dict[str, Any]:
 
 
 def task_manifest(spec: LabSpec, role: AgentRole, order: int) -> dict[str, Any]:
+    context_files = [
+        "scenario.yaml",
+        "topology.yaml",
+        "stages.yaml",
+        "lab.yaml",
+        "environment.yaml",
+        "artifacts.yaml",
+        "security-controls.yaml",
+        "supervisor-selection.yaml",
+        "providers/",
+    ]
+    if role.agent_id == "industry-realism-reviewer":
+        context_files.extend(
+            [
+                "docs/realism-profiles.md",
+                "docs/industry-realism-reviewer.md",
+                "services/",
+                "generated architecture diagrams when available",
+                "service UI screenshots when available",
+                "realism check report when available",
+            ]
+        )
     return {
         "task_id": f"{order:02d}-{role.agent_id}",
         "agent_id": role.agent_id,
@@ -307,17 +357,7 @@ def task_manifest(spec: LabSpec, role: AgentRole, order: int) -> dict[str, Any]:
         "phase": role.phase,
         "lab_id": spec.lab_id,
         "mission": role.mission,
-        "context_files": [
-            "scenario.yaml",
-            "topology.yaml",
-            "stages.yaml",
-            "lab.yaml",
-            "environment.yaml",
-            "artifacts.yaml",
-            "security-controls.yaml",
-            "supervisor-selection.yaml",
-            "providers/",
-        ],
+        "context_files": context_files,
         "inputs": role.inputs,
         "expected_outputs": role.outputs,
         "guardrails": role.guardrails,
@@ -521,6 +561,9 @@ def render_agent_system_prompt(spec: LabSpec, role: AgentRole) -> str:
         "- Any assumption is recorded as an open question.",
         "- Safety and portability constraints are preserved.",
         "- The result can be reviewed by a human supervisor.",
+    ]
+    lines.extend(role_specific_system_checklist(role))
+    lines += [
         "",
         "## Lab Context",
         "",
@@ -530,6 +573,21 @@ def render_agent_system_prompt(spec: LabSpec, role: AgentRole) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def role_specific_system_checklist(role: AgentRole) -> list[str]:
+    if role.agent_id != "industry-realism-reviewer":
+        return []
+    return [
+        "- The declared industry is evaluated as a full business environment, not as a keyword set.",
+        "- Infrastructure zones, trust boundaries, and deployment requirements match the industry.",
+        "- Each major service has a plausible business purpose, owner, data model, and operational behavior.",
+        "- UI labels, navigation, forms, dashboards, errors, and workflows feel like real software from that industry.",
+        "- Seed data and noise data look like normal business records, logs, documents, tickets, alerts, or transactions.",
+        "- Security controls and telemetry reflect how the target industry would monitor or enforce the environment.",
+        "- Any CTF-like label, magic endpoint, answer-shaped text, unrealistic service name, or thin placeholder is called out.",
+        "- The verdict distinguishes `pass`, `conditional-pass`, and `fail`; `pass` requires no major plausibility gaps.",
+    ]
 
 
 def render_agent_task_prompt(spec: LabSpec, role: AgentRole, order: int) -> str:
@@ -590,9 +648,24 @@ def render_agent_task_prompt(spec: LabSpec, role: AgentRole, order: int) -> str:
         "- Safety, portability, and provider constraints are preserved.",
         "- Any ambiguity is captured in `open_questions`.",
         "- The output validates against the LabForge agent result schema.",
+    ]
+    lines.extend(role_specific_task_done_criteria(role))
+    lines += [
         "",
     ]
     return "\n".join(lines)
+
+
+def role_specific_task_done_criteria(role: AgentRole) -> list[str]:
+    if role.agent_id != "industry-realism-reviewer":
+        return []
+    return [
+        "- Include a verdict for infrastructure realism, service realism, UI realism, workflow realism, data/noise realism, and security-control realism.",
+        "- Include concrete examples of what feels realistic and what feels fake or CTF-like.",
+        "- Include required changes that would make the lab acceptable for the declared industry.",
+        "- Do not treat `python -m labforge realism check` as sufficient evidence by itself.",
+        "- If UI screenshots or service source are unavailable, mark UI realism as `not-reviewable` and request them as an open question.",
+    ]
 
 
 def agent_workspace_root(path: Path) -> Path:
@@ -619,6 +692,17 @@ def task_file_id(path: Path) -> str:
     return name.removesuffix(".yaml")
 
 
+def context_item_exists(context_root: Path, item: str) -> bool:
+    if "when available" in item:
+        return True
+    if (context_root / item).exists():
+        return True
+    if Path(item).exists():
+        return True
+    repo_root = Path(__file__).resolve().parent.parent
+    return (repo_root / item).exists()
+
+
 def create_agent_run_plan(
     path: Path,
     *,
@@ -641,7 +725,7 @@ def create_agent_run_plan(
         missing_context_files = [
             item
             for item in task.context_files
-            if not (resolved_context_root / item).exists()
+            if not context_item_exists(resolved_context_root, item)
         ]
         missing_required = [
             path

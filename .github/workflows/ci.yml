@@ -175,6 +175,8 @@ jobs:
           test -f output/scenario-02-agents/.ai/run/01-scenario-designer.package.codex.command.ps1
           python -m labforge agents run output/scenario-02-agents --dry-run --adapter claude-code --context-root examples/scenario-02-ad-domain-compromise --agent scenario-designer
           test -f output/scenario-02-agents/.ai/run/01-scenario-designer.package.claude-code.command.ps1
+          python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --context-root examples/scenario-02-ad-domain-compromise --agent industry-realism-reviewer
+          test -f output/scenario-02-agents/.ai/run/10-industry-realism-reviewer.package.manual.md
           python -m labforge agents run output/scenario-02-agents --dry-run --adapter mcp --context-root examples/scenario-02-ad-domain-compromise --agent scenario-designer
           test -f output/scenario-02-agents/.ai/run/01-scenario-designer.package.mcp.json
           if python -m labforge agents run output/scenario-02-agents --execute --adapter manual --context-root examples/scenario-02-ad-domain-compromise --agent scenario-designer; then

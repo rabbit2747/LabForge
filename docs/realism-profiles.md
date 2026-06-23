@@ -1,10 +1,21 @@
-# Realism Profiles
+# Realism Profiles and Industry Review
 
 LabForge labs must model the target company as a believable enterprise, not as
 a generic CTF network with renamed services. A scenario targeting a securities
 firm should look and behave like a brokerage or financial trading organization;
 a healthcare scenario should look like a provider with patient, clinical,
 billing, identity, and audit systems.
+
+`realism check` is a fast static pre-check. It is useful for catching obviously
+missing zones, services, and noise data, but it is not the final realism
+decision. A lab can contain enough keywords to pass a static check and still
+feel fake when the UI, business workflows, data model, service behavior, or
+security operations do not match the target industry.
+
+Final realism review belongs to the `industry-realism-reviewer` specialist
+agent. That agent must inspect the declared industry, infrastructure, services,
+UI/source, seed data, noise data, security controls, and generated diagrams
+before giving a pass, conditional pass, or fail verdict.
 
 ## Scenario Fields
 
@@ -40,6 +51,17 @@ Write a report:
 python -m labforge realism check examples/my-lab --industry securities --out output/my-lab-realism.md
 python -m labforge realism check examples/my-lab --industry securities --format json --out output/my-lab-realism.json
 ```
+
+Run the independent industry realism reviewer package:
+
+```powershell
+python -m labforge agents scaffold examples/my-lab --out output/my-lab-agents
+python -m labforge agents run output/my-lab-agents --dry-run --adapter manual --agent industry-realism-reviewer --context-root examples/my-lab
+```
+
+The reviewer should not approve a lab merely because these commands pass.
+Approval requires plausible industry-specific infrastructure, service behavior,
+UI, workflows, data, monitoring, and operational noise.
 
 ## Enterprise Profile Expectations
 
