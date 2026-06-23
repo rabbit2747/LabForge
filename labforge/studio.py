@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_adapters import get_agent_adapter
 from .design import (
+    apply_design_fix_results,
     create_design_fix_task_packages,
     create_design_fix_tasks,
     create_design_workspace_from_prompt,
@@ -97,6 +98,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/review-fix-results"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
                 self.send_json(review_fix_results(self.studio_workspace, scenario_id))
+                return
+            if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/apply-fix-results"):
+                scenario_id = parsed.path.strip("/").split("/")[2]
+                self.send_json(apply_fix_results(self.studio_workspace, scenario_id, payload))
                 return
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
@@ -185,6 +190,7 @@ def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
         ("Fix tasks", path / "review" / "design-fix-tasks.md"),
         ("Fix packages", path / "review" / "fix-agent-package-report.md"),
         ("Fix result review", path / "review" / "fix-result-review.md"),
+        ("Fix apply report", path / "review" / "fix-apply-report.md"),
     ]
     return [{"name": name, "complete": item.exists(), "path": str(item)} for name, item in checks]
 
@@ -241,6 +247,15 @@ def review_fix_results(workspace: Path, scenario_id: str) -> dict:
     return read_scenario_detail(workspace, scenario_id)
 
 
+def apply_fix_results(workspace: Path, scenario_id: str, payload: dict) -> dict:
+    path = safe_scenario_path(workspace, scenario_id)
+    execute = bool(payload.get("execute", False))
+    force = bool(payload.get("force", False))
+    task = str(payload.get("task", "")).strip() or None
+    apply_design_fix_results(path, review_dir=path / "review", task_id=task, execute=execute, force=force)
+    return read_scenario_detail(workspace, scenario_id)
+
+
 def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     path = safe_scenario_path(workspace, scenario_id)
     summary = summarize_scenario(path).model_dump()
@@ -266,6 +281,7 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Fix Tasks", "review/design-fix-tasks.md"),
         ("Fix Agent Packages", "review/fix-agent-package-report.md"),
         ("Fix Result Review", "review/fix-result-review.md"),
+        ("Fix Apply Report", "review/fix-apply-report.md"),
         ("Realism Report", "review/realism-report.md"),
         ("Lint Report", "review/lint-report.md"),
         ("Agent Review", "review/agent-review.md"),
@@ -450,6 +466,7 @@ def render_studio_html() -> str:
               <div class="meta"><span>${escapeHtml(s.scenario_id)}</span><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span></div>
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="applyFixResults">Apply Fix Results Dry Run</button>
               <button id="reviewFixResults">Review Fix Results</button>
               <button id="packageTasks">Package Fix Tasks</button>
               <button id="generateTasks">Generate Fix Tasks</button>
@@ -473,6 +490,7 @@ def render_studio_html() -> str:
       document.getElementById('generateTasks').onclick = () => generateTasks(s.scenario_id);
       document.getElementById('packageTasks').onclick = () => packageTasks(s.scenario_id);
       document.getElementById('reviewFixResults').onclick = () => reviewFixResults(s.scenario_id);
+      document.getElementById('applyFixResults').onclick = () => applyFixResults(s.scenario_id);
       detail.querySelectorAll('[data-report]').forEach(btn => btn.onclick = () => loadReport(s.scenario_id, decodeURIComponent(btn.dataset.report)));
     }
 
@@ -536,6 +554,22 @@ def render_studio_html() -> str:
       } finally {
         btn.disabled = false;
         btn.textContent = 'Review Fix Results';
+      }
+    }
+
+    async function applyFixResults(id) {
+      const btn = document.getElementById('applyFixResults');
+      btn.disabled = true;
+      btn.textContent = 'Dry-running apply...';
+      try {
+        const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/apply-fix-results`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ execute: false }) });
+        renderDetail(detail);
+        await loadScenarios();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Apply Fix Results Dry Run';
       }
     }
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -130,6 +130,24 @@ class DesignFixResultReviewReport(DesignModel):
     status: Literal["not-started", "needs-review", "passed", "blocked", "failed"]
     totals: dict[str, int] = Field(default_factory=dict)
     items: list[DesignFixResultReviewItem] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    next_commands: list[str] = Field(default_factory=list)
+
+
+class DesignFixApplyItem(DesignModel):
+    task_id: str
+    target_path: str
+    action: Literal["would-write", "written", "skipped", "failed"]
+    message: str = ""
+
+
+class DesignFixApplyReport(DesignModel):
+    workspace: str
+    lab_dir: str
+    result_dir: str
+    status: Literal["passed", "failed", "no-results"]
+    dry_run: bool = True
+    applied: list[DesignFixApplyItem] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     next_commands: list[str] = Field(default_factory=list)
 
@@ -468,6 +486,183 @@ def review_design_fix_results(workspace: Path, *, review_dir: Path | None = None
     write_text(report_dir / "fix-result-review.yaml", dump_yaml(report.model_dump()))
     write_text(report_dir / "fix-result-review.md", render_fix_result_review_report(report))
     return report
+
+
+def apply_design_fix_results(
+    workspace: Path,
+    *,
+    review_dir: Path | None = None,
+    task_id: str | None = None,
+    execute: bool = False,
+    force: bool = False,
+) -> DesignFixApplyReport:
+    workspace = workspace.resolve()
+    lab_dir = workspace / "lab"
+    report_dir = review_dir or workspace / "review"
+    tasks_path = report_dir / "design-fix-tasks.yaml"
+    if not tasks_path.exists():
+        create_design_fix_tasks(workspace, review_dir=report_dir)
+    task_report = DesignFixTaskReport.model_validate(load_design_yaml(tasks_path))
+    task_by_id = {task.task_id: task for task in task_report.tasks}
+    result_dir = report_dir / "fix-agent-results"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    review_design_fix_results(workspace, review_dir=report_dir)
+
+    applied: list[DesignFixApplyItem] = []
+    errors: list[str] = []
+    result_files = sorted(result_dir.glob("*.result.yaml"))
+    if task_id:
+        result_files = [result_dir / f"{task_id}.result.yaml"]
+
+    for result_file in result_files:
+        task = task_by_id.get(result_file.stem.removesuffix(".result"))
+        try:
+            result = AgentResultSpec.model_validate(load_design_yaml(result_file))
+        except Exception as exc:  # noqa: BLE001 - report malformed agent output.
+            errors.append(f"{result_file}: invalid agent result: {exc}")
+            continue
+        if task_id and result.task_id != task_id:
+            errors.append(f"{result_file}: task_id mismatch, expected {task_id}, got {result.task_id}")
+            continue
+        if result.status != "complete":
+            applied.append(
+                DesignFixApplyItem(
+                    task_id=result.task_id,
+                    target_path="-",
+                    action="skipped",
+                    message=f"result status must be complete before apply, got: {result.status}",
+                )
+            )
+            continue
+        if result.open_questions and not force:
+            errors.append(f"{result_file}: result has open_questions; rerun with --force after supervisor approval")
+            continue
+        if not result.artifacts:
+            errors.append(f"{result_file}: result contains no artifacts to apply")
+            continue
+
+        task_errors = apply_design_artifacts(
+            result.task_id,
+            result.artifacts,
+            result_dir=result_file.parent,
+            lab_dir=lab_dir,
+            execute=execute,
+            force=force,
+            applied=applied,
+        )
+        errors.extend(f"{result_file}: {error}" for error in task_errors)
+        if not task_errors and execute and task:
+            task.status = "accepted"
+
+    if not result_files:
+        status: Literal["passed", "failed", "no-results"] = "no-results"
+    else:
+        status = "failed" if errors else "passed"
+    write_text(tasks_path, dump_yaml(task_report.model_dump()))
+    write_text(report_dir / "design-fix-tasks.md", render_design_fix_tasks(task_report))
+    report = DesignFixApplyReport(
+        workspace=str(workspace),
+        lab_dir=str(lab_dir),
+        result_dir=str(result_dir),
+        status=status,
+        dry_run=not execute,
+        applied=applied,
+        errors=errors,
+        next_commands=[
+            f"python -m labforge design review {workspace} --force",
+            f"python -m labforge design review-fix-results {workspace}",
+        ],
+    )
+    write_text(report_dir / "fix-apply-report.yaml", dump_yaml(report.model_dump()))
+    write_text(report_dir / "fix-apply-report.md", render_fix_apply_report(report))
+    return report
+
+
+def apply_design_artifacts(
+    task_id: str,
+    artifacts: list[dict[str, Any] | str],
+    *,
+    result_dir: Path,
+    lab_dir: Path,
+    execute: bool,
+    force: bool,
+    applied: list[DesignFixApplyItem],
+) -> list[str]:
+    errors: list[str] = []
+    for artifact in artifacts:
+        if isinstance(artifact, str):
+            applied.append(
+                DesignFixApplyItem(
+                    task_id=task_id,
+                    target_path="-",
+                    action="skipped",
+                    message="string artifact is informational only and cannot be applied",
+                )
+            )
+            continue
+        target_path = str(artifact.get("target_path", "")).strip()
+        if not target_path:
+            errors.append("artifact missing target_path")
+            continue
+        target, target_error = resolve_design_target(lab_dir, target_path)
+        if target_error:
+            errors.append(target_error)
+            applied.append(DesignFixApplyItem(task_id=task_id, target_path=target_path, action="failed", message=target_error))
+            continue
+        content, content_error = design_artifact_content(artifact, result_dir)
+        if content_error:
+            errors.append(f"{target_path}: {content_error}")
+            applied.append(DesignFixApplyItem(task_id=task_id, target_path=target_path, action="failed", message=content_error))
+            continue
+        assert target is not None
+        if target.exists() and not force:
+            message = "target exists; rerun with --force after supervisor approval"
+            errors.append(f"{target_path}: {message}")
+            applied.append(DesignFixApplyItem(task_id=task_id, target_path=target_path, action="failed", message=message))
+            continue
+        if not execute:
+            applied.append(DesignFixApplyItem(task_id=task_id, target_path=target_path, action="would-write"))
+            continue
+        assert content is not None
+        write_text(target, content)
+        applied.append(DesignFixApplyItem(task_id=task_id, target_path=target_path, action="written"))
+    return errors
+
+
+def resolve_design_target(lab_dir: Path, target_path: str) -> tuple[Path | None, str | None]:
+    target = Path(target_path)
+    if target.is_absolute():
+        return None, f"target_path must be relative to the lab directory: {target_path}"
+    if any(part == ".." for part in target.parts):
+        return None, f"target_path may not contain parent traversal: {target_path}"
+    resolved = (lab_dir / target).resolve()
+    try:
+        resolved.relative_to(lab_dir.resolve())
+    except ValueError:
+        return None, f"target_path escapes the lab directory: {target_path}"
+    return resolved, None
+
+
+def design_artifact_content(artifact: dict[str, Any], result_dir: Path) -> tuple[str | None, str | None]:
+    content = artifact.get("content")
+    if isinstance(content, str):
+        return content, None
+    source_path_value = str(artifact.get("source_path", "")).strip()
+    if not source_path_value:
+        return None, "artifact must contain either string content or source_path"
+    source = Path(source_path_value)
+    if source.is_absolute():
+        return None, f"source_path must be relative to the result file directory: {source_path_value}"
+    if any(part == ".." for part in source.parts):
+        return None, f"source_path may not contain parent traversal: {source_path_value}"
+    resolved = (result_dir / source).resolve()
+    try:
+        resolved.relative_to(result_dir.resolve())
+    except ValueError:
+        return None, f"source_path escapes the result file directory: {source_path_value}"
+    if not resolved.exists() or not resolved.is_file():
+        return None, f"source_path does not exist: {source_path_value}"
+    return resolved.read_text(encoding="utf-8"), None
 
 
 def find_fix_task_package(workspace: Path, *, task_id: str, review_dir: Path, adapter: str) -> Path:
@@ -891,6 +1086,36 @@ def render_fix_result_review_report(report: DesignFixResultReviewReport) -> str:
     return "\n".join(lines)
 
 
+def render_fix_apply_report(report: DesignFixApplyReport) -> str:
+    lines = [
+        "# LabForge Fix Apply Report",
+        "",
+        "## Summary",
+        "",
+        f"- Workspace: `{report.workspace}`",
+        f"- Draft lab: `{report.lab_dir}`",
+        f"- Result directory: `{report.result_dir}`",
+        f"- Status: `{report.status}`",
+        f"- Dry run: `{str(report.dry_run).lower()}`",
+        "",
+        "## Applied Items",
+        "",
+        "| Task | Target | Action | Message |",
+        "|---|---|---|---|",
+    ]
+    if not report.applied:
+        lines.append("| - | - | - | No applicable fix artifacts were found. |")
+    for item in report.applied:
+        lines.append(f"| `{item.task_id}` | `{item.target_path}` | `{item.action}` | {item.message or '-'} |")
+    if report.errors:
+        lines += ["", "## Errors", ""]
+        lines.extend(f"- {error}" for error in report.errors)
+    lines += ["", "## Next Commands", "", "```powershell"]
+    lines.extend(report.next_commands)
+    lines += ["```", ""]
+    return "\n".join(lines)
+
+
 def design_review_status(
     *,
     validation_errors: list[str],
@@ -997,4 +1222,5 @@ DESIGN_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "design-fix-package-report.schema.json": DesignFixPackageReport,
     "design-fix-run-report.schema.json": DesignFixRunReport,
     "design-fix-result-review-report.schema.json": DesignFixResultReviewReport,
+    "design-fix-apply-report.schema.json": DesignFixApplyReport,
 }

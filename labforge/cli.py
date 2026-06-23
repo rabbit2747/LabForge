@@ -9,9 +9,11 @@ from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_a
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .design import (
+    apply_design_fix_results,
     create_design_fix_tasks,
     create_design_fix_task_packages,
     create_design_workspace_from_prompt,
+    render_fix_apply_report,
     render_fix_package_report,
     render_fix_result_review_report,
     render_fix_run_report,
@@ -290,6 +292,21 @@ def command_design_review_fix_results(args: argparse.Namespace) -> int:
     else:
         print(render_fix_result_review_report(report))
     return 0 if report.status not in {"failed", "blocked"} else 1
+
+
+def command_design_apply_fix_results(args: argparse.Namespace) -> int:
+    report = apply_design_fix_results(
+        Path(args.workspace),
+        review_dir=Path(args.review_dir) if args.review_dir else None,
+        task_id=args.task,
+        execute=args.execute,
+        force=args.force,
+    )
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_fix_apply_report(report))
+    return 0 if report.status == "passed" else 1
 
 
 def command_studio_serve(args: argparse.Namespace) -> int:
@@ -1027,6 +1044,14 @@ def main(argv: list[str] | None = None) -> int:
     design_review_fix_results_parser.add_argument("--review-dir", help="Review directory containing fix-agent-results")
     design_review_fix_results_parser.add_argument("--format", choices=["text", "json"], default="text")
     design_review_fix_results_parser.set_defaults(func=command_design_review_fix_results)
+    design_apply_fix_results_parser = design_sub.add_parser("apply-fix-results", help="Apply approved design fix result artifacts to the draft lab")
+    design_apply_fix_results_parser.add_argument("workspace", help="Directory created by `labforge design from-prompt`")
+    design_apply_fix_results_parser.add_argument("--review-dir", help="Review directory containing fix-agent-results")
+    design_apply_fix_results_parser.add_argument("--task", help="Apply only one fix task id, for example fix-001")
+    design_apply_fix_results_parser.add_argument("--execute", action="store_true", help="Write files. Default is a dry-run.")
+    design_apply_fix_results_parser.add_argument("--force", action="store_true", help="Allow overwriting existing lab files after supervisor approval")
+    design_apply_fix_results_parser.add_argument("--format", choices=["text", "json"], default="text")
+    design_apply_fix_results_parser.set_defaults(func=command_design_apply_fix_results)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")

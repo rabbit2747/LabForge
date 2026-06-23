@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "DesignFixApplyItem": {
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "target_path": {
+          "title": "Target Path",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "would-write",
+            "written",
+            "skipped",
+            "failed"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "target_path",
+        "action"
+      ],
+      "title": "DesignFixApplyItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "lab_dir": {
+      "title": "Lab Dir",
+      "type": "string"
+    },
+    "result_dir": {
+      "title": "Result Dir",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed",
+        "no-results"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "dry_run": {
+      "default": true,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "applied": {
+      "items": {
+        "$ref": "#/$defs/DesignFixApplyItem"
+      },
+      "title": "Applied",
+      "type": "array"
+    },
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "lab_dir",
+    "result_dir",
+    "status"
+  ],
+  "title": "DesignFixApplyReport",
+  "type": "object"
+}

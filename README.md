@@ -56,6 +56,7 @@ python -m labforge design tasks output/brokerage-design-workspace
 python -m labforge design package-tasks output/brokerage-design-workspace --adapter manual --prepare
 python -m labforge design run-task output/brokerage-design-workspace --task fix-001 --adapter manual
 python -m labforge design review-fix-results output/brokerage-design-workspace
+python -m labforge design apply-fix-results output/brokerage-design-workspace --task fix-001
 python -m labforge studio serve --workspace output/studio --host 127.0.0.1 --port 8765
 python -m labforge intake template --out output/intake-scenario-02 --lab-id scenario-02-ad-domain-compromise --title "Scenario 02 - Active Directory Domain Compromise"
 python -m labforge intake scaffold --from output/intake-scenario-02/scenario-intake.yaml --out output/intake-scenario-02-lab --force
@@ -213,11 +214,17 @@ The `design review-fix-results` command reads the fix-agent result YAML files,
 validates them against the agent result schema, updates task status, and writes
 a supervisor-facing `fix-result-review.md` report.
 
+The `design apply-fix-results` command applies approved fix-agent artifacts to
+the draft `lab/` directory. It is a dry-run by default. Real writes require
+`--execute`, and overwriting existing lab files additionally requires `--force`
+so a supervisor has to make that decision explicitly.
+
 The `studio serve` command starts a local web console for scenario authors and
 supervisors. Studio can create scenarios from natural-language text, load a
 prompt from a local file into the form, list multiple scenario workspaces, show
 which design step is complete, run design review, generate fix tasks, package
-fix tasks, review fix-agent results, and display generated reports.
+fix tasks, review fix-agent results, dry-run fix-result application, and display
+generated reports.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system
@@ -233,6 +240,7 @@ python -m labforge design tasks output\my-scenario-design
 python -m labforge design package-tasks output\my-scenario-design --adapter manual --prepare
 python -m labforge design run-task output\my-scenario-design --task fix-001 --adapter manual
 python -m labforge design review-fix-results output\my-scenario-design
+python -m labforge design apply-fix-results output\my-scenario-design --task fix-001
 python -m labforge studio serve --workspace output\studio --host 127.0.0.1 --port 8765
 python -m labforge intake template --out output/new-intake --lab-id new-lab --title "New Lab"
 python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml --out output/new-lab --force
