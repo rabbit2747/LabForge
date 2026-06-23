@@ -342,12 +342,18 @@ def run_package_lifecycle(workspace: Path, scenario_id: str, payload: dict) -> d
         result_payload = result.model_dump()
         if env_overrides:
             result_payload["env_overrides"] = env_overrides
+        if result.status == "completed":
+            runtime_state = write_runtime_state(path, generated_dir, env_overrides, active=True)
+            result_payload["runtime_state"] = runtime_state
         report = render_lifecycle_result(result)
         if env_overrides:
             report += "\n## Environment Overrides\n\n" + "\n".join(f"- `{key}={value}`" for key, value in env_overrides.items()) + "\n"
     elif action == "stop":
         result = provider_lifecycle(generated_dir, provider="docker-compose", action="destroy", execute=True, remove_volumes=False, timeout_seconds=120)
         result_payload = result.model_dump()
+        if result.status == "completed":
+            runtime_state = write_runtime_state(path, generated_dir, read_runtime_overrides(path), active=False)
+            result_payload["runtime_state"] = runtime_state
         report = render_lifecycle_result(result)
     elif action == "status":
         result = provider_lifecycle(generated_dir, provider="docker-compose", action="status", execute=True, timeout_seconds=60)
@@ -451,6 +457,94 @@ def allocate_port_overrides(generated_dir: Path) -> dict[str, str]:
         overrides[str(env_name)] = str(replacement)
         reserved.add(replacement)
     return overrides
+
+
+def write_runtime_state(path: Path, generated_dir: Path, env_overrides: dict[str, str], *, active: bool) -> dict:
+    manifest = read_endpoint_manifest_from_generated(generated_dir)
+    state = {
+        "active": active,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "env_overrides": env_overrides,
+        "effective_endpoints": apply_endpoint_overrides(manifest, env_overrides).get("published_endpoints", []),
+    }
+    state_path = runtime_state_path(path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return state
+
+
+def read_runtime_state(path: Path) -> dict:
+    state_path = runtime_state_path(path)
+    if not state_path.exists():
+        return {"active": False, "env_overrides": {}, "effective_endpoints": []}
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - runtime state is optional UI metadata.
+        return {"active": False, "env_overrides": {}, "effective_endpoints": [], "error": "runtime state could not be parsed"}
+    if not isinstance(data, dict):
+        return {"active": False, "env_overrides": {}, "effective_endpoints": [], "error": "runtime state is not an object"}
+    data.setdefault("active", False)
+    data.setdefault("env_overrides", {})
+    data.setdefault("effective_endpoints", [])
+    return data
+
+
+def read_runtime_overrides(path: Path) -> dict[str, str]:
+    state = read_runtime_state(path)
+    overrides = state.get("env_overrides", {})
+    if not isinstance(overrides, dict):
+        return {}
+    return {str(key): str(value) for key, value in overrides.items()}
+
+
+def runtime_state_path(path: Path) -> Path:
+    return path / "supervisor-package" / "lifecycle" / "studio-runtime.json"
+
+
+def read_endpoint_manifest_from_generated(generated_dir: Path) -> dict:
+    manifest_path = generated_dir / "endpoints.json"
+    if not manifest_path.exists():
+        return {"published_endpoints": [], "internal_services": []}
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - endpoint manifest is optional UI metadata.
+        return {"published_endpoints": [], "internal_services": [], "error": "endpoint manifest could not be parsed"}
+    if not isinstance(data, dict):
+        return {"published_endpoints": [], "internal_services": [], "error": "endpoint manifest is not an object"}
+    data.setdefault("published_endpoints", [])
+    data.setdefault("internal_services", [])
+    return data
+
+
+def apply_endpoint_overrides(manifest: dict, env_overrides: dict[str, str]) -> dict:
+    result = json.loads(json.dumps(manifest))
+    published = result.get("published_endpoints", [])
+    if not isinstance(published, list):
+        result["published_endpoints"] = []
+        return result
+    for endpoint in published:
+        if not isinstance(endpoint, dict):
+            continue
+        env_name = endpoint.get("override_env")
+        if not env_name or env_name not in env_overrides:
+            endpoint["effective_host_port"] = endpoint.get("default_host_port")
+            endpoint["overridden"] = False
+            continue
+        try:
+            port = int(env_overrides[str(env_name)])
+        except ValueError:
+            endpoint["effective_host_port"] = endpoint.get("default_host_port")
+            endpoint["overridden"] = False
+            continue
+        endpoint["effective_host_port"] = port
+        endpoint["overridden"] = True
+        if endpoint.get("protocol") == "ssh":
+            user = "attacker" if "attacker" in str(endpoint.get("service", "")) or "workstation" in str(endpoint.get("service", "")) else "lab"
+            endpoint["connect"] = f"ssh {user}@127.0.0.1 -p {port}"
+        else:
+            endpoint["url"] = f"http://127.0.0.1:{port}/"
+            endpoint["health_url"] = f"http://127.0.0.1:{port}/healthz"
+    return result
 
 
 def is_port_available(port: int, reserved: set[int]) -> bool:
@@ -575,17 +669,12 @@ def available_reports(path: Path) -> list[dict[str, str]]:
 
 
 def read_endpoint_manifest(path: Path) -> dict:
-    manifest_path = path / "supervisor-package" / "generated" / "endpoints.json"
-    if not manifest_path.exists():
-        return {"published_endpoints": [], "internal_services": []}
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 - endpoint manifest is optional UI metadata.
-        return {"published_endpoints": [], "internal_services": [], "error": "endpoint manifest could not be parsed"}
-    if not isinstance(data, dict):
-        return {"published_endpoints": [], "internal_services": [], "error": "endpoint manifest is not an object"}
-    data.setdefault("published_endpoints", [])
-    data.setdefault("internal_services", [])
+    data = read_endpoint_manifest_from_generated(path / "supervisor-package" / "generated")
+    runtime = read_runtime_state(path)
+    overrides = runtime.get("env_overrides", {})
+    if isinstance(overrides, dict) and overrides:
+        data = apply_endpoint_overrides(data, {str(key): str(value) for key, value in overrides.items()})
+    data["runtime"] = runtime
     return data
 
 
@@ -1013,13 +1102,16 @@ def render_studio_html() -> str:
       const published = manifest.published_endpoints || [];
       const internal = manifest.internal_services || [];
       if (!published.length && !internal.length) return '<div class="empty">No generated endpoint manifest yet. Run Create Full Pipeline or open a pipeline workspace with a supervisor package.</div>';
+      const runtime = manifest.runtime || {};
+      const runtimeBanner = runtime.updated_at ? `<div class="meta" style="margin-bottom:10px;"><span class="status ${runtime.active ? 'passed' : ''}">runtime ${runtime.active ? 'active' : 'stopped'}</span><span>updated ${escapeHtml(runtime.updated_at)}</span></div>` : '';
       const publishedRows = published.length ? published.map(item => {
         const main = item.connect || item.url || '-';
         const health = item.health_url ? `<br><span class="meta">health ${escapeHtml(item.health_url)}</span>` : '';
+        const portNote = item.overridden ? `<br><span class="meta">default ${escapeHtml(item.default_host_port)} -> active ${escapeHtml(item.effective_host_port)}</span>` : '';
         return `<tr>
           <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.service)}</code><br><span class="meta">${escapeHtml(item.role)}</span></td>
           <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.protocol)}</code></td>
-          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(main)}</code>${health}</td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(main)}</code>${health}${portNote}</td>
           <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.override_env || '-')}</code></td>
         </tr>`;
       }).join('') : '<tr><td colspan="4" style="padding:8px;">No published endpoints.</td></tr>';
@@ -1029,6 +1121,7 @@ def render_studio_html() -> str:
           <td style="border-bottom:1px solid var(--line);padding:8px;">${escapeHtml((item.networks || []).join(', ') || '-')}</td>
         </tr>`).join('') : '<tr><td colspan="3" style="padding:8px;">No internal services.</td></tr>';
       return `
+        ${runtimeBanner}
         <h3 style="font-size:14px;margin:0 0 8px;">Published</h3>
         <table style="width:100%; border-collapse:collapse; margin-bottom:14px;">
           <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Service</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Protocol</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Connect</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Override</th></tr></thead>

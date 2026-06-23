@@ -286,7 +286,8 @@ SSH commands, health URLs, internal DNS names, and port override variables, and
 run safe provider lifecycle actions for the generated supervisor package:
 validate, start, service healthcheck, status, and stop. Studio uses the
 generated `LABFORGE_PORT_*` variables to avoid occupied default ports when it
-starts a Docker Compose lab.
+starts a Docker Compose lab, then updates the endpoint panel with the effective
+runtime URLs and SSH ports actually used for that run.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system

@@ -107,7 +107,10 @@ validate, start, service healthcheck, status, and stop. These actions are fixed
 buttons, not arbitrary shell input. Their last results are written under
 `supervisor-package/lifecycle/studio-*-last.md`, and Studio uses generated
 `LABFORGE_PORT_*` override variables when default published ports are already
-occupied.
+occupied. The active runtime state is written to
+`supervisor-package/lifecycle/studio-runtime.json`, so the endpoint panel can
+show the effective URLs and SSH ports for the current run instead of only the
+default manifest values.
 
 When runtime materialization is enabled, the pipeline writes baseline MVP
 service-builder result files from the generated service code and reviews them in
