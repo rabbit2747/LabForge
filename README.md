@@ -287,7 +287,11 @@ run safe provider lifecycle actions for the generated supervisor package:
 validate, start, service healthcheck, status, and stop. Studio uses the
 generated `LABFORGE_PORT_*` variables to avoid occupied default ports when it
 starts a Docker Compose lab, then updates the endpoint panel with the effective
-runtime URLs and SSH ports actually used for that run.
+runtime URLs and SSH ports actually used for that run. Studio can also run the
+strict release gate for the selected scenario and display the release readiness
+checks beside the runtime controls, so a supervisor can move from natural
+language intake to runnable package validation and final readiness review in one
+web console.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system
@@ -422,6 +426,11 @@ verification fail the gate, which is useful before a lab is handed to learners:
 ```powershell
 python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
 ```
+
+The same strict gate is available in Studio through **Run Release Gate** on a
+scenario detail page. Studio writes `release-gate/release-gate-report.md` and
+`release-gate/release-gate-report.yaml`, then shows each check result in the
+Release Gate panel.
 
 The MVP matrix checks the natural-language product path across multiple built-in
 industry profiles. It creates a pipeline workspace for supply-chain, securities,

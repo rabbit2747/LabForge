@@ -26,6 +26,7 @@ from .io import load_yaml
 from .model import LabSpec
 from .pipeline import create_lab_pipeline
 from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
+from .qa import run_release_gate
 from .service_blueprints import inspect_service_implementation_status
 
 
@@ -117,6 +118,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/lifecycle"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
                 self.send_json(run_package_lifecycle(self.studio_workspace, scenario_id, payload))
+                return
+            if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/release-gate"):
+                scenario_id = parsed.path.strip("/").split("/")[2]
+                self.send_json(run_release_gate_for_scenario(self.studio_workspace, scenario_id, payload))
                 return
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
@@ -225,6 +230,7 @@ def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
         ("Supervisor package", path / "supervisor-package" / "package-report.md"),
         ("Quickstart", path / "supervisor-package" / "generated" / "QUICKSTART.md"),
         ("Endpoints", path / "supervisor-package" / "generated" / "endpoints.json"),
+        ("Release gate", path / "release-gate" / "release-gate-report.md"),
     ]
     return [{"name": name, "complete": item.exists(), "path": str(item)} for name, item in checks]
 
@@ -375,6 +381,29 @@ def run_package_lifecycle(workspace: Path, scenario_id: str, payload: dict) -> d
         "json": str(json_path.relative_to(path)),
         "result": result_payload,
     }
+    return detail
+
+
+def run_release_gate_for_scenario(workspace: Path, scenario_id: str, payload: dict) -> dict:
+    path = safe_scenario_path(workspace, scenario_id)
+    lab_dir = path / "lab"
+    if not (lab_dir / "scenario.yaml").exists():
+        raise ValueError("lab scenario.yaml has not been generated")
+    provider = str(payload.get("provider", "docker-compose")).strip() or "docker-compose"
+    profile = str(payload.get("profile", "protected")).strip() or "protected"
+    materialize = bool(payload.get("materialize", True))
+    agent_result_dir = path / "agents" / ".ai" / "outputs"
+    report = run_release_gate(
+        lab_dir,
+        path / "release-gate",
+        provider=provider,
+        profile=profile,
+        materialize=materialize,
+        force=True,
+        agent_result_dir=agent_result_dir if agent_result_dir.exists() else None,
+    )
+    detail = read_scenario_detail(workspace, scenario_id)
+    detail["last_release_gate"] = release_gate_payload(path, report.model_dump())
     return detail
 
 
@@ -613,6 +642,7 @@ def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     summary["fix_tasks"] = read_fix_tasks(path)
     summary["service_status"] = read_service_status(path)
     summary["endpoints"] = read_endpoint_manifest(path)
+    summary["release_gate"] = read_release_gate_summary(path)
     return summary
 
 
@@ -658,6 +688,8 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Last Healthcheck", "supervisor-package/lifecycle/studio-healthcheck-last.md"),
         ("Last Status", "supervisor-package/lifecycle/studio-status-last.md"),
         ("Last Stop", "supervisor-package/lifecycle/studio-stop-last.md"),
+        ("Release Gate", "release-gate/release-gate-report.md"),
+        ("Release Gate YAML", "release-gate/release-gate-report.yaml"),
         ("Provider README", "supervisor-package/generated/README.md"),
         ("Docker Compose", "supervisor-package/generated/docker-compose.yml"),
         ("Workflow Report", "workflow/workflow-report.md"),
@@ -666,6 +698,32 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Agent Review", "review/agent-review.md"),
     ]
     return [{"name": name, "path": rel} for name, rel in candidates if (path / rel).exists()]
+
+
+def read_release_gate_summary(path: Path) -> dict:
+    report_path = path / "release-gate" / "release-gate-report.yaml"
+    if not report_path.exists():
+        return {}
+    try:
+        return release_gate_payload(path, load_yaml(report_path))
+    except Exception as exc:  # noqa: BLE001 - optional Studio metadata must not hide the scenario.
+        return {"status": "error", "release_ready": False, "error": str(exc)}
+
+
+def release_gate_payload(path: Path, report: dict) -> dict:
+    checks = report.get("checks", [])
+    if not isinstance(checks, list):
+        checks = []
+    return {
+        "status": str(report.get("status", "unknown")),
+        "release_ready": bool(report.get("release_ready", False)),
+        "provider": str(report.get("provider", "")),
+        "profile": str(report.get("profile", "")),
+        "report": "release-gate/release-gate-report.md",
+        "yaml": "release-gate/release-gate-report.yaml",
+        "checks": checks,
+        "output_dir": str((path / "release-gate").resolve()),
+    }
 
 
 def read_endpoint_manifest(path: Path) -> dict:
@@ -893,6 +951,13 @@ def render_studio_html() -> str:
           <pre id="lifecycleViewer">${renderLifecycleSummary(s.last_lifecycle)}</pre>
         </div>
         <div class="panel">
+          <div class="toolbar">
+            <h2>Release Gate</h2>
+            <button id="runReleaseGate" class="primary">Run Release Gate</button>
+          </div>
+          <div id="releaseGateSummary">${renderReleaseGateSummary(s.last_release_gate || s.release_gate || {})}</div>
+        </div>
+        <div class="panel">
           <h2>Fix Tasks</h2>
           <div id="fixTasks">${renderFixTasks(s.fix_tasks || [])}</div>
         </div>
@@ -905,6 +970,7 @@ def render_studio_html() -> str:
       document.getElementById('packageTasks').onclick = () => packageTasks(s.scenario_id);
       document.getElementById('reviewFixResults').onclick = () => reviewFixResults(s.scenario_id);
       document.getElementById('applyFixResults').onclick = () => applyFixResults(s.scenario_id);
+      document.getElementById('runReleaseGate').onclick = () => runReleaseGate(s.scenario_id);
       detail.querySelectorAll('[data-report]').forEach(btn => btn.onclick = () => loadReport(s.scenario_id, decodeURIComponent(btn.dataset.report)));
       detail.querySelectorAll('[data-lifecycle]').forEach(btn => btn.onclick = () => runLifecycle(s.scenario_id, btn.dataset.lifecycle, btn));
     }
@@ -1012,6 +1078,28 @@ def render_studio_html() -> str:
       } finally {
         btn.disabled = false;
         btn.textContent = oldText;
+      }
+    }
+
+    async function runReleaseGate(id) {
+      const btn = document.getElementById('runReleaseGate');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      const summary = document.getElementById('releaseGateSummary');
+      summary.innerHTML = '<div class="empty">Running strict release readiness checks...</div>';
+      try {
+        const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/release-gate`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ provider: 'docker-compose', profile: 'protected', materialize: true })
+        });
+        renderDetail(detail);
+        await loadScenarios();
+      } catch (err) {
+        summary.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run Release Gate';
       }
     }
 
@@ -1146,6 +1234,28 @@ def render_studio_html() -> str:
         result.stdout ? `stdout:\n${result.stdout}` : '',
         result.stderr ? `stderr:\n${result.stderr}` : ''
       ].filter(Boolean).join('\n\n');
+    }
+    function renderReleaseGateSummary(report) {
+      if (!report || !report.status) return '<div class="empty">No release gate has been executed yet.</div>';
+      const checks = report.checks || [];
+      const rows = checks.length ? checks.map(check => {
+        const messages = (check.messages || []).join(' | ') || '-';
+        return `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(check.name)}</code></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="status ${check.status === 'passed' ? 'passed' : ''}">${escapeHtml(check.status)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="meta">${escapeHtml(messages)}</span></td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="3" style="padding:8px;">No checks recorded.</td></tr>';
+      return `
+        <div class="meta" style="margin-bottom:10px;">
+          <span class="status ${report.status === 'passed' ? 'passed' : ''}">status ${escapeHtml(report.status)}</span>
+          <span>release ready ${report.release_ready ? 'yes' : 'no'}</span>
+          <span>${escapeHtml(report.provider || 'docker-compose')} / ${escapeHtml(report.profile || 'protected')}</span>
+        </div>
+        <table style="width:100%; border-collapse:collapse;">
+          <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Check</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Status</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Messages</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
     }
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
