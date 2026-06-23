@@ -65,10 +65,11 @@ from .service_blueprints import (
     service_blueprints_to_markdown,
     service_status_to_markdown,
 )
-from .studio import run_studio, write_verified_mvp_manifest
+from .studio import run_studio
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
 from .vulnerability_scaffolds import SUPPORTED_VULNERABILITY_SCAFFOLDS
+from .verified_mvp import write_verified_mvp_manifest
 from .workflow import create_workflow_report, workflow_report_to_json, workflow_report_to_markdown
 from .service_artifacts import (
     apply_service_result,
@@ -321,7 +322,9 @@ def command_pipeline_verified_mvp(args: argparse.Namespace) -> int:
         force=True,
         agent_result_dir=out / "agents" / ".ai" / "outputs",
     )
-    manifest = write_verified_mvp_manifest(out.parent, out.name)
+    from .studio import read_scenario_detail
+
+    manifest = write_verified_mvp_manifest(out, read_scenario_detail(out.parent, out.name))
     if args.format == "json":
         print_json = {
             "pipeline": result.model_dump(),
