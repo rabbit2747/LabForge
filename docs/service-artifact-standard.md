@@ -133,6 +133,18 @@ contract files under `services/<service>/plugins/*.contract.yaml`. These files
 describe the scenario-specific behavior that service builders must implement;
 they do not generate final answers or fixed exploit chains.
 
+Each declared plugin must include its required scenario configuration keys. For
+example, `ssti-preview` requires `workflow`, `template_engine`,
+`execution_boundary`, and `post_exploitation_objective`. LabForge copies those
+requirements into the plugin contract file and `services verify` warns when a
+scenario omits them.
+
+Review available plugin contracts:
+
+```powershell
+python -m labforge services vulnerability-plugins
+```
+
 Validate that every declared service artifact has a matching implementation
 directory and required files:
 

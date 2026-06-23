@@ -192,6 +192,7 @@ service_artifacts:
         workflow: document preview
         template_engine: jinja2
         execution_boundary: lab container only
+        post_exploitation_objective: discover the internal runbook pointer
     purpose: First learner-facing business service.
     attack_surface:
       - Scenario-specific preview endpoint.
@@ -210,6 +211,18 @@ services/<service>/plugins/ssti-preview.contract.yaml
 ```
 
 The plugin contract tells service builders what the scenario must define, which
-MITRE techniques are commonly involved, and which safety boundaries must be
-preserved. It does not generate the final vulnerable route or the learner's
-solution path by itself.
+configuration keys are required, which MITRE techniques are commonly involved,
+which implementation requirements must be satisfied, which verification hints
+should become tests, and which safety boundaries must be preserved. It does not
+generate the final vulnerable route or the learner's solution path by itself.
+
+For example, `ssti-preview` requires:
+
+- `workflow`
+- `template_engine`
+- `execution_boundary`
+- `post_exploitation_objective`
+
+If a scenario declares the plugin without those keys, `services verify` reports
+a warning so the supervisor can fix the contract before assigning service
+implementation work.

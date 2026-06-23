@@ -837,13 +837,14 @@ def command_services_vulnerability_plugins(args: argparse.Namespace) -> int:
         "",
         "These are scenario-specific behavior contracts, not complete puzzle generators.",
         "",
-        "| Plugin | Compatible Templates | MITRE | Description |",
-        "|---|---|---|---|",
+        "| Plugin | Compatible Templates | MITRE | Required Config | Description |",
+        "|---|---|---|---|---|",
     ]
     for plugin in list_vulnerability_plugins():
         templates = ", ".join(f"`{item}`" for item in plugin.compatible_templates)
         mitre = ", ".join(f"`{item}`" for item in plugin.mitre_techniques)
-        lines.append(f"| `{plugin.plugin_id}` | {templates} | {mitre} | {plugin.description} |")
+        required = ", ".join(f"`{item}`" for item in plugin.required_config_keys) or "-"
+        lines.append(f"| `{plugin.plugin_id}` | {templates} | {mitre} | {required} | {plugin.description} |")
     lines.append("")
     print("\n".join(lines))
     return 0

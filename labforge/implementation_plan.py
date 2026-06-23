@@ -21,7 +21,7 @@ class ImplementationModel(BaseModel):
 class ServiceImplementationTask(ImplementationModel):
     task_id: str
     service: str
-    category: Literal["blueprint", "runtime", "api", "workflow", "data", "seed", "noise", "healthcheck", "reset", "evidence", "safety", "tests"]
+    category: Literal["blueprint", "runtime", "api", "workflow", "data", "vulnerability", "seed", "noise", "healthcheck", "reset", "evidence", "safety", "tests"]
     title: str
     details: list[str] = Field(default_factory=list)
     expected_files: list[str] = Field(default_factory=list)
@@ -58,6 +58,9 @@ def vulnerability_plugin_context(artifact: Any) -> list[dict[str, Any]]:
                     "mitre_techniques": list(plugin.mitre_techniques),
                     "scenario_must_define": list(plugin.scenario_must_define),
                     "safety_boundaries": list(plugin.safety_boundaries),
+                    "required_config_keys": list(plugin.required_config_keys),
+                    "implementation_requirements": list(plugin.implementation_requirements),
+                    "verification_hints": list(plugin.verification_hints),
                     "configured_by_scenario": item,
                 }
             )
@@ -159,6 +162,7 @@ def create_service_implementation_plan(spec: LabSpec, out: Path | None = None) -
                         "Seed and noise data are deterministic, synthetic, and realistic for the service role.",
                     ],
                 ),
+                *vulnerability_plugin_tasks(artifact, base, task_prefix),
                 ServiceImplementationTask(
                     task_id=f"{task_prefix}-seed",
                     service=artifact.service,
@@ -259,6 +263,48 @@ def create_service_implementation_plan(spec: LabSpec, out: Path | None = None) -
         write_text(out / "service-implementation-plan.json", implementation_plan_to_json(plan))
         write_text(out / "service-implementation-plan.md", implementation_plan_to_markdown(plan))
     return plan
+
+
+def vulnerability_plugin_tasks(artifact: Any, base: str, task_prefix: str) -> list[ServiceImplementationTask]:
+    tasks: list[ServiceImplementationTask] = []
+    for declared in declared_vulnerability_plugins(artifact):
+        plugin_id = str(declared.get("id", "")).strip()
+        plugin = get_vulnerability_plugin(plugin_id) if plugin_id else None
+        normalized = normalize_template_id(plugin_id or "unknown-plugin")
+        if plugin:
+            details = [
+                f"Plugin: {plugin.plugin_id}",
+                f"MITRE techniques: {', '.join(plugin.mitre_techniques)}",
+                "Required scenario config:",
+                *[f"{key}: {declared.get(key, '<missing>')}" for key in plugin.required_config_keys],
+                "Implementation requirements:",
+                *plugin.implementation_requirements,
+            ]
+            done_criteria = [
+                "Normal business workflow exists before the vulnerable behavior is useful.",
+                "Vulnerable behavior is scenario-specific and bounded by the plugin safety contract.",
+                "Evidence logs capture normal, denied, and vulnerable-path activity where relevant.",
+                "Tests cover at least one normal case and one plugin-specific scenario case.",
+            ]
+        else:
+            details = [f"Unknown plugin: {plugin_id or '<missing>'}", "Supervisor review is required before implementation."]
+            done_criteria = ["Do not implement unknown vulnerability behavior until the supervisor approves the contract."]
+        tasks.append(
+            ServiceImplementationTask(
+                task_id=f"{task_prefix}-vuln-{normalized}",
+                service=artifact.service,
+                category="vulnerability",
+                title=f"Implement vulnerability plugin contract `{plugin_id or 'unknown'}`",
+                details=details,
+                expected_files=[
+                    f"{base}/plugins/{normalized}.contract.yaml",
+                    f"{base}/app.py",
+                    f"{base}/tests/",
+                ],
+                done_criteria=done_criteria,
+            )
+        )
+    return tasks
 
 
 def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "manual") -> list[Path]:
@@ -455,6 +501,24 @@ def render_service_builder_task_prompt(
                 "",
             ]
             lines.extend(f"- {item}" for item in plugin.get("scenario_must_define", []) or ["Review required."])
+            lines += [
+                "",
+                "Required config keys:",
+                "",
+            ]
+            lines.extend(f"- {item}" for item in plugin.get("required_config_keys", []) or ["Review required."])
+            lines += [
+                "",
+                "Implementation requirements:",
+                "",
+            ]
+            lines.extend(f"- {item}" for item in plugin.get("implementation_requirements", []) or ["Review required."])
+            lines += [
+                "",
+                "Verification hints:",
+                "",
+            ]
+            lines.extend(f"- {item}" for item in plugin.get("verification_hints", []) or ["Review required."])
             lines += [
                 "",
                 "Safety boundaries:",

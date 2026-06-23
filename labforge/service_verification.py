@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+import yaml
 
 from .model import LabSpec
 from .service_artifacts import REQUIRED_FILES, RUNTIME_FILES, declared_service_artifacts, service_check
 from .service_blueprints import ServiceBuilderBlueprint
-from .service_templates import template_id_for_artifact
+from .service_templates import normalize_template_id, template_id_for_artifact
 from .vulnerability_plugins import declared_vulnerability_plugins, get_vulnerability_plugin
 
 
@@ -327,6 +328,17 @@ def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], art
             )
             continue
         plugin = get_vulnerability_plugin(plugin_id)
+        contract_path = service_root / "plugins" / f"{normalize_plugin_filename(plugin_id)}.contract.yaml"
+        if not contract_path.exists():
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=artifact.service,
+                    category="vulnerability-plugin",
+                    path=f"{source_path}/plugins/{normalize_plugin_filename(plugin_id)}.contract.yaml",
+                    message=f"Vulnerability plugin contract file for `{plugin_id}` is missing. Run `labforge services scaffold`.",
+                )
+            )
         if not plugin:
             findings.append(
                 ServiceVerificationFinding(
@@ -338,6 +350,8 @@ def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], art
                 )
             )
             continue
+        if contract_path.exists():
+            verify_vulnerability_contract_file(findings, artifact.service, plugin, contract_path, source_path)
         compatible = {item.lower() for item in plugin.compatible_templates}
         if template_id and template_id.lower() not in compatible:
             findings.append(
@@ -349,6 +363,17 @@ def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], art
                     message=f"Plugin `{plugin.plugin_id}` is not declared compatible with template/runtime `{template_id}`.",
                 )
             )
+        for key in plugin.required_config_keys:
+            if key not in declared or declared.get(key) in (None, "", [], {}):
+                findings.append(
+                    ServiceVerificationFinding(
+                        severity="warning",
+                        service=artifact.service,
+                        category="vulnerability-plugin",
+                        path=f"{source_path}/labforge-service.yaml",
+                        message=f"Plugin `{plugin.plugin_id}` is missing required scenario config key `{key}`.",
+                    )
+                )
         serialized = json.dumps(declared, ensure_ascii=False).lower()
         marker = first_template_puzzle_marker(serialized)
         if marker:
@@ -364,6 +389,55 @@ def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], art
                     ),
                 )
             )
+
+
+def verify_vulnerability_contract_file(
+    findings: list[ServiceVerificationFinding],
+    service: str,
+    plugin,
+    contract_path: Path,
+    source_path: str,
+) -> None:
+    rel = f"{source_path}/plugins/{contract_path.name}"
+    try:
+        contract = yaml.safe_load(contract_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:  # noqa: BLE001 - verification should report contract parse failures.
+        findings.append(
+            ServiceVerificationFinding(
+                severity="error",
+                service=service,
+                category="vulnerability-plugin-contract",
+                path=rel,
+                message=f"Plugin contract file is invalid YAML: {exc}",
+            )
+        )
+        return
+    if contract.get("plugin") != plugin.plugin_id:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=service,
+                category="vulnerability-plugin-contract",
+                path=rel,
+                message=f"Plugin contract declares `{contract.get('plugin')}` but expected `{plugin.plugin_id}`.",
+            )
+        )
+    for field in ("scenario_must_define", "safety_boundaries", "implementation_requirements", "verification_hints"):
+        value = contract.get(field)
+        if not isinstance(value, list) or not value:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=service,
+                    category="vulnerability-plugin-contract",
+                    path=rel,
+                    message=f"Plugin contract does not include non-empty `{field}`.",
+                )
+            )
+
+
+def normalize_plugin_filename(plugin_id: str) -> str:
+    return normalize_template_id(plugin_id)
 
 
 def parse_service_name(message: str) -> str:
