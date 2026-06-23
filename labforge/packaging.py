@@ -156,6 +156,16 @@ def create_supervisor_package(
                 path=str(generated_dir.resolve()),
                 purpose="Provider output, rendered documentation, and diagrams.",
             ),
+            PackageArtifact(
+                name="quickstart",
+                path=str((generated_dir / "QUICKSTART.md").resolve()),
+                purpose="Supervisor-facing startup, reset, endpoint, and port override instructions.",
+            ),
+            PackageArtifact(
+                name="endpoint-manifest",
+                path=str((generated_dir / "endpoints.json").resolve()),
+                purpose="Machine-readable list of published endpoints, SSH commands, override variables, and internal service DNS.",
+            ),
             *profile_artifacts,
             PackageArtifact(
                 name="host-doctor",

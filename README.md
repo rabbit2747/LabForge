@@ -26,6 +26,8 @@ From those files, LabForge currently generates:
 - `docker-compose.yml`
 - Docker Compose security-control scaffolds for selected protected controls
 - Docker Compose runtime scripts for validate, start, stop, and reset
+- Docker Compose `QUICKSTART.md` and `endpoints.json` for startup commands,
+  URLs, SSH commands, and port overrides
 - student/supervisor README
 - MITRE mapping report
 - implementation checklist
@@ -172,9 +174,13 @@ control scaffold services with labels, networks, and log volumes. It also emits
 PowerShell and shell runtime scripts for validation, start, stop, and reset;
 PowerShell scripts automatically detect whether Docker is available in the
 current shell or in any WSL distro on Windows, then run through the first usable
-runtime. The provider also consumes `service_artifacts` contracts to document
-service build contexts, reset behavior, healthchecks, evidence logs, and safety
-boundaries. `services blueprints` now generates service-builder blueprints that
+runtime. The Docker Compose provider also emits a generated `QUICKSTART.md`
+and `endpoints.json` so supervisors can see published URLs, SSH connection
+commands, health URLs, internal DNS names, and `LABFORGE_PORT_*` override
+variables without reading `docker-compose.yml` by hand. The provider also
+consumes `service_artifacts` contracts to document service build contexts, reset
+behavior, healthchecks, evidence logs, and safety boundaries. `services
+blueprints` now generates service-builder blueprints that
 describe each service's role, API surface, data stores, normal workflows,
 healthcheck/reset contract, evidence logs, and safety boundaries. `services
 materialize` can generate safe runnable Docker service runtimes from built-in

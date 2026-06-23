@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,9 @@ class DockerComposeProvider(Provider):
         write_text(out / "docs" / "provider-service-plan.md", render_provider_service_plan(spec))
         copy_service_sources(spec, out)
         write_runtime_scripts(out)
+        endpoint_manifest = build_endpoint_manifest(spec)
+        write_text(out / "endpoints.json", json.dumps(endpoint_manifest, ensure_ascii=False, indent=2) + "\n")
+        write_text(out / "QUICKSTART.md", render_quickstart(spec, profile, endpoint_manifest))
 
 
 def service_artifact_map(spec: LabSpec) -> dict[str, Any]:
@@ -134,10 +138,15 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
 
 
 def normalize_port_mappings(service_name: str, ports: list[Any], used_host_ports: set[int]) -> list[str]:
-    mappings: list[str] = []
+    return [item["compose_mapping"] for item in port_mapping_records(service_name, ports, used_host_ports)]
+
+
+def port_mapping_records(service_name: str, ports: list[Any], used_host_ports: set[int]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     next_dynamic = 18080
     for item in ports:
         text = str(item)
+        bind_ip = ""
         if ":" not in text:
             host = parse_port(text)
             container = text
@@ -145,7 +154,16 @@ def normalize_port_mappings(service_name: str, ports: list[Any], used_host_ports
             host_text, container = text.rsplit(":", maxsplit=1)
             host = parse_port(host_text)
         if host is None:
-            mappings.append(text)
+            records.append(
+                {
+                    "source": text,
+                    "compose_mapping": text,
+                    "container_port": container if ":" in text else text,
+                    "default_host_port": None,
+                    "env": None,
+                    "bind_ip": bind_ip,
+                }
+            )
             continue
         if host in used_host_ports:
             while next_dynamic in used_host_ports:
@@ -155,10 +173,20 @@ def normalize_port_mappings(service_name: str, ports: list[Any], used_host_ports
         host_expr = f"${{{port_env_name(service_name, container)}:-{host}}}"
         if ":" in text and ":" in host_text:
             bind_ip = host_text.rsplit(":", maxsplit=1)[0]
-            mappings.append(f"{bind_ip}:{host_expr}:{container}")
+            compose_mapping = f"{bind_ip}:{host_expr}:{container}"
         else:
-            mappings.append(f"{host_expr}:{container}")
-    return mappings
+            compose_mapping = f"{host_expr}:{container}"
+        records.append(
+            {
+                "source": text,
+                "compose_mapping": compose_mapping,
+                "container_port": container,
+                "default_host_port": host,
+                "env": port_env_name(service_name, container),
+                "bind_ip": bind_ip,
+            }
+        )
+    return records
 
 
 def parse_port(value: str) -> int | None:
@@ -172,6 +200,168 @@ def port_env_name(service_name: str, container_port: str) -> str:
     service_part = "".join(char.upper() if char.isalnum() else "_" for char in service_name).strip("_")
     port_part = "".join(char if char.isalnum() else "_" for char in container_port).strip("_")
     return f"LABFORGE_PORT_{service_part}_{port_part}"
+
+
+def build_endpoint_manifest(spec: LabSpec) -> dict[str, Any]:
+    used_host_ports: set[int] = set()
+    published: list[dict[str, Any]] = []
+    internal: list[dict[str, Any]] = []
+
+    for service in spec.services:
+        name = str(service["name"])
+        role = str(service.get("role", "service"))
+        networks = [str(item) for item in service.get("networks", [])]
+        ports = service.get("ports") or []
+        if ports:
+            for record in port_mapping_records(name, ports, used_host_ports):
+                container_port = str(record["container_port"])
+                default_host_port = record["default_host_port"]
+                protocol = endpoint_protocol(container_port)
+                item: dict[str, Any] = {
+                    "service": name,
+                    "role": role,
+                    "protocol": protocol,
+                    "container_port": container_port,
+                    "default_host_port": default_host_port,
+                    "override_env": record["env"],
+                    "compose_mapping": record["compose_mapping"],
+                    "networks": networks,
+                }
+                if default_host_port is not None:
+                    if protocol == "ssh":
+                        item["connect"] = f"ssh {endpoint_user(name)}@127.0.0.1 -p {default_host_port}"
+                    else:
+                        item["url"] = f"http://127.0.0.1:{default_host_port}/"
+                        item["health_url"] = f"http://127.0.0.1:{default_host_port}/healthz"
+                published.append(item)
+        else:
+            internal.append(
+                {
+                    "service": name,
+                    "role": role,
+                    "dns": name,
+                    "networks": networks,
+                    "expose": [str(item) for item in service.get("expose", [])],
+                }
+            )
+
+    return {
+        "lab_id": spec.lab_id,
+        "title": spec.title,
+        "provider": "docker-compose",
+        "published_endpoints": published,
+        "internal_services": internal,
+    }
+
+
+def endpoint_protocol(container_port: str) -> str:
+    port = parse_port(container_port)
+    if port == 22:
+        return "ssh"
+    return "http"
+
+
+def endpoint_user(service_name: str) -> str:
+    if "attacker" in service_name or "workstation" in service_name:
+        return "attacker"
+    return "lab"
+
+
+def render_quickstart(spec: LabSpec, profile: str, endpoint_manifest: dict[str, Any]) -> str:
+    lines = [
+        f"# Quickstart - {spec.title}",
+        "",
+        "This file is generated by the Docker Compose provider for supervisors and lab operators.",
+        "It lists the commands and learner-visible endpoints needed to start and inspect this generated lab package.",
+        "",
+        "## Start",
+        "",
+        "PowerShell on Windows, with automatic WSL delegation when Docker is not reachable in the current shell:",
+        "",
+        "```powershell",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\start.ps1",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\services-healthcheck.ps1",
+        "```",
+        "",
+        "Linux, macOS, or WSL:",
+        "",
+        "```sh",
+        "./scripts/start.sh",
+        "./scripts/services-healthcheck.sh",
+        "```",
+        "",
+        "## Reset And Stop",
+        "",
+        "```powershell",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\services-reset.ps1",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\reset.ps1",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\stop.ps1",
+        "```",
+        "",
+        "```sh",
+        "./scripts/services-reset.sh",
+        "./scripts/reset.sh",
+        "./scripts/stop.sh",
+        "```",
+        "",
+        "## Published Endpoints",
+        "",
+        "| Service | Role | Protocol | Default | Override |",
+        "|---|---|---|---|---|",
+    ]
+    endpoints = endpoint_manifest.get("published_endpoints", [])
+    if endpoints:
+        for item in endpoints:
+            default = item.get("connect") or item.get("url") or "-"
+            if item.get("health_url"):
+                default = f"{default}<br>health: {item['health_url']}"
+            lines.append(
+                f"| `{item['service']}` | {item['role']} | `{item['protocol']}` | `{default}` | `{item.get('override_env') or '-'}` |"
+            )
+    else:
+        lines.append("| - | - | - | - | - |")
+
+    lines += [
+        "",
+        "Published ports can be changed before startup by setting the listed override variable.",
+        "",
+        "```powershell",
+        "$env:LABFORGE_PORT_EXAMPLE_8080='19081'",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\start.ps1",
+        "```",
+        "",
+        "```sh",
+        "LABFORGE_PORT_EXAMPLE_8080=19081 ./scripts/start.sh",
+        "```",
+        "",
+        "## Internal DNS",
+        "",
+        "The following services are intentionally not published to the host. They are reachable by service name only from containers attached to the same generated lab networks.",
+        "",
+        "| Service | Role | Networks |",
+        "|---|---|---|",
+    ]
+    internal_services = endpoint_manifest.get("internal_services", [])
+    if internal_services:
+        for item in internal_services:
+            networks = ", ".join(item.get("networks") or [])
+            lines.append(f"| `{item['service']}` | {item['role']} | {networks or '-'} |")
+    else:
+        lines.append("| - | - | - |")
+
+    lines += [
+        "",
+        "## Generated Files",
+        "",
+        "- `endpoints.json`: machine-readable endpoint manifest.",
+        "- `docker-compose.yml`: generated provider output.",
+        "- `docs/`: architecture, MITRE, provider, and security-control documentation.",
+        "- `scripts/`: runtime lifecycle scripts.",
+        "",
+        f"Active security profile: `{profile}`.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def add_security_control_services(spec: LabSpec, compose: dict[str, Any]) -> None:

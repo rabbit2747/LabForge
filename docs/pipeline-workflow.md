@@ -62,6 +62,8 @@ The pipeline always writes:
 - `pipeline-gate.json`
 - `supervisor-package/package-report.md`
 - `supervisor-package/generated/`
+- `supervisor-package/generated/QUICKSTART.md`
+- `supervisor-package/generated/endpoints.json`
 
 These files are the supervisor-facing manifest for the generated workspace.
 They list every step, its status, produced artifacts, warnings, and next
@@ -86,16 +88,20 @@ IDOR object access, SSRF policy checks, diagnostic command execution, build
 pipeline creation, signed update publishing, and customer update callbacks.
 
 `supervisor-package/` is the first runnable handoff bundle. For Docker Compose
-labs it includes `generated/docker-compose.yml`, rendered service directories,
-architecture documentation, diagrams, protected and unprotected profile outputs,
-host diagnostics, execution plans, QA smoke reports, service verification
-reports, and `lifecycle/*-plan.md` files. The package executes provider
-validation during creation when the provider supports it, then records dry-run
-deploy, status, and destroy commands for the supervisor.
+labs it includes `generated/docker-compose.yml`, `generated/QUICKSTART.md`,
+`generated/endpoints.json`, rendered service directories, architecture
+documentation, diagrams, protected and unprotected profile outputs, host
+diagnostics, execution plans, QA smoke reports, service verification reports,
+and `lifecycle/*-plan.md` files. The package executes provider validation
+during creation when the provider supports it, then records dry-run deploy,
+status, and destroy commands for the supervisor.
 Generated Docker Compose packages support `LABFORGE_PORT_*` environment
 variable overrides for published ports, and their service healthcheck/reset
 scripts execute inside the running containers so Windows-to-WSL delegated
 starts can still validate the live lab.
+The endpoint manifest records learner-visible URLs, SSH connection commands,
+health URLs, override variable names, and internal DNS names in a
+machine-readable form for Studio or external orchestration tools.
 
 When runtime materialization is enabled, the pipeline writes baseline MVP
 service-builder result files from the generated service code and reviews them in
