@@ -33,6 +33,7 @@
           "default": "pending",
           "enum": [
             "pending",
+            "packaged",
             "in-progress",
             "done",
             "blocked"

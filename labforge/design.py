@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_orchestration import (
+    AgentExecutionPackageSpec,
     create_agent_execution_packages,
     create_agent_review,
     review_to_json,
@@ -59,7 +60,7 @@ class DesignFixTask(DesignModel):
     source: str
     severity: Literal["info", "warning", "error"] = "warning"
     assigned_agent: str
-    status: Literal["pending", "in-progress", "done", "blocked"] = "pending"
+    status: Literal["pending", "packaged", "in-progress", "done", "blocked"] = "pending"
     rationale: str
     required_action: str
     expected_artifacts: list[str] = Field(default_factory=list)
@@ -72,6 +73,16 @@ class DesignFixTaskReport(DesignModel):
     review_dir: str
     status: Literal["no-tasks", "pending", "blocked"] = "pending"
     tasks: list[DesignFixTask] = Field(default_factory=list)
+    next_commands: list[str] = Field(default_factory=list)
+
+
+class DesignFixPackageReport(DesignModel):
+    workspace: str
+    package_dir: str
+    result_dir: str
+    adapter: str = "manual"
+    status: Literal["no-tasks", "packaged"] = "packaged"
+    packages: list[dict[str, str]] = Field(default_factory=list)
     next_commands: list[str] = Field(default_factory=list)
 
 
@@ -243,6 +254,76 @@ def create_design_fix_tasks(workspace: Path, *, review_dir: Path | None = None) 
     return report
 
 
+def create_design_fix_task_packages(
+    workspace: Path,
+    *,
+    adapter: str = "manual",
+    review_dir: Path | None = None,
+) -> DesignFixPackageReport:
+    workspace = workspace.resolve()
+    lab_dir = workspace / "lab"
+    report_dir = review_dir or workspace / "review"
+    tasks_path = report_dir / "design-fix-tasks.yaml"
+    if not tasks_path.exists():
+        create_design_fix_tasks(workspace, review_dir=report_dir)
+    task_report = DesignFixTaskReport.model_validate(load_design_yaml(tasks_path))
+    package_dir = report_dir / "fix-agent-packages"
+    result_dir = report_dir / "fix-agent-results"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    packages: list[dict[str, str]] = []
+    for task in task_report.tasks:
+        package = fix_task_execution_package(task, workspace=workspace, lab_dir=lab_dir, adapter=adapter)
+        package_path = package_dir / f"{task.task_id}-{task.assigned_agent}.package.yaml"
+        write_text(workspace / package.system_prompt_file, package.system_prompt)
+        write_text(workspace / package.task_prompt_file, package.task_prompt)
+        write_text(workspace / package.task_manifest_file, dump_yaml(package.task_manifest))
+        write_text(package_path, dump_yaml(package.model_dump()))
+        result_path = workspace / package.output_file
+        write_text(
+            result_path,
+            dump_yaml(
+                {
+                    "task_id": task.task_id,
+                    "status": "not-started",
+                    "summary": "",
+                    "findings": [],
+                    "artifacts": [],
+                    "open_questions": [],
+                }
+            ),
+        )
+        task.status = "packaged"
+        packages.append(
+            {
+                "task_id": task.task_id,
+                "agent_id": task.assigned_agent,
+                "package_file": str(package_path),
+                "output_file": str(result_path),
+            }
+        )
+    if task_report.tasks:
+        write_text(tasks_path, dump_yaml(task_report.model_dump()))
+        write_text(report_dir / "design-fix-tasks.md", render_design_fix_tasks(task_report))
+    report = DesignFixPackageReport(
+        workspace=str(workspace),
+        package_dir=str(package_dir),
+        result_dir=str(result_dir),
+        adapter=adapter,
+        status="no-tasks" if not packages else "packaged",
+        packages=packages,
+        next_commands=[
+            f"python -m labforge design package-tasks {workspace} --adapter {adapter}",
+            f"python -m labforge agents adapters",
+            f"python -m labforge design review {workspace}",
+        ],
+    )
+    write_text(report_dir / "fix-agent-package-report.yaml", dump_yaml(report.model_dump()))
+    write_text(report_dir / "fix-agent-package-report.md", render_fix_package_report(report))
+    return report
+
+
 def load_design_yaml(path: Path) -> dict:
     from .io import load_yaml
 
@@ -330,6 +411,131 @@ def fix_task_from_warning(index: int, warning: str, review: DesignReviewReport) 
     )
 
 
+def fix_task_execution_package(
+    task: DesignFixTask,
+    *,
+    workspace: Path,
+    lab_dir: Path,
+    adapter: str,
+) -> AgentExecutionPackageSpec:
+    output_file = f"review/fix-agent-results/{task.task_id}.result.yaml"
+    context_files = sorted(
+        set(
+            [
+                "lab/scenario.yaml",
+                "lab/topology.yaml",
+                "lab/stages.yaml",
+                "lab/environment.yaml",
+                "lab/artifacts.yaml",
+                "lab/security-controls.yaml",
+                "lab/supervisor-selection.yaml",
+                "lab/scenario-prompt.md",
+                "review/design-review-report.yaml",
+                "review/design-fix-tasks.yaml",
+                *task.related_files,
+            ]
+        )
+    )
+    missing_context_files = [item for item in context_files if not (workspace / item).exists()]
+    task_manifest = {
+        "task_id": task.task_id,
+        "agent_id": task.assigned_agent,
+        "phase": "design-fix",
+        "lab_id": lab_dir.name,
+        "mission": task.required_action,
+        "context_files": context_files,
+        "inputs": [
+            "review/design-fix-tasks.yaml",
+            "review/design-review-report.yaml",
+            "lab/scenario.yaml",
+            "lab/topology.yaml",
+            "lab/artifacts.yaml",
+        ],
+        "expected_outputs": task.expected_artifacts,
+        "guardrails": [
+            "Do not introduce hidden solver-only magic values.",
+            "Keep all behavior lab-internal and bounded.",
+            "Preserve the original scenario intent from lab/scenario-prompt.md.",
+            "Return schema-valid LabForge agent result YAML.",
+        ],
+        "status": task.status,
+        "assigned_runtime": adapter,
+        "output_file": output_file,
+        "fix_task": task.model_dump(),
+    }
+    return AgentExecutionPackageSpec(
+        task_id=task.task_id,
+        agent_id=task.assigned_agent,
+        adapter=adapter,
+        context_root=str(workspace),
+        system_prompt_file=f"review/fix-agent-packages/{task.task_id}-{task.assigned_agent}.system.md",
+        task_prompt_file=f"review/fix-agent-packages/{task.task_id}-{task.assigned_agent}.task.md",
+        task_manifest_file=f"review/fix-agent-packages/{task.task_id}-{task.assigned_agent}.task.yaml",
+        output_file=output_file,
+        context_files=context_files,
+        missing_context_files=missing_context_files,
+        system_prompt=render_fix_task_system_prompt(task),
+        task_prompt=render_fix_task_prompt(task, context_files),
+        task_manifest=task_manifest,
+    )
+
+
+def render_fix_task_system_prompt(task: DesignFixTask) -> str:
+    return "\n".join(
+        [
+            "# LabForge Fix Task Agent",
+            "",
+            "## Role",
+            "",
+            f"You are acting as the `{task.assigned_agent}` specialist for a LabForge design correction task.",
+            "",
+            "## Operating Rules",
+            "",
+            "- Work only from the supplied LabForge workspace context.",
+            "- Preserve safety boundaries and lab-internal behavior.",
+            "- Prefer realistic enterprise infrastructure and service design over CTF shortcuts.",
+            "- Produce concrete file-level recommendations and schema-valid result YAML.",
+            "- Do not invent credentials, real victim names, or uncontrolled external callbacks.",
+            "",
+        ]
+    )
+
+
+def render_fix_task_prompt(task: DesignFixTask, context_files: list[str]) -> str:
+    lines = [
+        f"# Fix Task - {task.task_id}",
+        "",
+        "## Title",
+        "",
+        task.title,
+        "",
+        "## Rationale",
+        "",
+        task.rationale,
+        "",
+        "## Required Action",
+        "",
+        task.required_action,
+        "",
+        "## Expected Artifacts",
+        "",
+    ]
+    lines.extend(f"- `{item}`" for item in task.expected_artifacts)
+    lines += ["", "## Context Files", ""]
+    lines.extend(f"- `{item}`" for item in context_files)
+    lines += [
+        "",
+        "## Acceptance Criteria",
+        "",
+        "- The fix directly addresses the source warning.",
+        "- The design remains realistic for the declared industry.",
+        "- The output names exact LabForge files that should be changed.",
+        "- The output can be reviewed by a supervisor before application.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def render_design_fix_tasks(report: DesignFixTaskReport) -> str:
     lines = [
         "# LabForge Design Fix Tasks",
@@ -363,6 +569,34 @@ def render_design_fix_tasks(report: DesignFixTaskReport) -> str:
         lines.extend(f"  - `{item}`" for item in task.expected_artifacts)
         lines.append("- Related files:")
         lines.extend(f"  - `{item}`" for item in task.related_files)
+    lines += ["", "## Next Commands", "", "```powershell"]
+    lines.extend(report.next_commands)
+    lines += ["```", ""]
+    return "\n".join(lines)
+
+
+def render_fix_package_report(report: DesignFixPackageReport) -> str:
+    lines = [
+        "# LabForge Fix Agent Package Report",
+        "",
+        "## Summary",
+        "",
+        f"- Workspace: `{report.workspace}`",
+        f"- Package directory: `{report.package_dir}`",
+        f"- Result directory: `{report.result_dir}`",
+        f"- Adapter: `{report.adapter}`",
+        f"- Status: `{report.status}`",
+        f"- Package count: `{len(report.packages)}`",
+        "",
+        "## Packages",
+        "",
+        "| Task | Agent | Package | Output |",
+        "|---|---|---|---|",
+    ]
+    for package in report.packages:
+        lines.append(
+            f"| `{package['task_id']}` | `{package['agent_id']}` | `{package['package_file']}` | `{package['output_file']}` |"
+        )
     lines += ["", "## Next Commands", "", "```powershell"]
     lines.extend(report.next_commands)
     lines += ["```", ""]
@@ -472,4 +706,5 @@ DESIGN_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "design-workspace-result.schema.json": DesignWorkspaceResult,
     "design-review-report.schema.json": DesignReviewReport,
     "design-fix-task-report.schema.json": DesignFixTaskReport,
+    "design-fix-package-report.schema.json": DesignFixPackageReport,
 }

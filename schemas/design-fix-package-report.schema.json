@@ -1,0 +1,55 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "package_dir": {
+      "title": "Package Dir",
+      "type": "string"
+    },
+    "result_dir": {
+      "title": "Result Dir",
+      "type": "string"
+    },
+    "adapter": {
+      "default": "manual",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "status": {
+      "default": "packaged",
+      "enum": [
+        "no-tasks",
+        "packaged"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "packages": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Packages",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "package_dir",
+    "result_dir"
+  ],
+  "title": "DesignFixPackageReport",
+  "type": "object"
+}

@@ -10,7 +10,9 @@ from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
 from .design import (
     create_design_fix_tasks,
+    create_design_fix_task_packages,
     create_design_workspace_from_prompt,
+    render_fix_package_report,
     render_design_fix_tasks,
     render_design_review_report,
     review_design_workspace,
@@ -228,6 +230,31 @@ def command_design_tasks(args: argparse.Namespace) -> int:
     else:
         print(render_design_fix_tasks(report))
     return 0 if report.status != "blocked" else 1
+
+
+def command_design_package_tasks(args: argparse.Namespace) -> int:
+    try:
+        adapter = get_agent_adapter(args.adapter)
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
+    report = create_design_fix_task_packages(
+        Path(args.workspace),
+        adapter=args.adapter,
+        review_dir=Path(args.review_dir) if args.review_dir else None,
+    )
+    prepared = []
+    if args.prepare:
+        for package in report.packages:
+            prepared.append(adapter.prepare(Path(package["package_file"])))
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_fix_package_report(report))
+    for result in prepared:
+        if result.invocation_file:
+            print(f"- {result.invocation_file}")
+    return 0
 
 
 def command_studio_serve(args: argparse.Namespace) -> int:
@@ -945,6 +972,13 @@ def main(argv: list[str] | None = None) -> int:
     design_tasks_parser.add_argument("--review-dir", help="Review directory containing design-review-report.yaml")
     design_tasks_parser.add_argument("--format", choices=["text", "json"], default="text")
     design_tasks_parser.set_defaults(func=command_design_tasks)
+    design_package_tasks_parser = design_sub.add_parser("package-tasks", help="Create agent execution packages for design fix tasks")
+    design_package_tasks_parser.add_argument("workspace", help="Directory created by `labforge design from-prompt`")
+    design_package_tasks_parser.add_argument("--review-dir", help="Review directory containing design-fix-tasks.yaml")
+    design_package_tasks_parser.add_argument("--adapter", default="manual")
+    design_package_tasks_parser.add_argument("--prepare", action="store_true", help="Also create adapter-specific invocation files")
+    design_package_tasks_parser.add_argument("--format", choices=["text", "json"], default="text")
+    design_package_tasks_parser.set_defaults(func=command_design_package_tasks)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")

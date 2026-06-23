@@ -53,6 +53,7 @@ python -m labforge intake scaffold --from output/intake-brokerage-lab/scenario-i
 python -m labforge design from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-design-workspace --industry securities --adapter manual --force
 python -m labforge design review output/brokerage-design-workspace --out output/brokerage-design-review --force
 python -m labforge design tasks output/brokerage-design-workspace
+python -m labforge design package-tasks output/brokerage-design-workspace --adapter manual --prepare
 python -m labforge studio serve --workspace output/studio --host 127.0.0.1 --port 8765
 python -m labforge intake template --out output/intake-scenario-02 --lab-id scenario-02-ad-domain-compromise --title "Scenario 02 - Active Directory Domain Compromise"
 python -m labforge intake scaffold --from output/intake-scenario-02/scenario-intake.yaml --out output/intake-scenario-02-lab --force
@@ -196,6 +197,11 @@ The `design tasks` command converts design review findings into a concrete fix
 queue. It maps realism, lint, security-control, service, and agent-readiness
 findings to the specialist agent that should handle each correction.
 
+The `design package-tasks` command turns each fix task into a standard LabForge
+agent execution package. With `--prepare`, it also creates adapter-specific
+invocation files, such as manual copy/paste prompts for human-operated LLM
+sessions.
+
 The `studio serve` command starts a local web console for scenario authors and
 supervisors. Studio can create scenarios from natural-language text, load a
 prompt from a local file into the form, list multiple scenario workspaces, show
@@ -213,6 +219,7 @@ python -m labforge intake scaffold --from output\my-scenario-intake\scenario-int
 python -m labforge design from-prompt --prompt-file .\my-scenario-prompt.md --out output\my-scenario-design --industry securities --adapter manual --force
 python -m labforge design review output\my-scenario-design --out output\my-scenario-design-review --force
 python -m labforge design tasks output\my-scenario-design
+python -m labforge design package-tasks output\my-scenario-design --adapter manual --prepare
 python -m labforge studio serve --workspace output\studio --host 127.0.0.1 --port 8765
 python -m labforge intake template --out output/new-intake --lab-id new-lab --title "New Lab"
 python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml --out output/new-lab --force

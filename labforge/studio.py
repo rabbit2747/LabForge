@@ -9,7 +9,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .design import create_design_fix_tasks, create_design_workspace_from_prompt, review_design_workspace
+from .agent_adapters import get_agent_adapter
+from .design import (
+    create_design_fix_task_packages,
+    create_design_fix_tasks,
+    create_design_workspace_from_prompt,
+    review_design_workspace,
+)
 from .intake import slugify
 from .io import load_yaml
 
@@ -82,6 +88,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/tasks"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
                 self.send_json(generate_fix_tasks(self.studio_workspace, scenario_id))
+                return
+            if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/package-tasks"):
+                scenario_id = parsed.path.strip("/").split("/")[2]
+                self.send_json(package_fix_tasks(self.studio_workspace, scenario_id, payload))
                 return
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
@@ -207,6 +217,16 @@ def generate_fix_tasks(workspace: Path, scenario_id: str) -> dict:
     return read_scenario_detail(workspace, scenario_id)
 
 
+def package_fix_tasks(workspace: Path, scenario_id: str, payload: dict) -> dict:
+    path = safe_scenario_path(workspace, scenario_id)
+    adapter_name = str(payload.get("adapter", "manual")).strip() or "manual"
+    report = create_design_fix_task_packages(path, adapter=adapter_name, review_dir=path / "review")
+    adapter = get_agent_adapter(adapter_name)
+    for package in report.packages:
+        adapter.prepare(Path(package["package_file"]))
+    return read_scenario_detail(workspace, scenario_id)
+
+
 def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     path = safe_scenario_path(workspace, scenario_id)
     summary = summarize_scenario(path).model_dump()
@@ -230,6 +250,7 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Design Summary", "design-workspace-summary.md"),
         ("Design Review", "review/design-review-report.md"),
         ("Fix Tasks", "review/design-fix-tasks.md"),
+        ("Fix Agent Packages", "review/fix-agent-package-report.md"),
         ("Realism Report", "review/realism-report.md"),
         ("Lint Report", "review/lint-report.md"),
         ("Agent Review", "review/agent-review.md"),
@@ -414,6 +435,7 @@ def render_studio_html() -> str:
               <div class="meta"><span>${escapeHtml(s.scenario_id)}</span><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span></div>
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="packageTasks">Package Fix Tasks</button>
               <button id="generateTasks">Generate Fix Tasks</button>
               <button class="primary" id="runReview">Run Review</button>
             </div>
@@ -433,6 +455,7 @@ def render_studio_html() -> str:
         </div>`;
       document.getElementById('runReview').onclick = () => runReview(s.scenario_id);
       document.getElementById('generateTasks').onclick = () => generateTasks(s.scenario_id);
+      document.getElementById('packageTasks').onclick = () => packageTasks(s.scenario_id);
       detail.querySelectorAll('[data-report]').forEach(btn => btn.onclick = () => loadReport(s.scenario_id, decodeURIComponent(btn.dataset.report)));
     }
 
@@ -464,6 +487,22 @@ def render_studio_html() -> str:
         alert(err.message);
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    async function packageTasks(id) {
+      const btn = document.getElementById('packageTasks');
+      btn.disabled = true;
+      btn.textContent = 'Packaging...';
+      try {
+        const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/package-tasks`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ adapter: document.getElementById('adapter').value || 'manual' }) });
+        renderDetail(detail);
+        await loadScenarios();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Package Fix Tasks';
       }
     }
 
