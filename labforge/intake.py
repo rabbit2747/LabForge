@@ -10,6 +10,35 @@ from .io import dump_yaml, load_yaml, write_text
 from .starter import starter_security_controls, starter_supervisor_selection
 
 
+GENERIC_ASSET_NAMES = {
+    "api",
+    "agent",
+    "bastion",
+    "console",
+    "database",
+    "db",
+    "gateway",
+    "portal",
+    "repo",
+    "server",
+    "service",
+    "store",
+    "wiki",
+}
+
+NON_SERVICE_ASSET_MARKERS = (
+    "command-and-scripting",
+    "credentials-in-files",
+    "data-from",
+    "exploit-public-facing",
+    "exploitation-of",
+    "file-and-directory",
+    "network-service",
+    "remote-system-discovery",
+    "system-information",
+)
+
+
 class IntakeModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -168,7 +197,8 @@ def scaffold_lab_from_intake(intake_path: Path, out: Path, *, force: bool = Fals
 
 
 def intake_from_natural_language_request(request: NaturalLanguageScenarioRequest) -> ScenarioIntake:
-    profile = scenario_profile_for_request(request)
+    analysis = analyze_prompt(request)
+    profile = apply_prompt_analysis_to_profile(scenario_profile_for_request(request), analysis)
     return ScenarioIntake(
         lab_id=request.lab_id,
         title=request.title,
@@ -199,6 +229,75 @@ def intake_from_natural_language_request(request: NaturalLanguageScenarioRequest
             "Which learner-visible clues are acceptable, and which facts must remain instructor-only?",
         ],
     )
+
+
+def apply_prompt_analysis_to_profile(profile: dict, analysis: PromptAnalysis) -> dict:
+    merged = {**profile}
+    existing_names = {normalize_service_name(item) for item in merged.get("target_infrastructure", [])}
+    target_infrastructure = list(merged.get("target_infrastructure", []))
+    for asset in analysis.named_assets:
+        normalized = normalize_service_name(asset)
+        if (
+            normalized in existing_names
+            or normalized in {"attacker-workstation", "controlled-drop"}
+            or not should_promote_asset_to_service(normalized)
+            or has_overlapping_service_name(normalized, existing_names)
+        ):
+            continue
+        target_infrastructure.append(f"{normalized}: inferred from source prompt")
+        existing_names.add(normalized)
+    merged["target_infrastructure"] = target_infrastructure
+
+    if analysis.likely_entrypoints:
+        entry = analysis.likely_entrypoints[0]
+        if entry != "public-entry-service":
+            merged["learner_entrypoint"] = f"Externally reachable `{entry}` identified from the source prompt."
+
+    objective = first_specific_objective(analysis.likely_final_objectives)
+    if objective:
+        merged["final_objective"] = objective
+
+    controls = list(merged.get("security_controls", []))
+    for hint in analysis.security_control_hints:
+        control = hint.split(":", 1)[0].replace("-", " ").title()
+        if control not in controls:
+            controls.append(control)
+    merged["security_controls"] = controls
+    return merged
+
+
+def first_specific_objective(objectives: list[str]) -> str:
+    generic_values = {
+        "declared sensitive object or proof material",
+        "controlled business export object",
+        "controlled final proof object",
+    }
+    for objective in objectives:
+        cleaned = clean_objective_text(objective)
+        if cleaned and cleaned.lower() not in generic_values:
+            return cleaned
+    return ""
+
+
+def should_promote_asset_to_service(asset: str) -> bool:
+    if not asset or asset in GENERIC_ASSET_NAMES:
+        return False
+    if re.match(r"^t\d{4}(?:-\d{3})?", asset):
+        return False
+    if re.search(r"\d-\d", asset):
+        return False
+    if any(marker in asset for marker in NON_SERVICE_ASSET_MARKERS):
+        return False
+    if asset.endswith("agent") and not any(prefix in asset for prefix in ("attacker", "customer")):
+        return False
+    return True
+
+
+def has_overlapping_service_name(asset: str, existing_names: set[str]) -> bool:
+    for existing in existing_names:
+        if existing.endswith(f"-{asset}") or asset.endswith(f"-{existing}"):
+            return True
+    return False
 
 
 def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
@@ -524,17 +623,65 @@ def keyword_matches(text: str, keyword: str) -> bool:
 
 
 def extract_named_assets(prompt: str) -> list[str]:
-    patterns = (
-        r"\b[a-zA-Z][a-zA-Z0-9_-]*(?:portal|api|console|server|service|gateway|wiki|db|database|agent|store|bastion)\b",
-        r"\b(?:portal|api|console|server|service|gateway|wiki|database|agent|store|bastion)\b",
-    )
     assets: list[str] = []
+    for asset in extract_markdown_table_assets(prompt):
+        append_asset(assets, asset)
+    for asset in extract_backtick_assets(prompt):
+        append_asset(assets, asset)
+    patterns = (
+        r"\b[a-zA-Z0-9_-]+(?:portal|api|console|server|service|gateway|wiki|db|database|agent|store|bastion|repo)\b",
+        r"\b[a-zA-Z0-9_-]+\s+(?:portal|api|console|server|service|gateway|wiki|database|agent|store|bastion|repo)\b",
+        r"\b(?:support|internal|ticket|build|signing|update|customer|object|source|release|dark web|controlled)\s+(?:portal|api|console|server|service|gateway|wiki|database|agent|store|bastion|repo|drop)\b",
+    )
     for pattern in patterns:
         for match in re.findall(pattern, prompt, flags=re.IGNORECASE):
-            asset = normalize_service_name(match)
-            if asset and asset not in assets:
-                assets.append(asset)
+            append_asset(assets, match)
     return assets[:20]
+
+
+def extract_markdown_table_assets(prompt: str) -> list[str]:
+    assets: list[str] = []
+    for line in prompt.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or "---" in stripped:
+            continue
+        cells = [cell.strip(" `") for cell in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        first = cells[0]
+        if first.lower() in {"system", "service", "asset", "시스템", "서비스", "역할", "stage"}:
+            continue
+        if looks_like_asset_name(first):
+            assets.append(first)
+    return assets
+
+
+def extract_backtick_assets(prompt: str) -> list[str]:
+    assets: list[str] = []
+    for value in re.findall(r"`([^`]{2,80})`", prompt):
+        if looks_like_asset_name(value):
+            assets.append(value)
+    return assets
+
+
+def append_asset(assets: list[str], value: str) -> None:
+    asset = normalize_service_name(value)
+    if not asset or asset in GENERIC_ASSET_NAMES:
+        return
+    if asset not in assets:
+        assets.append(asset)
+
+
+def looks_like_asset_name(value: str) -> bool:
+    normalized = normalize_service_name(value)
+    if not normalized or normalized in GENERIC_ASSET_NAMES:
+        return False
+    service_tokens = (
+        "portal", "api", "console", "server", "service", "gateway", "wiki",
+        "database", "db", "agent", "store", "bastion", "repo", "ldap",
+        "gitea", "build", "signing", "update", "customer", "drop", "grader",
+    )
+    return any(token in normalized for token in service_tokens)
 
 
 def infer_likely_entrypoints(prompt: str, named_assets: list[str]) -> list[str]:
@@ -554,13 +701,15 @@ def infer_likely_entrypoints(prompt: str, named_assets: list[str]) -> list[str]:
 def infer_likely_final_objectives(prompt: str) -> list[str]:
     lowered = prompt.lower()
     objectives: list[str] = []
+    heading_objectives = extract_objectives_after_heading(prompt)
+    objectives.extend(heading_objectives)
     objective_patterns = (
         r"(?:final objective|final target|최종 목표|최종 대상)\s*[:：]\s*([^\n.]+)",
         r"(?:reach|obtain|retrieve|submit|exfiltrate|획득|제출|도달)[^\n.]{0,120}",
     )
     for pattern in objective_patterns:
         for match in re.findall(pattern, prompt, flags=re.IGNORECASE):
-            value = " ".join(str(match).strip().split())
+            value = clean_objective_text(str(match))
             if value and value not in objectives:
                 objectives.append(value)
     if not objectives:
@@ -571,6 +720,33 @@ def infer_likely_final_objectives(prompt: str) -> list[str]:
         else:
             objectives.append("declared sensitive object or proof material")
     return objectives[:5]
+
+
+def extract_objectives_after_heading(prompt: str) -> list[str]:
+    objectives: list[str] = []
+    lines = prompt.splitlines()
+    collecting = False
+    for line in lines:
+        stripped = line.strip()
+        lowered = stripped.lower()
+        if lowered.rstrip(":：") in {"최종 목표", "final objective", "final objectives", "final target"}:
+            collecting = True
+            continue
+        if collecting:
+            if stripped.startswith("#") or (stripped and not stripped.startswith(("-", "*"))):
+                break
+            if stripped.startswith(("-", "*")):
+                value = clean_objective_text(stripped)
+                if value:
+                    objectives.append(value)
+    return objectives[:5]
+
+
+def clean_objective_text(value: str) -> str:
+    cleaned = re.sub(r"^[\s\-*|]+", "", value.strip())
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.strip(" .|")
+    return cleaned
 
 
 def infer_realism_risks(provider_pressure: list[str], attack_themes: list[str]) -> list[str]:
