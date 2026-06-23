@@ -92,6 +92,10 @@ host diagnostics, execution plans, QA smoke reports, service verification
 reports, and `lifecycle/*-plan.md` files. The package executes provider
 validation during creation when the provider supports it, then records dry-run
 deploy, status, and destroy commands for the supervisor.
+Generated Docker Compose packages support `LABFORGE_PORT_*` environment
+variable overrides for published ports, and their service healthcheck/reset
+scripts execute inside the running containers so Windows-to-WSL delegated
+starts can still validate the live lab.
 
 When runtime materialization is enabled, the pipeline writes baseline MVP
 service-builder result files from the generated service code and reviews them in

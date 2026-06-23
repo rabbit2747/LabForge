@@ -116,7 +116,7 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
         if service.get("expose"):
             entry["expose"] = [str(port) for port in service["expose"]]
         if service.get("ports"):
-            entry["ports"] = normalize_port_mappings(service["ports"], used_host_ports)
+            entry["ports"] = normalize_port_mappings(name, service["ports"], used_host_ports)
         if service.get("environment"):
             entry["environment"] = service["environment"]
         if service.get("volumes"):
@@ -133,7 +133,7 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
     return dump_yaml(compose)
 
 
-def normalize_port_mappings(ports: list[Any], used_host_ports: set[int]) -> list[str]:
+def normalize_port_mappings(service_name: str, ports: list[Any], used_host_ports: set[int]) -> list[str]:
     mappings: list[str] = []
     next_dynamic = 18080
     for item in ports:
@@ -152,11 +152,12 @@ def normalize_port_mappings(ports: list[Any], used_host_ports: set[int]) -> list
                 next_dynamic += 1
             host = next_dynamic
         used_host_ports.add(host)
+        host_expr = f"${{{port_env_name(service_name, container)}:-{host}}}"
         if ":" in text and ":" in host_text:
             bind_ip = host_text.rsplit(":", maxsplit=1)[0]
-            mappings.append(f"{bind_ip}:{host}:{container}")
+            mappings.append(f"{bind_ip}:{host_expr}:{container}")
         else:
-            mappings.append(f"{host}:{container}")
+            mappings.append(f"{host_expr}:{container}")
     return mappings
 
 
@@ -165,6 +166,12 @@ def parse_port(value: str) -> int | None:
         return int(value.rsplit(":", maxsplit=1)[-1])
     except ValueError:
         return None
+
+
+def port_env_name(service_name: str, container_port: str) -> str:
+    service_part = "".join(char.upper() if char.isalnum() else "_" for char in service_name).strip("_")
+    port_part = "".join(char if char.isalnum() else "_" for char in container_port).strip("_")
+    return f"LABFORGE_PORT_{service_part}_{port_part}"
 
 
 def add_security_control_services(spec: LabSpec, compose: dict[str, Any]) -> None:
@@ -360,21 +367,21 @@ def render_shell_script(compose_args: list[str]) -> str:
 
 
 def render_service_hook_shell_script(hook: str) -> str:
+    command_name = f"labforge-{hook}"
     return "\n".join(
         [
             "#!/usr/bin/env sh",
             "set -eu",
             'LAB_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"',
             'cd "$LAB_ROOT"',
-            f"FOUND=0",
-            f"for script in services/*/{hook}.sh; do",
-            '    [ -f "$script" ] || continue',
+            "FOUND=0",
+            "for service in $(docker compose -f docker-compose.yml config --services); do",
             "    FOUND=1",
-            '    echo "[labforge] running $script"',
-            '    sh "$script"',
+            f"    echo \"[labforge] running {hook} hook in $service\"",
+            f"    docker compose -f docker-compose.yml exec -T \"$service\" sh -lc 'if [ -x /usr/local/bin/{command_name} ]; then /usr/local/bin/{command_name}; else echo skip; fi'",
             "done",
             'if [ "$FOUND" -eq 0 ]; then',
-            f"    echo '[labforge] no services/*/{hook}.sh hooks found'",
+            "    echo '[labforge] no compose services found'",
             "fi",
             "",
         ]
@@ -464,6 +471,17 @@ def render_powershell_script(compose_args: list[str]) -> str:
             "    return ($Items | ForEach-Object { \"'\" + ($_ -replace \"'\", \"'\\''\") + \"'\" }) -join ' '",
             "}",
             "",
+            "function Join-LabForgeShellEnv {",
+            "    $Pairs = @()",
+            "    foreach ($Item in Get-ChildItem Env:LABFORGE_PORT_*) {",
+            "        $Name = ($Item.Name -replace '[^A-Za-z0-9_]', '')",
+            "        $Value = ($Item.Value -replace \"'\", \"'\\''\")",
+            "        if ($Name) { $Pairs += \"$Name='$Value'\" }",
+            "    }",
+            "    if ($Pairs.Count -eq 0) { return '' }",
+            "    return (($Pairs -join ' ') + ' ')",
+            "}",
+            "",
             "function Get-LabForgeWslDistros {",
             "    $Raw = wsl.exe -l -q 2>$null",
             "    if ($LASTEXITCODE -ne 0) { return @() }",
@@ -510,7 +528,8 @@ def render_powershell_script(compose_args: list[str]) -> str:
             "    $Distro = Select-LabForgeWslDistro",
             "    $WslLabRoot = ConvertTo-LabForgeWslPath $LabRoot",
             "    $ArgString = Join-LabForgeShellArgs $ComposeArgs",
-            "    $Command = \"cd '$WslLabRoot' && docker compose -f docker-compose.yml $ArgString\"",
+            "    $EnvPrefix = Join-LabForgeShellEnv",
+            "    $Command = \"cd '$WslLabRoot' && ${EnvPrefix}docker compose -f docker-compose.yml $ArgString\"",
             "    wsl.exe -d $Distro -- bash -lc $Command",
             "    if ($LASTEXITCODE -ne 0) { throw \"WSL docker compose failed with exit code $LASTEXITCODE\" }",
             "}",
@@ -545,6 +564,19 @@ def render_scripts_readme() -> str:
             "PowerShell scripts first try Docker in the current shell. If Docker is not available, they delegate to WSL.",
             "When WSL delegation is needed, the scripts auto-detect a WSL distro with a reachable Docker server.",
             "Set `LABFORGE_WSL_DISTRO` only when you want to force a specific distro.",
+            "",
+            "Published service ports are rendered with environment variable overrides.",
+            "For example, a service named `support-portal` exposing container port `8080` uses `LABFORGE_PORT_SUPPORT_PORTAL_8080`.",
+            "If a default port is already allocated, set the variable before running `start.*`, for example:",
+            "",
+            "```powershell",
+            "$env:LABFORGE_PORT_SUPPORT_PORTAL_8080='19081'",
+            ".\\scripts\\start.ps1",
+            "```",
+            "",
+            "```sh",
+            "LABFORGE_PORT_SUPPORT_PORTAL_8080=19081 ./scripts/start.sh",
+            "```",
             "",
         ]
     )
