@@ -35,6 +35,8 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 | --- | --- | --- |
 | Design workspace | `intake/`, `lab/`, `agents/` | Preserve the source prompt, write prompt analysis, infer the first LabForge spec, and prepare specialist-agent packages. |
 | Design review | `review/` | Run validation, lint, industry realism pre-check, and agent readiness review. |
+| Design fix tasks | `review/design-fix-tasks.*` | Convert review and realism findings into concrete specialist-agent correction tasks. |
+| Design fix packages | `review/fix-agent-packages/` and `review/fix-agent-results/` | Prepare correction task prompts and schema-valid result stubs so the supervisor can immediately dispatch agent work. |
 | Service scaffold | `lab/services/<service>/` | Create service contracts, hooks, seed/noise/test folders, and plugin contracts. |
 | Service blueprints | `service-blueprints/` and per-service `blueprint.yaml` | Describe each service role, API surface, data stores, workflows, and safety boundaries. |
 | Service plan | `service-plan/` | Split service implementation into agent-ready tasks. |

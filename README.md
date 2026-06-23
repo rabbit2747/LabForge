@@ -217,16 +217,17 @@ agent execution packages for the selected adapter.
 
 The `pipeline create` command is the opinionated product path for starting from
 natural language. It creates the design workspace, runs the first supervisor
-review, scaffolds service artifacts, renders service blueprints, creates the
-service implementation plan, materializes safe starter runtimes, packages
+review, packages design correction tasks for specialist agents, scaffolds
+service artifacts, renders service blueprints, creates the service
+implementation plan, materializes safe starter runtimes, packages
 service-builder agent tasks, verifies service quality gates, executes supported
 plugin runtime smoke checks, creates the runnable supervisor package, and writes
 `pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
 It also writes a supervisor gate bundle: `pipeline-gate.md`,
 `pipeline-gate.yaml`, and `pipeline-gate.json`, plus
 `supervisor-package/generated/` with provider output such as Docker Compose and
-`supervisor-package/lifecycle/` with dry-run deploy/status/destroy command
-plans.
+`supervisor-package/lifecycle/` with executed validation evidence plus dry-run
+deploy/status/destroy command plans.
 
 The `pipeline gate` command can be rerun at any time to classify the workspace
 as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or

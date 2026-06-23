@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .design import create_design_workspace_from_prompt, review_design_workspace
+from .design import create_design_fix_task_packages, create_design_fix_tasks, create_design_workspace_from_prompt, review_design_workspace
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
 from .intake import normalize_prompt_text
 from .io import dump_yaml, load_yaml, write_text
@@ -119,6 +119,33 @@ def create_lab_pipeline(
             summary=f"Design review status: {review.status}; realism score: {review.realism_score}.",
             artifacts=[str(out / "review" / "design-review-report.md"), str(out / "review" / "realism-report.md")],
             warnings=review.warnings[:20],
+        )
+    )
+
+    fix_tasks = create_design_fix_tasks(out)
+    steps.append(
+        PipelineStepResult(
+            id="design-fix-tasks",
+            title="Create design correction task list",
+            status="done" if fix_tasks.status in {"pending", "no-tasks"} else "warning",
+            summary=f"Created {len(fix_tasks.tasks)} design correction tasks for specialist review.",
+            artifacts=[str(out / "review" / "design-fix-tasks.md"), str(out / "review" / "design-fix-tasks.yaml")],
+            warnings=[f"{task.task_id}:{task.assigned_agent}:{task.title}" for task in fix_tasks.tasks[:20]],
+        )
+    )
+
+    fix_packages = create_design_fix_task_packages(out, adapter=adapter)
+    steps.append(
+        PipelineStepResult(
+            id="design-fix-packages",
+            title="Package design correction tasks for agents",
+            status="done" if fix_packages.status in {"packaged", "no-tasks"} else "warning",
+            summary=f"Prepared {len(fix_packages.packages)} design correction agent packages.",
+            artifacts=[
+                str(out / "review" / "fix-agent-packages"),
+                str(out / "review" / "fix-agent-results"),
+                str(out / "review" / "fix-agent-package-report.md"),
+            ],
         )
     )
 
@@ -403,6 +430,34 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
             )
         )
 
+    fix_tasks_path = workspace / "review" / "design-fix-tasks.yaml"
+    fix_packages_path = workspace / "review" / "fix-agent-package-report.yaml"
+    if fix_tasks_path.exists() and fix_packages_path.exists():
+        fix_tasks = load_yaml(fix_tasks_path)
+        fix_packages = load_yaml(fix_packages_path)
+        tasks = fix_tasks.get("tasks", [])
+        packages = fix_packages.get("packages", [])
+        items.append(
+            PipelineGateItem(
+                name="design-fix-packages",
+                status="passed" if isinstance(packages, list) else "warning",
+                evidence=[
+                    f"tasks={len(tasks) if isinstance(tasks, list) else 'unknown'}",
+                    f"packages={len(packages) if isinstance(packages, list) else 'unknown'}",
+                ],
+                required_action="Run the prepared design correction agents and review their results.",
+            )
+        )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="design-fix-packages",
+                status="missing",
+                evidence=[str(fix_tasks_path), str(fix_packages_path)],
+                required_action="Run `python -m labforge design tasks <workspace>` and `python -m labforge design package-tasks <workspace>`.",
+            )
+        )
+
     if lab_dir.exists():
         try:
             spec = LabSpec.load(lab_dir)
@@ -556,8 +611,8 @@ def gate_next_commands(workspace: Path, lab_dir: Path, decision: PipelineGateDec
         return [f"python -m labforge pipeline create --prompt-file <prompt.md> --out {workspace} --force"]
     if decision == "needs-agent-work":
         return [
-            f"python -m labforge design tasks {workspace}",
-            f"python -m labforge design package-tasks {workspace} --adapter manual --prepare",
+            f"python -m labforge design run-task {workspace} --task <fix-task-id> --adapter manual",
+            f"python -m labforge design review-fix-results {workspace}",
             f"python -m labforge services run-agents {workspace / 'service-agents'} --adapter manual --dry-run",
         ]
     if decision == "ready-for-supervisor":
