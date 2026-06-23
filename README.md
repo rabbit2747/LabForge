@@ -53,6 +53,8 @@ python -m labforge intake scaffold --from output/intake-scenario-02/scenario-int
 python -m labforge validate examples/scenario-02-ad-domain-compromise
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
+python -m labforge realism profiles
+python -m labforge realism check examples/scenario-02-ad-domain-compromise --industry enterprise --out output/scenario-02-realism.md
 python -m labforge controls list examples/scenario-02-ad-domain-compromise
 python -m labforge package examples/scenario-02-ad-domain-compromise --out output/scenario-02-package --provider docker-compose --profile protected --all-profiles --materialize --force
 python -m labforge workflow status examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
@@ -231,6 +233,12 @@ Pass `--results <service-agent-output-dir>` after service-builder packages exist
 so the workflow can include review/apply readiness in the report.
 See `docs/workflow-orchestration.md` for the workflow phases and report
 contract.
+
+`realism check` validates whether a lab has enough industry-specific enterprise
+texture. For example, a securities-firm scenario should include public investor
+channels, customer authentication, trading/order flow, market data, settlement,
+compliance, data stores, monitoring, and realistic business noise. See
+`docs/realism-profiles.md`.
 
 Non-Docker providers currently generate deterministic scaffold artifacts rather
 than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and

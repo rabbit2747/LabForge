@@ -1,12 +1,18 @@
 service: ldap-ad
 runtime: LDAP directory prototype or Windows AD provider replacement
 purpose: Prototype directory service for identity, group, and service account data.
+template_policy:
+  role: infrastructure-part
+  puzzle_logic: scenario-specific
+  rule: Reusable templates may provide runtime structure, healthcheck, reset, logging,
+    and seed/noise loaders, but must not hard-code the learner solution path.
 attack_surface:
 - Directory queries
 - Credential and group discovery paths
 seed_inputs:
 - ldap-directory
-noise_inputs: []
+noise_inputs:
+- directory-query-noise
 healthcheck: Directory bind or equivalent query must succeed with a low-privilege
   test account.
 reset: Reimport baseline directory objects and rotate any generated lab credentials.

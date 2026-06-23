@@ -1,6 +1,11 @@
 service: reporting-server
 runtime: Internal Linux or Windows application server
 purpose: Internal discovery and lateral movement target.
+template_policy:
+  role: infrastructure-part
+  puzzle_logic: scenario-specific
+  rule: Reusable templates may provide runtime structure, healthcheck, reset, logging,
+    and seed/noise loaders, but must not hard-code the learner solution path.
 attack_surface:
 - Internal HTTP or service endpoint
 - Misconfiguration or delegated access path

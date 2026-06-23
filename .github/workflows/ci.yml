@@ -36,6 +36,8 @@ jobs:
         run: |
           python -m labforge validate examples/scenario-02-ad-domain-compromise
           python -m labforge lint examples/scenario-02-ad-domain-compromise
+          python -m labforge realism profiles
+          python -m labforge realism check examples/scenario-02-ad-domain-compromise --industry enterprise --out output/scenario-02-realism.md
 
       - name: Validate starter template
         run: |

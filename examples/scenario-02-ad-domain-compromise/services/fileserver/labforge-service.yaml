@@ -1,12 +1,18 @@
 service: fileserver
 runtime: Internal file or object service
 purpose: Stores the final controlled collection object.
+template_policy:
+  role: infrastructure-part
+  puzzle_logic: scenario-specific
+  rule: Reusable templates may provide runtime structure, healthcheck, reset, logging,
+    and seed/noise loaders, but must not hard-code the learner solution path.
 attack_surface:
 - Internal file listing or object retrieval workflow
 - Access proof validation
 seed_inputs:
 - board-strategy-archive
-noise_inputs: []
+noise_inputs:
+- file-share-decoys
 healthcheck: Object listing or file existence check for seeded non-secret object must
   pass.
 reset: Restore final object and remove temporary learner downloads or proofs.

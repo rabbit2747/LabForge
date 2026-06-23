@@ -52,6 +52,11 @@ def starter_file_map(lab_id: str, title: str) -> dict[str, str]:
                 "summary": "Replace this with the scenario narrative and enterprise context.",
                 "final_objective": "Replace this with the learner's final objective.",
                 "learner_entrypoint": "Replace this with the first reachable service or access method.",
+                "target_industry": "Replace with an industry profile such as securities, healthcare, or manufacturing.",
+                "target_organization_type": "Replace with the type of company being modeled.",
+                "realism_notes": [
+                    "List the business systems, data flows, and operational noise that make this lab feel like the target industry."
+                ],
             }
         ),
         "topology.yaml": dump_yaml(starter_topology()),

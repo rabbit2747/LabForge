@@ -43,6 +43,9 @@ class ScenarioSpec(LabForgeModel):
     summary: str
     final_objective: str
     learner_entrypoint: str | None = None
+    target_industry: str | None = None
+    target_organization_type: str | None = None
+    realism_notes: list[str] = Field(default_factory=list)
 
 
 class NetworkSpec(LabForgeModel):

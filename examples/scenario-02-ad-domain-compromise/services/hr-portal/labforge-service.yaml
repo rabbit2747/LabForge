@@ -1,12 +1,18 @@
 service: hr-portal
 runtime: Python web application
 purpose: Externally reachable business application used for initial access.
+template_policy:
+  role: infrastructure-part
+  puzzle_logic: scenario-specific
+  rule: Reusable templates may provide runtime structure, healthcheck, reset, logging,
+    and seed/noise loaders, but must not hard-code the learner solution path.
 attack_surface:
 - Authenticated or unauthenticated web workflow
 - Deliberately vulnerable preview or business logic endpoint
 seed_inputs:
 - hr-portal-cases
-noise_inputs: []
+noise_inputs:
+- hr-routine-tickets
 healthcheck: GET /healthz must return 200 and verify the application can read its
   seed data.
 reset: Restore seeded cases and remove learner-created temporary files.

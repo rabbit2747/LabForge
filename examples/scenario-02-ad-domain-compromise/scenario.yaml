@@ -6,10 +6,15 @@ summary: >
 final_objective: >
   Obtain board_strategy_archive_2026.zip from the internal fileserver and submit
   a manifest to controlled-drop.
+target_industry: enterprise
+target_organization_type: mid-size corporate enterprise with Windows identity infrastructure
+realism_notes:
+  - Public HR portal is the external business entry point.
+  - LDAP/AD-like identity, reporting server, backup server, and fileserver represent normal corporate IT systems.
+  - Business noise should include HR tickets, stale maintenance notes, backup runbooks, access logs, and non-target internal files.
 motivation:
   - APT29-style enterprise domain discovery
   - FIN7-style credential abuse and lateral movement
 safety:
   egress: lab-internal-only
   destructive_actions: disabled
-

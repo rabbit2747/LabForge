@@ -1,11 +1,17 @@
 service: edge-proxy
 runtime: nginx or equivalent reverse proxy
 purpose: Public ingress that exposes only approved learner entrypoints.
+template_policy:
+  role: infrastructure-part
+  puzzle_logic: scenario-specific
+  rule: Reusable templates may provide runtime structure, healthcheck, reset, logging,
+    and seed/noise loaders, but must not hard-code the learner solution path.
 attack_surface:
 - HTTP routing and access logging
 - Optional WAF or reverse-proxy control placement
 seed_inputs: []
-noise_inputs: []
+noise_inputs:
+- edge-access-noise
 healthcheck: GET /healthz must return 200 from inside the container.
 reset: Stateless; restart container and clear generated access logs when reset profile
   requires it.

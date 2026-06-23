@@ -5,6 +5,12 @@ zones:
     name: Externally reachable business services
   - id: corp
     name: Corporate identity and application network
+  - id: data
+    name: Enterprise data services network
+  - id: management
+    name: Administrative management network
+  - id: security-monitoring
+    name: Security monitoring network
   - id: drop
     name: Controlled submission network
 
@@ -36,12 +42,17 @@ assets:
     exposure: internal
   - id: backup-server
     type: backup_server
-    zone: corp
+    zone: management
     os: linux-prototype
     exposure: internal
   - id: fileserver
     type: file_server
-    zone: corp
+    zone: data
+    os: linux-prototype
+    exposure: internal
+  - id: siem-lite
+    type: security_monitoring
+    zone: security-monitoring
     os: linux-prototype
     exposure: internal
   - id: controlled-drop
@@ -49,4 +60,3 @@ assets:
     zone: drop
     os: linux
     exposure: restricted
-

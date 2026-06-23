@@ -1,0 +1,22 @@
+service: siem-lite
+runtime: Central logging and security monitoring prototype
+purpose: Provides realistic enterprise security telemetry and optional detection feedback.
+template_policy:
+  role: infrastructure-part
+  puzzle_logic: scenario-specific
+  rule: Reusable templates may provide runtime structure, healthcheck, reset, logging,
+    and seed/noise loaders, but must not hard-code the learner solution path.
+attack_surface:
+- Internal log search interface
+- Alert review workflow
+seed_inputs: []
+noise_inputs:
+- siem-routine-events
+healthcheck: GET /healthz or equivalent local readiness check must return ready.
+reset: Restore seeded event stream and clear learner-generated alerts.
+evidence_logs:
+- events.log
+- alerts.log
+safety_boundaries:
+- Learner-visible logs must not reveal instructor-only solution data.
+- Detection events must be synthetic and scoped to declared lab services.

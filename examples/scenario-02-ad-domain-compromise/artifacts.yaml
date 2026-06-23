@@ -10,12 +10,27 @@ seed:
     description: Final controlled collection object.
 
 noise:
+  - id: edge-access-noise
+    target: edge-proxy
+    description: Routine public web access logs and benign blocked paths.
+  - id: hr-routine-tickets
+    target: hr-portal
+    description: Ordinary onboarding, payroll, and benefits support requests.
+  - id: directory-query-noise
+    target: ldap-ad
+    description: Normal directory lookups, failed binds, and stale group membership notes.
   - id: stale-vpn-notes
     target: reporting-server
     description: Decoy internal maintenance notes unrelated to the attack path.
   - id: old-backup-runbooks
     target: backup-server
     description: Historical backup notes that should not unlock the final path.
+  - id: file-share-decoys
+    target: fileserver
+    description: Non-target department folders, archived meeting packs, and decoy board files.
+  - id: siem-routine-events
+    target: siem-lite
+    description: Normal endpoint alerts, proxy logs, and benign authentication anomalies.
 
 learner_handouts:
   - id: entrypoint
@@ -34,7 +49,8 @@ service_artifacts:
       - HTTP routing and access logging
       - Optional WAF or reverse-proxy control placement
     seed_inputs: []
-    noise_inputs: []
+    noise_inputs:
+      - edge-access-noise
     healthcheck: GET /healthz must return 200 from inside the container.
     reset: Stateless; restart container and clear generated access logs when reset profile requires it.
     evidence_logs:
@@ -73,7 +89,8 @@ service_artifacts:
       - Deliberately vulnerable preview or business logic endpoint
     seed_inputs:
       - hr-portal-cases
-    noise_inputs: []
+    noise_inputs:
+      - hr-routine-tickets
     healthcheck: GET /healthz must return 200 and verify the application can read its seed data.
     reset: Restore seeded cases and remove learner-created temporary files.
     evidence_logs:
@@ -93,7 +110,8 @@ service_artifacts:
       - Credential and group discovery paths
     seed_inputs:
       - ldap-directory
-    noise_inputs: []
+    noise_inputs:
+      - directory-query-noise
     healthcheck: Directory bind or equivalent query must succeed with a low-privilege test account.
     reset: Reimport baseline directory objects and rotate any generated lab credentials.
     evidence_logs:
@@ -150,7 +168,8 @@ service_artifacts:
       - Access proof validation
     seed_inputs:
       - board-strategy-archive
-    noise_inputs: []
+    noise_inputs:
+      - file-share-decoys
     healthcheck: Object listing or file existence check for seeded non-secret object must pass.
     reset: Restore final object and remove temporary learner downloads or proofs.
     evidence_logs:
@@ -158,6 +177,25 @@ service_artifacts:
     safety_boundaries:
       - Final data must be synthetic and training-only.
       - Object retrieval must require the intended lab proof or access condition.
+
+  - service: siem-lite
+    source_path: services/siem-lite
+    runtime: Central logging and security monitoring prototype
+    purpose: Provides realistic enterprise security telemetry and optional detection feedback.
+    attack_surface:
+      - Internal log search interface
+      - Alert review workflow
+    seed_inputs: []
+    noise_inputs:
+      - siem-routine-events
+    healthcheck: GET /healthz or equivalent local readiness check must return ready.
+    reset: Restore seeded event stream and clear learner-generated alerts.
+    evidence_logs:
+      - events.log
+      - alerts.log
+    safety_boundaries:
+      - Learner-visible logs must not reveal instructor-only solution data.
+      - Detection events must be synthetic and scoped to declared lab services.
 
   - service: controlled-drop
     source_path: services/controlled-drop

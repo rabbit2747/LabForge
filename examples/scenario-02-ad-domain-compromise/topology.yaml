@@ -4,6 +4,12 @@ networks:
     internal: true
   - name: corp_net
     internal: true
+  - name: data_net
+    internal: true
+  - name: management_net
+    internal: true
+  - name: security_monitoring_net
+    internal: true
   - name: drop_net
     internal: true
 
@@ -122,7 +128,7 @@ services:
 
   - name: backup-server
     role: privilege escalation target
-    networks: [corp_net]
+    networks: [corp_net, management_net, data_net]
     expose: ["7002"]
     healthcheck:
       test: ["CMD", "sh", "-lc", "true"]
@@ -132,8 +138,18 @@ services:
 
   - name: fileserver
     role: final object store
-    networks: [corp_net]
+    networks: [corp_net, data_net]
     expose: ["7003"]
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  - name: siem-lite
+    role: security monitoring and central log collection
+    networks: [corp_net, security_monitoring_net]
+    expose: ["7200"]
     healthcheck:
       test: ["CMD", "sh", "-lc", "true"]
       interval: 10s

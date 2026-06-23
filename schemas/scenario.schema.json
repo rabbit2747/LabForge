@@ -28,6 +28,37 @@
       ],
       "default": null,
       "title": "Learner Entrypoint"
+    },
+    "target_industry": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Industry"
+    },
+    "target_organization_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Organization Type"
+    },
+    "realism_notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Realism Notes",
+      "type": "array"
     }
   },
   "required": [

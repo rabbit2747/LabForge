@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "IndustryCapability": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "keywords": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Keywords",
+          "type": "array"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "min_keyword_matches": {
+          "default": 1,
+          "title": "Min Keyword Matches",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "description"
+      ],
+      "title": "IndustryCapability",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "industry": {
+      "title": "Industry",
+      "type": "string"
+    },
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "required_zones": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Zones",
+      "type": "array"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/IndustryCapability"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "common_technologies": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Common Technologies",
+      "type": "array"
+    },
+    "noise_expectations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Noise Expectations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "industry",
+    "display_name",
+    "description"
+  ],
+  "title": "IndustryRealismProfile",
+  "type": "object"
+}

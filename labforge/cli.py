@@ -37,6 +37,7 @@ from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .providers.factory import list_providers
 from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
 from .qa import run_qa_smoke, run_release_gate
+from .realism import check_realism, realism_profiles_to_markdown, realism_report_to_json, realism_report_to_markdown
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
@@ -258,6 +259,25 @@ def command_controls_apply(args: argparse.Namespace) -> int:
         joined = ", ".join(str(value) for value in values) if values else "(none)"
         print(f"- {category}: {joined}")
     return 0
+
+
+def command_realism_profiles(args: argparse.Namespace) -> int:
+    print(realism_profiles_to_markdown())
+    return 0
+
+
+def command_realism_check(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    report = check_realism(spec, industry=args.industry, strict=args.strict)
+    if args.out:
+        out = Path(args.out)
+        write_text(out, realism_report_to_json(report) if args.format == "json" else realism_report_to_markdown(report))
+        print(f"Rendered realism report: {out.resolve()}")
+    elif args.format == "json":
+        print(realism_report_to_json(report))
+    else:
+        print(realism_report_to_markdown(report))
+    return 0 if report.status != "failed" else 1
 
 
 def command_agents_list(args: argparse.Namespace) -> int:
@@ -834,6 +854,18 @@ def main(argv: list[str] | None = None) -> int:
     controls_apply_parser.add_argument("--detection-feedback", choices=["none", "instructor_only", "learner_visible"])
     controls_apply_parser.add_argument("--allow-student-log-access", action="store_true")
     controls_apply_parser.set_defaults(func=command_controls_apply)
+
+    realism_parser = sub.add_parser("realism", help="Industry realism profile and validation utilities")
+    realism_sub = realism_parser.add_subparsers(dest="realism_command", required=True)
+    realism_profiles_parser = realism_sub.add_parser("profiles", help="List built-in industry realism profiles")
+    realism_profiles_parser.set_defaults(func=command_realism_profiles)
+    realism_check_parser = realism_sub.add_parser("check", help="Check whether a lab feels like the selected industry")
+    realism_check_parser.add_argument("lab")
+    realism_check_parser.add_argument("--industry", help="Industry profile to use, e.g. securities")
+    realism_check_parser.add_argument("--strict", action="store_true", help="Fail when required industry capabilities are missing")
+    realism_check_parser.add_argument("--format", choices=["text", "json"], default="text")
+    realism_check_parser.add_argument("--out")
+    realism_check_parser.set_defaults(func=command_realism_check)
 
     agents_parser = sub.add_parser("agents", help="Agent orchestration utilities")
     agents_sub = agents_parser.add_subparsers(dest="agents_command", required=True)

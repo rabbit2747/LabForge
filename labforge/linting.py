@@ -40,6 +40,14 @@ def lint_lab(root: Path) -> LintReport:
     check_text(findings, "scenario.summary", spec.scenario.get("summary", ""))
     check_text(findings, "scenario.final_objective", spec.scenario.get("final_objective", ""))
     check_text(findings, "scenario.learner_entrypoint", spec.scenario.get("learner_entrypoint", ""))
+    if not spec.scenario.get("target_industry") and not spec.scenario.get("industry"):
+        findings.append(
+            LintFinding(
+                severity="warning",
+                location="scenario.target_industry",
+                message="No target industry is declared. Realistic labs should name the industry they are modeling.",
+            )
+        )
 
     if not any(service.get("exposed") for service in spec.services):
         findings.append(
