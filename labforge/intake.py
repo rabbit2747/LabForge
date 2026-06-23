@@ -51,9 +51,23 @@ class NaturalLanguageScenarioRequest(IntakeModel):
     audience: str = "junior red-team learner"
 
 
+class PromptAnalysis(IntakeModel):
+    detected_industry: str = "enterprise"
+    industry_evidence: list[str] = Field(default_factory=list)
+    provider_pressure: list[str] = Field(default_factory=list)
+    likely_entrypoints: list[str] = Field(default_factory=list)
+    likely_final_objectives: list[str] = Field(default_factory=list)
+    named_assets: list[str] = Field(default_factory=list)
+    requested_attack_themes: list[str] = Field(default_factory=list)
+    security_control_hints: list[str] = Field(default_factory=list)
+    realism_risks: list[str] = Field(default_factory=list)
+    supervisor_questions: list[str] = Field(default_factory=list)
+
+
 class NaturalLanguageIntakePackage(IntakeModel):
     request: NaturalLanguageScenarioRequest
     inferred_intake: ScenarioIntake
+    prompt_analysis: PromptAnalysis
     assumptions: list[str] = Field(default_factory=list)
     next_commands: list[str] = Field(default_factory=list)
     generated_files: list[str] = Field(default_factory=list)
@@ -100,9 +114,11 @@ def create_intake_from_prompt(
         preferred_provider=provider,
     )
     intake = intake_from_natural_language_request(request)
+    analysis = analyze_prompt(request)
     package = NaturalLanguageIntakePackage(
         request=request,
         inferred_intake=intake,
+        prompt_analysis=analysis,
         assumptions=natural_language_assumptions(request),
         next_commands=[
             f"python -m labforge intake scaffold --from {out / 'scenario-intake.yaml'} --out output/{inferred_lab_id}-draft --force",
@@ -114,6 +130,8 @@ def create_intake_from_prompt(
             "scenario-prompt.md",
             "scenario-intake.yaml",
             "scenario-intake.md",
+            "prompt-analysis.yaml",
+            "prompt-analysis.md",
             "natural-language-intake-package.yaml",
             "llm-transformation-brief.md",
         ],
@@ -122,6 +140,8 @@ def create_intake_from_prompt(
         out / "scenario-prompt.md": render_source_prompt_markdown(request),
         out / "scenario-intake.yaml": dump_yaml(intake.model_dump()),
         out / "scenario-intake.md": render_intake_markdown(intake),
+        out / "prompt-analysis.yaml": dump_yaml(analysis.model_dump()),
+        out / "prompt-analysis.md": render_prompt_analysis_markdown(analysis),
         out / "natural-language-intake-package.yaml": dump_yaml(package.model_dump()),
         out / "llm-transformation-brief.md": render_natural_language_transformation_brief(package),
     }
@@ -416,6 +436,154 @@ def infer_industry_from_prompt(prompt: str) -> str:
         if any(keyword in text for keyword in keywords):
             return industry
     return "enterprise"
+
+
+def analyze_prompt(request: NaturalLanguageScenarioRequest) -> PromptAnalysis:
+    text = request.prompt.lower()
+    detected_industry = normalize_industry(request.industry or infer_industry_from_prompt(request.prompt))
+    industry_evidence = keyword_evidence(
+        text,
+        {
+            "securities": ["securities", "brokerage", "trading", "market data", "stock", "증권", "거래소", "주식"],
+            "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "의료", "병원", "환자"],
+            "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "제조", "공장"],
+            "active-directory": ["active directory", "domain controller", "kerberos", "ldap", "windows domain", "ad ", "도메인"],
+            "supply-chain": ["supply chain", "ci/cd", "build pipeline", "release", "update channel", "공급망", "빌드", "배포"],
+        },
+    )
+    provider_pressure = keyword_evidence(
+        text,
+        {
+            "hybrid-or-vm": ["active directory", "domain controller", "windows", "kerberos", "gpo", "rdp", "edr", "endpoint"],
+            "ot-or-ics": ["ot", "ics", "scada", "plc", "historian", "mes"],
+            "container-friendly": ["web", "api", "portal", "wiki", "build", "object store", "docker"],
+            "cloud-provider-needed": ["cloud", "iam", "s3", "kubernetes", "eks", "aks", "gke"],
+        },
+    )
+    requested_attack_themes = keyword_evidence(
+        text,
+        {
+            "initial-access": ["public", "external", "portal", "vpn", "internet-facing", "외부", "포털"],
+            "web-exploitation": ["ssti", "xss", "ssrf", "idor", "rce", "upload", "웹", "취약점"],
+            "identity-abuse": ["ldap", "sso", "session", "cookie", "token", "credential", "계정", "세션", "토큰"],
+            "lateral-movement": ["lateral", "pivot", "tunnel", "bastion", "jump", "내부망", "이동"],
+            "collection": ["export", "object", "file", "database", "sensitive", "audit", "탈취", "수집"],
+            "supply-chain": ["build", "release", "pipeline", "sign", "update", "agent", "공급망", "배포"],
+        },
+    )
+    security_control_hints = keyword_evidence(
+        text,
+        {
+            "firewall-segmentation": ["segmentation", "firewall", "dmz", "internal network", "망분리"],
+            "ids-network-monitoring": ["ids", "suricata", "zeek", "network detection"],
+            "siem-logging": ["siem", "log", "audit", "event", "logging"],
+            "endpoint-telemetry": ["edr", "sysmon", "windows event", "endpoint"],
+            "waf": ["waf", "reverse proxy", "nginx", "web firewall"],
+        },
+    )
+    named_assets = extract_named_assets(request.prompt)
+    likely_entrypoints = infer_likely_entrypoints(request.prompt, named_assets)
+    likely_final_objectives = infer_likely_final_objectives(request.prompt)
+    realism_risks = infer_realism_risks(provider_pressure, requested_attack_themes)
+    supervisor_questions = [
+        "Which inferred assets are real services that must be implemented, and which are documentation-only context?",
+        "Which vulnerabilities must be implemented as bounded runnable services?",
+        "Which provider should be used after realism review: Docker Compose, hybrid VM, Ansible, Terraform, or Ludus?",
+        "Which security controls should be enforced in the protected profile rather than only shown in diagrams?",
+    ]
+    if any(item.startswith(("hybrid-or-vm", "ot-or-ics")) for item in provider_pressure):
+        supervisor_questions.append("Which VM or hypervisor-backed assets are mandatory for realism?")
+    return PromptAnalysis(
+        detected_industry=detected_industry,
+        industry_evidence=industry_evidence,
+        provider_pressure=provider_pressure,
+        likely_entrypoints=likely_entrypoints,
+        likely_final_objectives=likely_final_objectives,
+        named_assets=named_assets,
+        requested_attack_themes=requested_attack_themes,
+        security_control_hints=security_control_hints,
+        realism_risks=realism_risks,
+        supervisor_questions=supervisor_questions,
+    )
+
+
+def keyword_evidence(text: str, categories: dict[str, list[str]]) -> list[str]:
+    evidence: list[str] = []
+    for category, keywords in categories.items():
+        hits = [keyword for keyword in keywords if keyword_matches(text, keyword)]
+        if hits:
+            evidence.append(f"{category}: {', '.join(hits[:5])}")
+    return evidence
+
+
+def keyword_matches(text: str, keyword: str) -> bool:
+    lowered = keyword.lower()
+    if re.fullmatch(r"[a-z0-9]{1,3}", lowered):
+        return re.search(rf"(?<![a-z0-9]){re.escape(lowered)}(?![a-z0-9])", text) is not None
+    return lowered in text
+
+
+def extract_named_assets(prompt: str) -> list[str]:
+    patterns = (
+        r"\b[a-zA-Z][a-zA-Z0-9_-]*(?:portal|api|console|server|service|gateway|wiki|db|database|agent|store|bastion)\b",
+        r"\b(?:portal|api|console|server|service|gateway|wiki|database|agent|store|bastion)\b",
+    )
+    assets: list[str] = []
+    for pattern in patterns:
+        for match in re.findall(pattern, prompt, flags=re.IGNORECASE):
+            asset = normalize_service_name(match)
+            if asset and asset not in assets:
+                assets.append(asset)
+    return assets[:20]
+
+
+def infer_likely_entrypoints(prompt: str, named_assets: list[str]) -> list[str]:
+    lowered = prompt.lower()
+    entrypoints = [asset for asset in named_assets if any(token in asset for token in ("portal", "gateway", "vpn", "public", "entry"))]
+    if "support" in lowered and "support-portal" not in entrypoints:
+        entrypoints.append("support-portal")
+    if "investor" in lowered and "investor-portal" not in entrypoints:
+        entrypoints.append("investor-portal")
+    if "patient" in lowered and "patient-portal" not in entrypoints:
+        entrypoints.append("patient-portal")
+    if not entrypoints:
+        entrypoints.append("public-entry-service")
+    return entrypoints[:8]
+
+
+def infer_likely_final_objectives(prompt: str) -> list[str]:
+    lowered = prompt.lower()
+    objectives: list[str] = []
+    objective_patterns = (
+        r"(?:final objective|final target|최종 목표|최종 대상)\s*[:：]\s*([^\n.]+)",
+        r"(?:reach|obtain|retrieve|submit|exfiltrate|획득|제출|도달)[^\n.]{0,120}",
+    )
+    for pattern in objective_patterns:
+        for match in re.findall(pattern, prompt, flags=re.IGNORECASE):
+            value = " ".join(str(match).strip().split())
+            if value and value not in objectives:
+                objectives.append(value)
+    if not objectives:
+        if "export" in lowered:
+            objectives.append("controlled business export object")
+        elif "flag" in lowered:
+            objectives.append("controlled final proof object")
+        else:
+            objectives.append("declared sensitive object or proof material")
+    return objectives[:5]
+
+
+def infer_realism_risks(provider_pressure: list[str], attack_themes: list[str]) -> list[str]:
+    risks: list[str] = []
+    if any(item.startswith("hybrid-or-vm") for item in provider_pressure):
+        risks.append("Windows domain, endpoint, or AD behavior may not be realistic in Docker-only mode.")
+    if any(item.startswith("ot-or-ics") for item in provider_pressure):
+        risks.append("OT/ICS behavior requires careful simulation boundaries and may need VM or specialized protocol emulation.")
+    if any(item.startswith("cloud-provider-needed") for item in provider_pressure):
+        risks.append("Cloud identity and storage behavior may require a dedicated provider model or local emulator.")
+    if not attack_themes:
+        risks.append("The prompt does not clearly identify the attack path; scenario-designer must define stages before implementation.")
+    return risks
 
 
 def normalize_industry(value: str) -> str:
@@ -845,6 +1013,34 @@ def render_source_prompt_markdown(request: NaturalLanguageScenarioRequest) -> st
     )
 
 
+def render_prompt_analysis_markdown(analysis: PromptAnalysis) -> str:
+    sections = [
+        ("Industry Evidence", analysis.industry_evidence),
+        ("Provider Pressure", analysis.provider_pressure),
+        ("Likely Entrypoints", analysis.likely_entrypoints),
+        ("Likely Final Objectives", analysis.likely_final_objectives),
+        ("Named Assets", analysis.named_assets),
+        ("Requested Attack Themes", analysis.requested_attack_themes),
+        ("Security Control Hints", analysis.security_control_hints),
+        ("Realism Risks", analysis.realism_risks),
+        ("Supervisor Questions", analysis.supervisor_questions),
+    ]
+    lines = [
+        "# Prompt Analysis",
+        "",
+        f"- Detected industry: `{analysis.detected_industry}`",
+        "",
+    ]
+    for title, values in sections:
+        lines += [f"## {title}", ""]
+        if values:
+            lines.extend(f"- {item}" for item in values)
+        else:
+            lines.append("- None detected.")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_natural_language_transformation_brief(package: NaturalLanguageIntakePackage) -> str:
     intake = package.inferred_intake
     request = package.request
@@ -890,6 +1086,14 @@ def render_natural_language_transformation_brief(package: NaturalLanguageIntakeP
     lines.extend(f"- {item}" for item in package.assumptions)
     lines += [
         "",
+        "## Prompt Analysis",
+        "",
+        f"- Detected industry: `{package.prompt_analysis.detected_industry}`",
+    ]
+    for value in package.prompt_analysis.realism_risks:
+        lines.append(f"- Realism risk: {value}")
+    lines += [
+        "",
         "## Draft Scenario Intake",
         "",
         "```json",
@@ -909,4 +1113,5 @@ INTAKE_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "scenario-intake.schema.json": ScenarioIntake,
     "natural-language-scenario-request.schema.json": NaturalLanguageScenarioRequest,
     "natural-language-intake-package.schema.json": NaturalLanguageIntakePackage,
+    "prompt-analysis.schema.json": PromptAnalysis,
 }

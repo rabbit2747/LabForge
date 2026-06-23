@@ -1,0 +1,60 @@
+{
+  "$defs": {
+    "FrameworkGuardFinding": {
+      "additionalProperties": true,
+      "properties": {
+        "severity": {
+          "enum": [
+            "warning",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "location",
+        "message"
+      ],
+      "title": "FrameworkGuardFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "status": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "scanned_files": {
+      "title": "Scanned Files",
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/FrameworkGuardFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status",
+    "scanned_files"
+  ],
+  "title": "FrameworkGuardReport",
+  "type": "object"
+}

@@ -1,0 +1,75 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "detected_industry": {
+      "default": "enterprise",
+      "title": "Detected Industry",
+      "type": "string"
+    },
+    "industry_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Industry Evidence",
+      "type": "array"
+    },
+    "provider_pressure": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Provider Pressure",
+      "type": "array"
+    },
+    "likely_entrypoints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Likely Entrypoints",
+      "type": "array"
+    },
+    "likely_final_objectives": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Likely Final Objectives",
+      "type": "array"
+    },
+    "named_assets": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Named Assets",
+      "type": "array"
+    },
+    "requested_attack_themes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requested Attack Themes",
+      "type": "array"
+    },
+    "security_control_hints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Security Control Hints",
+      "type": "array"
+    },
+    "realism_risks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Realism Risks",
+      "type": "array"
+    },
+    "supervisor_questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supervisor Questions",
+      "type": "array"
+    }
+  },
+  "title": "PromptAnalysis",
+  "type": "object"
+}

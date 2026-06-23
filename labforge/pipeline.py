@@ -251,6 +251,16 @@ def create_lab_pipeline(
     elif any(step.status == "warning" for step in steps):
         result_status = "warning"
 
+    next_commands = [
+        f"python -m labforge studio serve --workspace {out.parent / 'studio'} --host 127.0.0.1 --port 8767",
+        f"python -m labforge workflow status {lab_dir} --provider {provider if provider != 'auto' else 'docker-compose'} --profile {profile}",
+        f"python -m labforge services status {lab_dir}",
+    ]
+    if package_service_agents:
+        next_commands.append(f"python -m labforge services run-agents {service_agent_dir} --adapter {adapter} --dry-run")
+    else:
+        next_commands.append(f"python -m labforge services agent-packages {lab_dir} --out {service_agent_dir} --adapter {adapter}")
+
     result = PipelineCreateResult(
         workspace=str(out),
         lab_dir=str(lab_dir),
@@ -261,12 +271,7 @@ def create_lab_pipeline(
         service_count=service_status.service_count,
         service_ready_count=service_status.ready_count,
         steps=steps,
-        next_commands=[
-            f"python -m labforge studio serve --workspace {out.parent / 'studio'} --host 127.0.0.1 --port 8767",
-            f"python -m labforge workflow status {lab_dir} --provider {provider if provider != 'auto' else 'docker-compose'} --profile {profile}",
-            f"python -m labforge services status {lab_dir}",
-            f"python -m labforge services run-agents {service_agent_dir} --adapter {adapter} --dry-run",
-        ],
+        next_commands=next_commands,
     )
     write_text(out / "pipeline-result.yaml", dump_yaml(result.model_dump()))
     write_text(out / "pipeline-result.json", json.dumps(result.model_dump(), ensure_ascii=False, indent=2) + "\n")

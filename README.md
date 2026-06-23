@@ -205,7 +205,8 @@ core.
 
 The `intake from-prompt` command starts from a natural-language scenario idea.
 It preserves the original prompt, infers a conservative `scenario-intake.yaml`,
-and writes an LLM transformation brief for the scenario, MITRE, infrastructure,
+analyzes prompt clues into `prompt-analysis.yaml` and `prompt-analysis.md`, and
+writes an LLM transformation brief for the scenario, MITRE, infrastructure,
 industry-realism, safety, provider, and service-builder agents. This is the
 first handoff step, not a claim that the lab is fully implemented.
 

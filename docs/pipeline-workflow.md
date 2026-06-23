@@ -33,7 +33,7 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 
 | Stage | Output | Purpose |
 | --- | --- | --- |
-| Design workspace | `intake/`, `lab/`, `agents/` | Preserve the source prompt, infer the first LabForge spec, and prepare specialist-agent packages. |
+| Design workspace | `intake/`, `lab/`, `agents/` | Preserve the source prompt, write prompt analysis, infer the first LabForge spec, and prepare specialist-agent packages. |
 | Design review | `review/` | Run validation, lint, industry realism pre-check, and agent readiness review. |
 | Service scaffold | `lab/services/<service>/` | Create service contracts, hooks, seed/noise/test folders, and plugin contracts. |
 | Service blueprints | `service-blueprints/` and per-service `blueprint.yaml` | Describe each service role, API surface, data stores, workflows, and safety boundaries. |
@@ -58,6 +58,12 @@ The pipeline always writes:
 These files are the supervisor-facing manifest for the generated workspace.
 They list every step, its status, produced artifacts, warnings, and next
 commands.
+
+The intake directory also includes `prompt-analysis.yaml` and
+`prompt-analysis.md`. These files record detected industry evidence, provider
+pressure, likely entrypoints, likely final objectives, named assets, requested
+attack themes, security-control hints, realism risks, and supervisor questions.
+They are evidence for review, not an approved final design.
 
 ## Supervisor Gate
 

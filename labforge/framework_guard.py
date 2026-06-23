@@ -115,3 +115,8 @@ def framework_guard_to_markdown(report: FrameworkGuardReport) -> str:
         lines.append(f"| {finding.severity} | `{finding.location}` | {finding.message} |")
     lines.append("")
     return "\n".join(lines)
+
+
+FRAMEWORK_GUARD_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "framework-guard-report.schema.json": FrameworkGuardReport,
+}

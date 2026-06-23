@@ -75,6 +75,7 @@ LabForge는 다음 원칙을 따른다.
 
 - `scenario.yaml`, `topology.yaml`, `stages.yaml` 로딩
 - `lab.yaml`, `environment.yaml`, `artifacts.yaml`, `security-controls.yaml`, `supervisor-selection.yaml` 선택적 로딩
+- 자연어 입력에서 `prompt-analysis.yaml` / `prompt-analysis.md` 생성
 - pydantic v2 기반 v0.2 스펙 검증
 - JSON Schema export 명령
 - `guard framework-hooks` 명령으로 LabForge core, template, schema에 특정 시나리오 전용 marker가 들어가는지 검사
