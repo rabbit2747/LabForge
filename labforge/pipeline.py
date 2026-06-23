@@ -309,6 +309,9 @@ def create_lab_pipeline(
 
     next_commands = [
         f"python -m labforge studio serve --workspace {out.parent / 'studio'} --host 127.0.0.1 --port 8767",
+        f"cd {out / 'supervisor-package' / 'generated'}",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\validate.ps1",
+        "powershell -ExecutionPolicy Bypass -File .\\scripts\\start.ps1",
         f"python -m labforge workflow status {lab_dir} --provider {provider if provider != 'auto' else 'docker-compose'} --profile {profile}",
         f"python -m labforge services status {lab_dir}",
     ]

@@ -224,7 +224,9 @@ plugin runtime smoke checks, creates the runnable supervisor package, and writes
 `pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
 It also writes a supervisor gate bundle: `pipeline-gate.md`,
 `pipeline-gate.yaml`, and `pipeline-gate.json`, plus
-`supervisor-package/generated/` with provider output such as Docker Compose.
+`supervisor-package/generated/` with provider output such as Docker Compose and
+`supervisor-package/lifecycle/` with dry-run deploy/status/destroy command
+plans.
 
 The `pipeline gate` command can be rerun at any time to classify the workspace
 as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or

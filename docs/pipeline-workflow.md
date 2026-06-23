@@ -43,7 +43,7 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 | Service verification | `service-verification/` | Check runtime, blueprint, scaffold, tests, and hook readiness. |
 | Plugin runtime smoke | `plugin-runtime-smoke/` | Import generated MVP services and execute supported lab-scoped plugin routes with Flask test clients. |
 | Service status | `service-status/` | Summarize whether each service is missing, scaffolded, blueprinted, runtime-ready, or tested. |
-| Supervisor package | `supervisor-package/` | Render the runnable provider package, protected/unprotected profile outputs, documentation, execution plan, and QA evidence. |
+| Supervisor package | `supervisor-package/` | Render the runnable provider package, protected/unprotected profile outputs, lifecycle command plans, documentation, execution plan, and QA evidence. |
 | Workflow report | `workflow/` | Report the next actionable build step. |
 
 ## Output Manifest
@@ -79,8 +79,9 @@ pipeline creation, signed update publishing, and customer update callbacks.
 `supervisor-package/` is the first runnable handoff bundle. For Docker Compose
 labs it includes `generated/docker-compose.yml`, rendered service directories,
 architecture documentation, diagrams, protected and unprotected profile outputs,
-host diagnostics, execution plans, QA smoke reports, and service verification
-reports.
+host diagnostics, execution plans, QA smoke reports, service verification
+reports, and `lifecycle/*-plan.md` files that show the exact dry-run deploy,
+status, and destroy commands.
 
 ## Supervisor Gate
 

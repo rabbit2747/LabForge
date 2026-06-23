@@ -13,6 +13,7 @@ from .implementation_plan import create_service_implementation_plan
 from .io import write_text
 from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
 from .model import LabSpec
+from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
 from .qa import run_qa_smoke
 from .render import build_lab
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
@@ -63,6 +64,7 @@ def create_supervisor_package(
     generated_dir = out / "generated"
     reports_dir = out / "reports"
     qa_dir = out / "qa"
+    lifecycle_dir = out / "lifecycle"
 
     build_status: Literal["passed", "failed"] = "passed"
     build_warnings: list[str] = []
@@ -98,6 +100,14 @@ def create_supervisor_package(
         materialize=materialize,
         force=force,
     )
+    lifecycle_results = [
+        provider_lifecycle(generated_dir, provider=provider, action="deploy", execute=False),
+        provider_lifecycle(generated_dir, provider=provider, action="status", execute=False),
+        provider_lifecycle(generated_dir, provider=provider, action="destroy", execute=False, remove_volumes=True),
+    ]
+    for result in lifecycle_results:
+        write_text(lifecycle_dir / f"{result.action}-plan.md", render_lifecycle_result(result))
+        write_text(lifecycle_dir / f"{result.action}-plan.json", result.model_dump_json(indent=2))
 
     write_text(reports_dir / "host-doctor.md", report_to_markdown(host_report))
     write_text(reports_dir / "host-doctor.json", report_to_json(host_report))
@@ -159,6 +169,11 @@ def create_supervisor_package(
                 name="qa-smoke-report",
                 path=str((qa_dir / "qa-smoke-report.md").resolve()),
                 purpose="Schema, lint, service artifact, and provider smoke checks.",
+            ),
+            PackageArtifact(
+                name="provider-lifecycle-plans",
+                path=str(lifecycle_dir.resolve()),
+                purpose="Dry-run deploy, status, and destroy commands for the generated provider output.",
             ),
             PackageArtifact(
                 name="service-implementation-plan",

@@ -929,6 +929,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge qa smoke` 명령으로 schema/service/provider smoke gate 추가
 - `python -m labforge qa smoke`와 `python -m labforge pipeline create`에서 지원 플러그인의 실제 Flask route를 호출하는 `plugin-runtime-smoke` 검증 추가
 - `python -m labforge pipeline create`가 `supervisor-package/generated/`까지 자동 생성하여 자연어 입력에서 실행 가능한 provider 산출물까지 한 번에 도달하도록 개선
+- `supervisor-package/lifecycle/`에 deploy/status/destroy dry-run 명령 보고서를 생성하여 감독자가 실행 명령을 바로 확인할 수 있게 개선
 - scenario-02 예제를 v0.2 구조로 확장
 - `artifacts.yaml`의 `service_artifacts` 계약 추가
 - 서비스 구현 표준 문서와 생성 산출물 `docs/service-artifact-contract.md` 추가
