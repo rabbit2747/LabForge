@@ -42,45 +42,53 @@ def run_plugin_runtime_smoke(spec: LabSpec, out: Path | None = None) -> PluginRu
     for artifact in declared_service_artifacts(spec):
         service_root = spec.root / artifact.source_path
         plugins = declared_vulnerability_plugins(artifact)
-        if not plugins:
-            continue
+        supported_plugins = [
+            normalize_template_id(str(plugin.get("id", "")))
+            for plugin in plugins
+            if normalize_template_id(str(plugin.get("id", ""))) in SUPPORTED_VULNERABILITY_SCAFFOLDS
+        ]
         app_path = service_root / "app.py"
         if not app_path.exists():
-            for plugin in plugins:
-                plugin_id = normalize_template_id(str(plugin.get("id", "")))
-                if plugin_id in SUPPORTED_VULNERABILITY_SCAFFOLDS:
-                    items.append(
-                        PluginRuntimeSmokeItem(
-                            service=artifact.service,
-                            plugin=plugin_id,
-                            status="failed",
-                            message="app.py is missing; run `labforge services materialize` first.",
-                        )
+            for plugin_id in supported_plugins:
+                items.append(
+                    PluginRuntimeSmokeItem(
+                        service=artifact.service,
+                        plugin=plugin_id,
+                        status="failed",
+                        message="app.py is missing; run `labforge services materialize` first.",
                     )
+                )
+            continue
+        should_check_service_contract = generated_flask_contract_expected(app_path)
+        if not supported_plugins and not should_check_service_contract:
             continue
         module, load_error = load_generated_app_module(artifact.service, app_path)
         if load_error:
-            for plugin in plugins:
-                plugin_id = normalize_template_id(str(plugin.get("id", "")))
-                if plugin_id in SUPPORTED_VULNERABILITY_SCAFFOLDS:
-                    items.append(
-                        PluginRuntimeSmokeItem(
-                            service=artifact.service,
-                            plugin=plugin_id,
-                            status="failed",
-                            message=f"failed to import generated app.py: {load_error}",
-                        )
+            if should_check_service_contract and not supported_plugins:
+                items.append(
+                    PluginRuntimeSmokeItem(
+                        service=artifact.service,
+                        plugin="service-import",
+                        status="failed",
+                        message=f"failed to import generated app.py: {load_error}",
                     )
+                )
+            for plugin_id in supported_plugins:
+                items.append(
+                    PluginRuntimeSmokeItem(
+                        service=artifact.service,
+                        plugin=plugin_id,
+                        status="failed",
+                        message=f"failed to import generated app.py: {load_error}",
+                    )
+                )
             continue
         isolate_generated_state(module, artifact.service)
         client = module.app.test_client()
         contract_item = run_service_contract_smoke(artifact.service, module, client)
         if contract_item:
             items.append(contract_item)
-        for plugin in plugins:
-            plugin_id = normalize_template_id(str(plugin.get("id", "")))
-            if plugin_id not in SUPPORTED_VULNERABILITY_SCAFFOLDS:
-                continue
+        for plugin_id in supported_plugins:
             items.append(run_single_plugin_smoke(artifact.service, plugin_id, client))
 
     report = PluginRuntimeSmokeReport(
@@ -182,6 +190,11 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
     except Exception as exc:  # noqa: BLE001 - smoke report should preserve route failures.
         return PluginRuntimeSmokeItem(service=service, plugin=plugin_id, status="failed", message=str(exc))
     return PluginRuntimeSmokeItem(service=service, plugin=plugin_id, status="skipped", message="no runtime smoke is defined for this plugin")
+
+
+def generated_flask_contract_expected(app_path: Path) -> bool:
+    text = app_path.read_text(encoding="utf-8", errors="replace")
+    return "Flask(" in text and "ROUTES =" in text
 
 
 def run_service_contract_smoke(service: str, module: Any, client: Any) -> PluginRuntimeSmokeItem | None:
