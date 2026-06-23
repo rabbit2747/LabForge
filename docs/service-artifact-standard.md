@@ -160,6 +160,8 @@ Current minimum-runnable vulnerability scaffolds:
 - `stored-xss-review`
 - `idor-object-access`
 - `ssrf-internal-fetch`
+- `path-traversal-download`
+- `unsafe-file-upload`
 - `diagnostic-command-injection`
 - `build-pipeline-abuse`
 - `signed-update-publish`

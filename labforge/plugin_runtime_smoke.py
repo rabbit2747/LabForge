@@ -155,6 +155,34 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             response = client.get("/labforge/scaffold/fetch?url=http://169.254.169.254/latest")
             data = response.get_json(silent=True) or {}
             return assert_condition(service, plugin_id, response.status_code == 400 and data.get("allowed") is False, "/labforge/scaffold/fetch", response)
+        if plugin_id == "path-traversal-download":
+            public = client.get("/labforge/scaffold/documents/download?name=welcome.txt")
+            traversed = client.get("/labforge/scaffold/documents/download?name=../restricted/audit-export.txt")
+            return assert_condition(
+                service,
+                plugin_id,
+                public.status_code == 200 and traversed.status_code == 200 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed.get_data(as_text=True),
+                "/labforge/scaffold/documents/download",
+                traversed,
+            )
+        if plugin_id == "unsafe-file-upload":
+            from io import BytesIO
+
+            uploaded = client.post(
+                "/labforge/scaffold/uploads",
+                data={"file": (BytesIO(b"labforge upload smoke"), "case-note.txt")},
+                content_type="multipart/form-data",
+            )
+            data = uploaded.get_json(silent=True) or {}
+            filename = data.get("filename", "")
+            retrieved = client.get(f"/labforge/scaffold/uploads/{filename}") if filename else uploaded
+            return assert_condition(
+                service,
+                plugin_id,
+                uploaded.status_code == 201 and retrieved.status_code == 200 and b"labforge upload smoke" in retrieved.get_data(),
+                "/labforge/scaffold/uploads",
+                retrieved,
+            )
         if plugin_id == "diagnostic-command-injection":
             response = client.post("/labforge/scaffold/diagnostics/run", json={"command": "id"})
             data = response.get_json(silent=True) or {}

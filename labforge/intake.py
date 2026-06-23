@@ -662,6 +662,30 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                 }
             )
 
+    if any(word in scenario_text for word in ["path traversal", "directory traversal", "../", "file read", "download", "attachment", "document download"]):
+        if any(word in service_text for word in ["portal", "document", "file", "object", "store", "data", "archive", "download", "case"]):
+            plugins.append(
+                {
+                    "id": "path-traversal-download",
+                    "document_workflow": "business document or attachment download",
+                    "public_document_root": "/state/documents/public",
+                    "restricted_document": "restricted/audit-export.txt",
+                    "safe_file_boundary": "synthetic service document root only",
+                }
+            )
+
+    if any(word in scenario_text for word in ["file upload", "upload", "attachment upload", "evidence upload", "document upload"]):
+        if any(word in service_text for word in ["portal", "case", "document", "review", "console", "support", "intake"]):
+            plugins.append(
+                {
+                    "id": "unsafe-file-upload",
+                    "upload_workflow": "business attachment or evidence upload",
+                    "accepted_extensions": [".txt", ".pdf", ".csv"],
+                    "storage_scope": "/state/uploads",
+                    "post_upload_effect": "uploaded file becomes available to the lab-scoped review or retrieval workflow",
+                }
+            )
+
     if any(word in scenario_text for word in ["command injection", "diagnostic", "shell", "foothold", "command execution", "rce"]):
         if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search", "jump-host"]):
             plugins.append(
