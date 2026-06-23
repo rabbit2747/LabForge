@@ -18,6 +18,7 @@ from .realism import REALISM_SCHEMA_MODELS
 from .service_artifacts import SERVICE_ARTIFACT_SCHEMA_MODELS
 from .service_verification import SERVICE_VERIFICATION_SCHEMA_MODELS
 from .spec_models import SCHEMA_MODELS
+from .studio import STUDIO_SCHEMA_MODELS
 from .workflow import WORKFLOW_SCHEMA_MODELS
 
 
@@ -35,6 +36,7 @@ def export_schemas(out: Path) -> list[Path]:
         **REALISM_SCHEMA_MODELS,
         **SERVICE_ARTIFACT_SCHEMA_MODELS,
         **SERVICE_VERIFICATION_SCHEMA_MODELS,
+        **STUDIO_SCHEMA_MODELS,
         **PROVIDER_LIFECYCLE_SCHEMA_MODELS,
         **LINT_SCHEMA_MODELS,
         **PACKAGE_SCHEMA_MODELS,

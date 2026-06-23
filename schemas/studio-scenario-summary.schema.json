@@ -1,0 +1,56 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "industry": {
+      "default": "enterprise",
+      "title": "Industry",
+      "type": "string"
+    },
+    "status": {
+      "default": "draft",
+      "title": "Status",
+      "type": "string"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "updated_at": {
+      "default": "",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "title",
+    "path"
+  ],
+  "title": "StudioScenarioSummary",
+  "type": "object"
+}

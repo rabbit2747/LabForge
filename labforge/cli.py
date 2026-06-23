@@ -42,6 +42,7 @@ from .realism import check_realism, realism_profiles_to_markdown, realism_report
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
+from .studio import run_studio
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
 from .workflow import create_workflow_report, workflow_report_to_json, workflow_report_to_markdown
@@ -209,6 +210,11 @@ def command_design_review(args: argparse.Namespace) -> int:
     else:
         print(render_design_review_report(report))
     return 0 if report.status != "failed" else 1
+
+
+def command_studio_serve(args: argparse.Namespace) -> int:
+    run_studio(args.host, args.port, Path(args.workspace))
+    return 0
 
 
 def command_build(args: argparse.Namespace) -> int:
@@ -1169,6 +1175,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             lifecycle_parser.add_argument("--volumes", action="store_false", help=argparse.SUPPRESS)
         lifecycle_parser.set_defaults(func=command_provider_lifecycle, lifecycle_action=action)
+
+    studio_parser = sub.add_parser("studio", help="Run the LabForge Studio web UI")
+    studio_sub = studio_parser.add_subparsers(dest="studio_command", required=True)
+    studio_serve_parser = studio_sub.add_parser("serve", help="Start the local LabForge Studio server")
+    studio_serve_parser.add_argument("--workspace", default="output/studio", help="Directory where Studio stores scenario workspaces")
+    studio_serve_parser.add_argument("--host", default="127.0.0.1")
+    studio_serve_parser.add_argument("--port", type=int, default=8765)
+    studio_serve_parser.set_defaults(func=command_studio_serve)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
