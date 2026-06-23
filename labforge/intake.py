@@ -337,7 +337,7 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
                 "profile_support": ["unprotected", "protected"],
                 "purpose": "Prototype the scenario with bounded local services.",
                 "limitations": [
-                    "Replace generated placeholders with real lab-scoped service implementations.",
+                    "Extend generated MVP runtimes with lab-scoped vulnerability behavior before production delivery.",
                     "Use hybrid or VM provider when the intake requires Windows, AD, ICS, or endpoint realism.",
                 ],
             }
@@ -355,7 +355,7 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
                 "",
                 "This lab was scaffolded from a scenario intake file.",
                 "Run `python -m labforge services scaffold <lab-root>` to create service artifact directories.",
-                "Replace generated placeholders with real bounded lab implementations before production use.",
+                "Extend generated MVP runtimes with real bounded lab implementations before production use.",
                 "",
             ]
         ),
@@ -372,12 +372,15 @@ def topology_from_intake(intake: ScenarioIntake) -> dict:
         if name == "attacker-workstation":
             networks = ["public_net", "internal_net", "control_net"]
         if name == "controlled-drop":
-            networks = ["control_net"]
+            networks = ["public_net", "control_net"]
         ports: list[str] = []
         if exposed:
-            host_port = 8080 if "entry" in name or "portal" in name else 18080 + exposed_index
-            exposed_index += 1
-            ports = [f"{host_port}:8080"]
+            if name == "attacker-workstation":
+                ports = ["2222:22"]
+            else:
+                host_port = 18080 + exposed_index
+                exposed_index += 1
+                ports = [f"{host_port}:8080"]
         services.append(
             {
                 "name": name,
@@ -428,7 +431,7 @@ def stages_from_intake(intake: ScenarioIntake) -> dict:
     stages = []
     for index, stage in enumerate(intake.stages, start=1):
         techniques = [parse_technique(item) for item in stage.mitre_techniques] or [
-            {"id": "T0000", "name": "Replace with MITRE ATT&CK technique"}
+            {"id": "T0000", "name": "MITRE ATT&CK technique to be selected during review"}
         ]
         stages.append(
             {
@@ -476,9 +479,9 @@ def artifacts_from_intake(intake: ScenarioIntake) -> dict:
             {
                 "service": name,
                 "source_path": f"services/{name}",
-                "runtime": "generated-placeholder",
+                "runtime": "scenario-derived-mvp-runtime",
                 "purpose": f"Implement the `{name}` behavior described in the scenario intake.",
-                "attack_surface": ["Replace with learner-visible endpoints, shell access, or protocol behavior."],
+                "attack_surface": ["Learner-visible endpoints, shell access, or protocol behavior derived from the intake."],
                 "seed_inputs": ["seed/metadata.json"],
                 "noise_inputs": ["noise/"],
                 "healthcheck": "healthcheck.sh exits 0 when the service is ready.",

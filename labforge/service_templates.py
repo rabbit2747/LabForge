@@ -53,6 +53,8 @@ def render_template_files(artifact: Any, port: int, *, blueprint: Any | None = N
         return None
     files = template.renderer(artifact, port, blueprint=blueprint)
     files.setdefault("seed/metadata.json", render_metadata(artifact, port, template.template_id))
+    files.setdefault("seed/workflow.json", render_workflow_seed(artifact, blueprint))
+    files.setdefault("noise/events.jsonl", render_noise_seed(artifact))
     if blueprint:
         files.setdefault("seed/blueprint.json", json.dumps(blueprint.model_dump(), ensure_ascii=False, indent=2) + "\n")
     files.setdefault("tests/test_smoke.py", render_smoke_test(artifact, port))
@@ -73,6 +75,56 @@ def render_metadata(artifact: Any, port: int, template_id: str) -> str:
         },
     }
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_workflow_seed(artifact: Any, blueprint: Any | None) -> str:
+    routes = []
+    workflows = []
+    if blueprint:
+        routes = [
+            {
+                "method": getattr(route, "method", "GET"),
+                "path": getattr(route, "path", "/"),
+                "purpose": getattr(route, "purpose", ""),
+                "auth": getattr(route, "auth", "none"),
+            }
+            for route in getattr(blueprint, "routes", []) or []
+        ]
+        workflows = [
+            {
+                "name": getattr(workflow, "name", ""),
+                "actor": getattr(workflow, "actor", ""),
+                "steps": getattr(workflow, "steps", []) or [],
+                "normal_outcome": getattr(workflow, "normal_outcome", ""),
+            }
+            for workflow in getattr(blueprint, "normal_workflows", []) or []
+        ]
+    data = {
+        "service": artifact.service,
+        "purpose": artifact.purpose,
+        "routes": routes,
+        "normal_workflows": workflows,
+        "evidence_logs": list(getattr(artifact, "evidence_logs", []) or []),
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_noise_seed(artifact: Any) -> str:
+    events = [
+        {
+            "service": artifact.service,
+            "event": "baseline.startup",
+            "severity": "info",
+            "source": "labforge-mvp-runtime",
+        },
+        {
+            "service": artifact.service,
+            "event": "baseline.healthcheck",
+            "severity": "info",
+            "source": "labforge-mvp-runtime",
+        },
+    ]
+    return "\n".join(json.dumps(item, ensure_ascii=False) for item in events) + "\n"
 
 
 def render_smoke_test(artifact: Any, port: int) -> str:
@@ -139,6 +191,14 @@ def render_python_flask_web(artifact: Any, port: int, *, blueprint: Any | None =
                 "@app.get('/metadata')",
                 "def metadata_route():",
                 "    return jsonify(metadata())",
+                "",
+                "",
+                "@app.get('/workflow')",
+                "def workflow_route():",
+                "    path = SEED_PATH.parent / 'workflow.json'",
+                "    if path.exists():",
+                "        return jsonify(json.loads(path.read_text(encoding='utf-8')))",
+                "    return jsonify({'service': SERVICE, 'routes': [], 'normal_workflows': []})",
                 "",
                 "",
                 "@app.get('/healthz')",
@@ -237,6 +297,11 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "@app.get('/api/routes')",
                 "def api_routes():",
                 "    return jsonify({'service': SERVICE, 'routes': ROUTES})",
+                "",
+                "",
+                "@app.get('/workflow')",
+                "def workflow():",
+                "    return jsonify(load_json('workflow.json', {'service': SERVICE, 'routes': ROUTES, 'normal_workflows': []}))",
                 "",
                 "",
                 "@app.get('/api/records')",
@@ -368,6 +433,14 @@ def render_controlled_drop(artifact: Any, port: int, *, blueprint: Any | None = 
                 "@app.get('/')",
                 "def index():",
                 "    return jsonify({'service': SERVICE, 'endpoints': ['/', '/healthz', '/submit', '/submissions']})",
+                "",
+                "",
+                "@app.get('/workflow')",
+                "def workflow():",
+                "    path = Path('/app/seed/workflow.json')",
+                "    if path.exists():",
+                "        return jsonify(json.loads(path.read_text(encoding='utf-8')))",
+                "    return jsonify({'service': SERVICE, 'routes': ['/submit', '/submissions']})",
                 "",
                 "",
                 "@app.post('/submit')",

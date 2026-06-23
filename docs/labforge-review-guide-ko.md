@@ -804,12 +804,12 @@ examples/scenario-02-ad-domain-compromise
 
 한계:
 
-- 실제 취약 서비스 자동 생성은 아직 하지 않는다. 다만 `services materialize`로 안전한 Docker placeholder runtime은 생성할 수 있다.
+- 실제 취약 서비스 자동 생성은 아직 하지 않는다. 다만 `services materialize`로 안전한 Docker MVP runtime을 생성하고 실행 검증할 수 있다.
 - Docker Compose 외 provider는 실제 인프라 배포를 수행하지 않는다. 다만 Ansible/Terraform/Ludus/Hybrid provider는 provider plan, inventory, security profile, starter file을 생성한다.
 - protected/unprotected profile은 문서, Docker Compose scaffold/runtime script, provider skeleton 산출물에 반영된다. 실제 WAF/IDS/SIEM/EDR 엔진 구성과 enforcement logic은 아직 생성하지 않는다.
-- security control은 diagram overlay, 문서화, Docker Compose placeholder 서비스, provider placement matrix 수준이다.
+- security control은 diagram overlay, 문서화, Docker Compose control 서비스, provider placement matrix 수준이다.
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
-- generated `docker-compose.yml`은 runnable scaffold이며, placeholder runtime 이후 실제 취약 서비스 구현은 service builder 또는 agent가 작성해야 한다.
+- generated `docker-compose.yml`은 runnable MVP runtime을 실행할 수 있으며, 실제 취약 서비스 구현은 service builder 또는 agent가 확장해야 한다.
 
 ## 14. 수정된 개발 단계 제안
 
@@ -833,7 +833,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 
 5. Service Artifact Standard
 
-   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다. `services materialize`는 실제 취약 코드가 아닌 안전한 placeholder runtime을 생성한다.
+   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다. `services materialize`는 실제 취약 코드가 아닌 안전한 scenario-derived MVP runtime을 생성한다.
 
 6. LLM Adapter
 
@@ -917,8 +917,8 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge agents list` 명령으로 기본 전문 agent 역할 목록 출력 추가
 - `python -m labforge agents scaffold <lab>` 명령으로 dry-run agent workspace 생성 추가
 - `python -m labforge agents validate <workspace>` 명령으로 agent task/output/decision artifact 검증 추가
-- `python -m labforge services scaffold <lab>` 명령으로 service artifact 구현 디렉토리와 hook placeholder 생성 추가
-- `python -m labforge services materialize <lab>` 명령으로 안전한 Docker placeholder runtime 생성 추가
+- `python -m labforge services scaffold <lab>` 명령으로 service artifact 구현 디렉토리와 hook contract 생성 추가
+- `python -m labforge services materialize <lab>` 명령으로 안전한 Docker MVP runtime 생성 추가
 - `python -m labforge services check <lab>` 명령으로 service artifact 구현 디렉토리 검증 추가
 - `python -m labforge services healthcheck <lab>` 명령으로 service healthcheck hook 실행 추가
 - `python -m labforge services reset <lab>` 명령으로 service reset hook 실행 추가
@@ -957,7 +957,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
    현재 PC, WSL, Docker, VM/hybrid 필요성을 판단하고 실행 계획을 만든다.
 
 6. labforge services scaffold / materialize
-   서비스 구현 계약과 안전한 placeholder runtime을 만든다.
+   서비스 구현 계약과 안전한 MVP runtime을 만든다.
 
 7. labforge package
    provider 산출물, 문서, 실행 계획, lint, QA smoke 결과를 감독자 검토 패키지로 묶는다.

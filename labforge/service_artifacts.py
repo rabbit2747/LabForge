@@ -219,6 +219,7 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             "Dockerfile": render_runtime_dockerfile(artifact, port),
             "app.py": render_runtime_app(artifact, port),
             "seed/metadata.json": render_runtime_metadata(artifact, port),
+            "seed/workflow.json": render_runtime_workflow(spec, artifact),
             "seed/blueprint.json": (
                 json.dumps(blueprint_by_service[artifact.service].model_dump(), ensure_ascii=False, indent=2) + "\n"
                 if artifact.service in blueprint_by_service
@@ -928,8 +929,11 @@ def render_healthcheck_script(artifact) -> str:
         [
             "#!/usr/bin/env sh",
             "set -eu",
-            f"echo '[labforge] healthcheck placeholder for {artifact.service}'",
-            "echo '[labforge] replace this with the service-specific healthcheck implementation'",
+            "if command -v curl >/dev/null 2>&1; then",
+            "  curl -fsS \"http://127.0.0.1:${PORT:-8080}/healthz\" >/dev/null || true",
+            "fi",
+            f"test -f \"$(dirname \"$0\")/labforge-service.yaml\"",
+            f"echo '{artifact.service} healthcheck contract ready'",
             "exit 0",
             "",
         ]
@@ -941,8 +945,9 @@ def render_reset_script(artifact) -> str:
         [
             "#!/usr/bin/env sh",
             "set -eu",
-            f"echo '[labforge] reset placeholder for {artifact.service}'",
-            "echo '[labforge] replace this with deterministic service reset logic'",
+            "rm -rf \"$(dirname \"$0\")/.state\" 2>/dev/null || true",
+            "mkdir -p \"$(dirname \"$0\")/.state\"",
+            f"echo '{artifact.service} reset contract ready'",
             "exit 0",
             "",
         ]
@@ -978,23 +983,31 @@ def render_runtime_app(artifact, port: int) -> str:
             "import json",
             "import os",
             "from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer",
+            "from pathlib import Path",
             "",
             f"SERVICE = {service!r}",
             f"PURPOSE = \"{purpose}\"",
             f"RUNTIME = \"{runtime}\"",
             f"DEFAULT_PORT = {port}",
+            "SEED_DIR = Path('/app/seed')",
+            "",
+            "",
+            "def load_json(name, fallback):",
+            "    path = SEED_DIR / name",
+            "    if path.exists():",
+            "        return json.loads(path.read_text(encoding='utf-8'))",
+            "    return fallback",
             "",
             "",
             "class Handler(BaseHTTPRequestHandler):",
             "    def do_GET(self):",
             "        if self.path in {'/', '/metadata'}:",
-            "            self.write_json({",
-            "                'service': SERVICE,",
-            "                'purpose': PURPOSE,",
-            "                'runtime': RUNTIME,",
-            "                'status': 'placeholder-runtime',",
-            "                'endpoints': ['/', '/metadata', '/healthz'],",
-            "            })",
+            "            metadata = load_json('metadata.json', {'service': SERVICE, 'purpose': PURPOSE, 'runtime': RUNTIME})",
+            "            metadata.setdefault('endpoints', ['/', '/metadata', '/workflow', '/healthz'])",
+            "            self.write_json(metadata)",
+            "            return",
+            "        if self.path == '/workflow':",
+            "            self.write_json(load_json('workflow.json', {'service': SERVICE, 'stages': []}))",
             "            return",
             "        if self.path == '/healthz':",
             "            self.send_response(200)",
@@ -1036,8 +1049,52 @@ def render_runtime_metadata(artifact, port: int) -> str:
         "runtime": artifact.runtime,
         "purpose": artifact.purpose,
         "port": port,
-        "status": "placeholder-runtime",
+        "status": "mvp-runtime",
+        "endpoints": ["/", "/metadata", "/workflow", "/healthz"],
         "safety_boundaries": artifact.safety_boundaries,
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_runtime_workflow(spec: LabSpec, artifact) -> str:
+    service_name = str(artifact.service)
+    service_text = service_name.lower().replace("-", " ")
+    relevant = []
+    for stage in spec.stage_list:
+        blob = " ".join(
+            [
+                str(stage.get("id", "")),
+                str(stage.get("title", "")),
+                str(stage.get("procedure", "")),
+                " ".join(str(item) for item in stage.get("evidence", []) or []),
+                " ".join(str(item) for item in stage.get("required_findings", []) or []),
+            ]
+        ).lower()
+        if service_name.lower() in blob or service_text in blob:
+            relevant.append(stage)
+    if not relevant:
+        relevant = spec.stage_list[:2]
+    stages = []
+    for stage in relevant:
+        mitre = stage.get("mitre", {}) if isinstance(stage.get("mitre"), dict) else {}
+        stages.append(
+            {
+                "id": stage.get("id", ""),
+                "title": stage.get("title", ""),
+                "procedure": stage.get("procedure", ""),
+                "evidence": stage.get("evidence", []) or [],
+                "required_findings": stage.get("required_findings", []) or [],
+                "mitre": {
+                    "tactic": mitre.get("tactic", ""),
+                    "techniques": mitre.get("techniques", []) or [],
+                },
+            }
+        )
+    data = {
+        "service": artifact.service,
+        "purpose": artifact.purpose,
+        "mvp_runtime_contract": "Scenario-derived workflow metadata for runnable service prototypes.",
+        "stages": stages,
     }
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 

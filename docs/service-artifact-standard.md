@@ -90,7 +90,7 @@ normal workflows, seed/noise expectations, evidence logs, healthcheck/reset
 contract, and safety boundaries. `services scaffold` also writes
 `services/<service>/blueprint.yaml` for each service.
 
-Create placeholder service directories and hooks:
+Create service contract directories and deterministic hook files:
 
 ```powershell
 python -m labforge services scaffold <lab-root>
@@ -107,8 +107,9 @@ python -m labforge services materialize <lab-root> --force
 
 `services materialize` writes runtime files such as `Dockerfile`, `app.py`,
 `healthcheck.sh`, `reset.sh`, `blueprint.yaml`, `seed/metadata.json`,
-`seed/blueprint.json`, realistic starter records/noise where the selected
-template supports them, and smoke tests for each declared service artifact.
+`seed/workflow.json`, `seed/blueprint.json`, realistic starter records/noise
+where the selected template supports them, and smoke tests for each declared
+service artifact.
 Built-in templates provide reusable infrastructure parts only.
 Scenario-specific vulnerable behavior, clues, final objects, and solution paths
 still belong in scenario-specific service code or instructor-only artifacts.
@@ -174,9 +175,9 @@ python -m labforge services reset <lab-root> --service hr-portal
 ```
 
 The scaffold and materialize commands are intentionally conservative. They do
-not generate real vulnerable service code. They create contract files and safe
-runtime placeholders that service builders and agents replace with actual
-implementation.
+not generate real vulnerable service code by themselves. They create contract
+files and safe runnable MVP runtimes that service builders and agents extend
+with reviewed lab-scoped vulnerability behavior.
 
 Docker Compose provider outputs also include:
 

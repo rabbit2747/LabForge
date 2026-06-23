@@ -62,6 +62,7 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
         "volumes": {},
         "services": {},
     }
+    used_host_ports: set[int] = set()
 
     for network in spec.networks:
         name = str(network["name"])
@@ -114,7 +115,7 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
         if service.get("expose"):
             entry["expose"] = [str(port) for port in service["expose"]]
         if service.get("ports"):
-            entry["ports"] = [str(port) for port in service["ports"]]
+            entry["ports"] = normalize_port_mappings(service["ports"], used_host_ports)
         if service.get("environment"):
             entry["environment"] = service["environment"]
         if service.get("volumes"):
@@ -129,6 +130,40 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
         add_security_control_services(spec, compose)
 
     return dump_yaml(compose)
+
+
+def normalize_port_mappings(ports: list[Any], used_host_ports: set[int]) -> list[str]:
+    mappings: list[str] = []
+    next_dynamic = 18080
+    for item in ports:
+        text = str(item)
+        if ":" not in text:
+            host = parse_port(text)
+            container = text
+        else:
+            host_text, container = text.rsplit(":", maxsplit=1)
+            host = parse_port(host_text)
+        if host is None:
+            mappings.append(text)
+            continue
+        if host in used_host_ports:
+            while next_dynamic in used_host_ports:
+                next_dynamic += 1
+            host = next_dynamic
+        used_host_ports.add(host)
+        if ":" in text and ":" in host_text:
+            bind_ip = host_text.rsplit(":", maxsplit=1)[0]
+            mappings.append(f"{bind_ip}:{host}:{container}")
+        else:
+            mappings.append(f"{host}:{container}")
+    return mappings
+
+
+def parse_port(value: str) -> int | None:
+    try:
+        return int(value.rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        return None
 
 
 def add_security_control_services(spec: LabSpec, compose: dict[str, Any]) -> None:
@@ -229,7 +264,7 @@ def render_security_plan(spec: LabSpec, profile: str) -> str:
         "",
         "- Adds `labforge.profile` and role labels to generated services.",
         "- Adds security-control labels to generated services in protected mode.",
-        "- Adds safe control placeholder services for selected controls.",
+        "- Adds safe control-plane services for selected controls.",
         "- Adds `labforge_logs` volume when selected controls need central log collection.",
         "- Adds Docker json-file log rotation when SIEM collection is selected.",
         "",

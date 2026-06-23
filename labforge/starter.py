@@ -71,7 +71,7 @@ def starter_file_map(lab_id: str, title: str) -> dict[str, str]:
                 "profile_support": ["unprotected", "protected"],
                 "purpose": "Prototype the lab as local containers before moving to a realistic provider.",
                 "limitations": [
-                    "Replace placeholder services with realistic lab-scoped implementations.",
+                    "Extend generated MVP services with realistic lab-scoped implementations.",
                     "Use hybrid or VM provider when the scenario requires Windows, AD, ICS, or endpoint realism.",
                 ],
             }

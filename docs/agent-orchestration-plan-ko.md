@@ -203,7 +203,7 @@ python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out outp
 
 - schema validation
 - service artifact check
-- optional placeholder runtime materialization
+- optional scenario-derived MVP runtime materialization
 - provider build
 - `qa-smoke-report.yaml`, `qa-smoke-report.md` 생성
 

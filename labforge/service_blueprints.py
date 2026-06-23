@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .io import dump_yaml, write_text
 from .model import LabSpec
-from .service_templates import template_id_for_artifact
+from .service_templates import get_service_template_by_id, template_id_for_artifact
 
 
 class ServiceBlueprintModel(BaseModel):
@@ -246,6 +246,8 @@ def choose_blueprint_template(artifact: Any) -> str:
     inferred = infer_template_from_artifact(artifact)
     generic = {"python-web-application", "python-flask-web", "python-flask", "flask", "unspecified"}
     if not explicit or explicit in generic:
+        return inferred
+    if not get_service_template_by_id(explicit):
         return inferred
     return explicit
 

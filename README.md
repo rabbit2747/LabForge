@@ -370,8 +370,8 @@ provider-specific starter files so provider engineers can complete the runnable
 implementation without reverse-engineering the scenario spec.
 
 QA smoke checks can validate the current lab definition, service artifact
-contracts, optional service runtime materialization, and provider build in one
-pass:
+contracts, scenario-derived MVP runtime materialization, and provider build in
+one pass:
 
 ```powershell
 python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force
@@ -387,9 +387,9 @@ verification fail the gate, which is useful before a lab is handed to learners:
 python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
 ```
 
-The current example scenario is still a scaffold, so the release gate is
-expected to fail until service placeholders, tests, seed data, and reset logic
-are implemented.
+The current example scenario can materialize runnable MVP services. A release
+gate still requires real vulnerability behavior and reviewed service-builder
+outputs before learner delivery.
 
 Provider lifecycle commands are dry-run by default. Add `--execute` only when
 you intentionally want LabForge to invoke the provider command.
