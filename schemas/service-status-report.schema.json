@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "ServiceImplementationStatusItem": {
+      "additionalProperties": true,
+      "properties": {
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "role": {
+          "default": "generic-service",
+          "title": "Role",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "status": {
+          "default": "missing",
+          "enum": [
+            "missing",
+            "scaffolded",
+            "blueprinted",
+            "runtime",
+            "tested"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "blueprint": {
+          "default": false,
+          "title": "Blueprint",
+          "type": "boolean"
+        },
+        "scaffold": {
+          "default": false,
+          "title": "Scaffold",
+          "type": "boolean"
+        },
+        "runtime": {
+          "default": false,
+          "title": "Runtime",
+          "type": "boolean"
+        },
+        "tests": {
+          "default": false,
+          "title": "Tests",
+          "type": "boolean"
+        },
+        "healthcheck": {
+          "default": false,
+          "title": "Healthcheck",
+          "type": "boolean"
+        },
+        "reset": {
+          "default": false,
+          "title": "Reset",
+          "type": "boolean"
+        },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Findings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "service",
+        "source_path"
+      ],
+      "title": "ServiceImplementationStatusItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "lab_id": {
+      "title": "Lab Id",
+      "type": "string"
+    },
+    "service_count": {
+      "title": "Service Count",
+      "type": "integer"
+    },
+    "ready_count": {
+      "default": 0,
+      "title": "Ready Count",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ServiceImplementationStatusItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lab_id",
+    "service_count"
+  ],
+  "title": "ServiceImplementationStatusReport",
+  "type": "object"
+}

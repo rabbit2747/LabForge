@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
+from .service_blueprints import create_service_blueprints, write_service_blueprint_files
 from .service_templates import render_template_files
 from .vulnerability_plugins import render_vulnerability_plugin_contracts
 
@@ -59,6 +60,13 @@ class ServiceResultSpec(ServiceArtifactModel):
     status: Literal["complete", "needs-review"]
     service: str
     summary: str = ""
+    implemented_routes: list[dict | str] = Field(default_factory=list)
+    data_model: list[dict | str] = Field(default_factory=list)
+    normal_workflows: list[dict | str] = Field(default_factory=list)
+    vulnerable_paths: list[dict | str] = Field(default_factory=list)
+    detection_evidence: list[dict | str] = Field(default_factory=list)
+    healthcheck_behavior: str = ""
+    reset_behavior: str = ""
     service_changes: list[ServiceChangeSpec] = Field(default_factory=list)
     findings: list[dict | str] = Field(default_factory=list)
     open_questions: list[dict | str] = Field(default_factory=list)
@@ -190,21 +198,30 @@ def scaffold_service_artifacts(spec: LabSpec, force: bool = False) -> list[Path]
                 continue
             write_text(path, content)
             written.append(path)
+    written.extend(write_service_blueprint_files(spec, force=force))
     return written
 
 
 def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Path]:
     written: list[Path] = []
+    written.extend(write_service_blueprint_files(spec, force=force))
+    blueprint_by_service = {blueprint.service: blueprint for blueprint in create_service_blueprints(spec).blueprints}
     services_by_name = {str(service.get("name")): service for service in spec.services}
     for artifact in declared_service_artifacts(spec):
         service_root = spec.root / artifact.source_path
         service_root.mkdir(parents=True, exist_ok=True)
         service = services_by_name.get(artifact.service, {})
         port = service_runtime_port(service)
-        files = render_template_files(artifact, port) or {
+        files = render_template_files(artifact, port, blueprint=blueprint_by_service.get(artifact.service)) or {
             "Dockerfile": render_runtime_dockerfile(artifact, port),
             "app.py": render_runtime_app(artifact, port),
             "seed/metadata.json": render_runtime_metadata(artifact, port),
+            "seed/blueprint.json": (
+                json.dumps(blueprint_by_service[artifact.service].model_dump(), ensure_ascii=False, indent=2) + "\n"
+                if artifact.service in blueprint_by_service
+                else "{}\n"
+            ),
+            "tests/test_smoke.py": render_runtime_smoke_test(),
         }
         files.update(render_vulnerability_plugin_contracts(artifact))
         for filename, content in files.items():
@@ -419,6 +436,31 @@ def review_service_result(spec: LabSpec, result_file: Path, *, force: bool = Fal
                 message=f"result has {len(result.open_questions)} open question(s) for supervisor review",
             )
         )
+    if result.status == "complete":
+        if not result.implemented_routes:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path="-",
+                    status="warning",
+                    message="result does not describe implemented_routes; supervisor cannot compare implementation to blueprint API surface",
+                )
+            )
+        if not result.normal_workflows:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path="-",
+                    status="warning",
+                    message="result does not describe normal_workflows; service may still be puzzle-only",
+                )
+            )
+        if not result.data_model:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path="-",
+                    status="warning",
+                    message="result does not describe data_model; seed/noise realism is hard to review",
+                )
+            )
 
     service_root = (spec.root / artifact.source_path).resolve()
     if not service_root.exists() or not service_root.is_dir():
@@ -994,6 +1036,24 @@ def render_runtime_metadata(artifact, port: int) -> str:
         "safety_boundaries": artifact.safety_boundaries,
     }
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_runtime_smoke_test() -> str:
+    return "\n".join(
+        [
+            "from pathlib import Path",
+            "",
+            "",
+            "def test_runtime_contract_files_exist():",
+            "    root = Path(__file__).resolve().parents[1]",
+            "    assert (root / 'Dockerfile').exists()",
+            "    assert (root / 'app.py').exists()",
+            "    assert (root / 'healthcheck.sh').exists()",
+            "    assert (root / 'reset.sh').exists()",
+            "    assert (root / 'blueprint.yaml').exists()",
+            "",
+        ]
+    )
 
 
 SERVICE_ARTIFACT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {

@@ -10,7 +10,7 @@ class ServiceTemplate:
     template_id: str
     description: str
     aliases: tuple[str, ...]
-    renderer: Callable[[Any, int], dict[str, str]]
+    renderer: Callable[..., dict[str, str]]
 
 
 def normalize_template_id(value: str) -> str:
@@ -29,6 +29,10 @@ def template_id_for_artifact(artifact: Any) -> str:
 
 def get_service_template(artifact: Any) -> ServiceTemplate | None:
     template_id = template_id_for_artifact(artifact)
+    return get_service_template_by_id(template_id)
+
+
+def get_service_template_by_id(template_id: str) -> ServiceTemplate | None:
     if not template_id:
         return None
     for template in SERVICE_TEMPLATES:
@@ -42,12 +46,15 @@ def list_service_templates() -> list[ServiceTemplate]:
     return list(SERVICE_TEMPLATES)
 
 
-def render_template_files(artifact: Any, port: int) -> dict[str, str] | None:
-    template = get_service_template(artifact)
+def render_template_files(artifact: Any, port: int, *, blueprint: Any | None = None) -> dict[str, str] | None:
+    template = get_service_template_by_id(getattr(blueprint, "template", "")) if blueprint else None
+    template = template or get_service_template(artifact)
     if not template:
         return None
-    files = template.renderer(artifact, port)
+    files = template.renderer(artifact, port, blueprint=blueprint)
     files.setdefault("seed/metadata.json", render_metadata(artifact, port, template.template_id))
+    if blueprint:
+        files.setdefault("seed/blueprint.json", json.dumps(blueprint.model_dump(), ensure_ascii=False, indent=2) + "\n")
     files.setdefault("tests/test_smoke.py", render_smoke_test(artifact, port))
     return files
 
@@ -85,7 +92,7 @@ def render_smoke_test(artifact: Any, port: int) -> str:
     )
 
 
-def render_python_flask_web(artifact: Any, port: int) -> dict[str, str]:
+def render_python_flask_web(artifact: Any, port: int, *, blueprint: Any | None = None) -> dict[str, str]:
     return {
         "Dockerfile": "\n".join(
             [
@@ -149,7 +156,123 @@ def render_python_flask_web(artifact: Any, port: int) -> dict[str, str]:
     }
 
 
-def render_attacker_workstation_ssh(artifact: Any, port: int) -> dict[str, str]:
+def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any | None = None) -> dict[str, str]:
+    role = getattr(blueprint, "role", "generic-service") if blueprint else "generic-service"
+    routes = getattr(blueprint, "routes", []) if blueprint else []
+    route_payload = [
+        {
+            "method": getattr(route, "method", "GET"),
+            "path": getattr(route, "path", "/"),
+            "purpose": getattr(route, "purpose", ""),
+            "auth": getattr(route, "auth", "none"),
+        }
+        for route in routes
+    ]
+    return {
+        "Dockerfile": "\n".join(
+            [
+                "FROM python:3.12-alpine",
+                "",
+                "WORKDIR /app",
+                "RUN pip install --no-cache-dir Flask==3.0.3",
+                "COPY app.py /app/app.py",
+                "COPY seed /app/seed",
+                "RUN mkdir -p /state /var/log/labforge && chmod -R 755 /app /state /var/log/labforge",
+                f"EXPOSE {port}",
+                "CMD [\"python\", \"/app/app.py\"]",
+                "",
+            ]
+        ),
+        "app.py": "\n".join(
+            [
+                "from __future__ import annotations",
+                "",
+                "import json",
+                "import os",
+                "from datetime import datetime, timezone",
+                "from pathlib import Path",
+                "from flask import Flask, jsonify, request",
+                "",
+                f"SERVICE = {artifact.service!r}",
+                f"PURPOSE = {artifact.purpose!r}",
+                f"ROLE = {role!r}",
+                f"PORT = {port}",
+                f"ROUTES = {json.dumps(route_payload, ensure_ascii=False)!r}",
+                "SEED_DIR = Path('/app/seed')",
+                "STATE_DIR = Path('/state')",
+                "LOG_PATH = Path('/var/log/labforge/service-events.jsonl')",
+                "app = Flask(__name__)",
+                "",
+                "",
+                "def load_json(name, fallback):",
+                "    path = SEED_DIR / name",
+                "    if path.exists():",
+                "        return json.loads(path.read_text(encoding='utf-8'))",
+                "    return fallback",
+                "",
+                "",
+                "def append_event(event, payload=None):",
+                "    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)",
+                "    record = {'time': datetime.now(timezone.utc).isoformat(), 'service': SERVICE, 'event': event, 'payload': payload or {}}",
+                "    with LOG_PATH.open('a', encoding='utf-8') as handle:",
+                "        handle.write(json.dumps(record, ensure_ascii=False) + '\\n')",
+                "",
+                "",
+                "@app.get('/healthz')",
+                "def healthz():",
+                "    return 'ok\\n', 200",
+                "",
+                "",
+                "@app.get('/')",
+                "def index():",
+                "    append_event('index.viewed')",
+                "    return jsonify({'service': SERVICE, 'role': ROLE, 'purpose': PURPOSE, 'routes': ROUTES})",
+                "",
+                "",
+                "@app.get('/metadata')",
+                "def metadata():",
+                "    return jsonify(load_json('metadata.json', {'service': SERVICE, 'role': ROLE, 'purpose': PURPOSE}))",
+                "",
+                "",
+                "@app.get('/api/routes')",
+                "def api_routes():",
+                "    return jsonify({'service': SERVICE, 'routes': ROUTES})",
+                "",
+                "",
+                "@app.get('/api/records')",
+                "def api_records():",
+                "    append_event('records.queried', {'query': dict(request.args)})",
+                "    return jsonify(load_json('records.json', {'items': []}))",
+                "",
+                "",
+                "@app.post('/api/actions')",
+                "def api_actions():",
+                "    payload = request.get_json(silent=True) or {}",
+                "    append_event('action.received', payload)",
+                "    return jsonify({'accepted': True, 'service': SERVICE, 'received': payload})",
+                "",
+                "",
+                "@app.get('/logs/events')",
+                "def log_events():",
+                "    if not LOG_PATH.exists():",
+                "        return jsonify({'items': []})",
+                "    return jsonify({'items': [json.loads(line) for line in LOG_PATH.read_text(encoding='utf-8').splitlines() if line.strip()]})",
+                "",
+                "",
+                "if __name__ == '__main__':",
+                "    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', PORT)))",
+                "",
+            ]
+        ),
+        "seed/records.json": render_default_records(artifact, role),
+        "noise/events.jsonl": render_default_events(artifact, role),
+        "healthcheck.sh": render_http_healthcheck(port),
+        "reset.sh": render_reset_script(),
+        "README.runtime.md": render_enterprise_runtime_readme(artifact, role),
+    }
+
+
+def render_attacker_workstation_ssh(artifact: Any, port: int, *, blueprint: Any | None = None) -> dict[str, str]:
     return {
         "Dockerfile": "\n".join(
             [
@@ -205,7 +328,7 @@ def render_attacker_workstation_ssh(artifact: Any, port: int) -> dict[str, str]:
     }
 
 
-def render_controlled_drop(artifact: Any, port: int) -> dict[str, str]:
+def render_controlled_drop(artifact: Any, port: int, *, blueprint: Any | None = None) -> dict[str, str]:
     return {
         "Dockerfile": "\n".join(
             [
@@ -307,6 +430,42 @@ def render_reset_script() -> str:
     )
 
 
+def render_default_records(artifact: Any, role: str) -> str:
+    data = {
+        "items": [
+            {"id": f"{artifact.service}-record-001", "type": role, "status": "active", "classification": "synthetic-training-data"},
+            {"id": f"{artifact.service}-record-002", "type": role, "status": "archived", "classification": "synthetic-training-data"},
+        ]
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_default_events(artifact: Any, role: str) -> str:
+    events = [
+        {"service": artifact.service, "role": role, "event": "service.started", "severity": "info"},
+        {"service": artifact.service, "role": role, "event": "routine.healthcheck", "severity": "info"},
+    ]
+    return "\n".join(json.dumps(item, ensure_ascii=False) for item in events) + "\n"
+
+
+def render_enterprise_runtime_readme(artifact: Any, role: str) -> str:
+    return "\n".join(
+        [
+            f"# {artifact.service}",
+            "",
+            f"- Role: `{role}`",
+            f"- Purpose: {artifact.purpose}",
+            "",
+            "This is a reusable enterprise service runtime scaffold. It provides",
+            "business-shaped routes, deterministic seed data, operational noise,",
+            "healthcheck/reset hooks, and event logging. Scenario-specific",
+            "vulnerability behavior must be implemented in service code or",
+            "declared vulnerability plugin contracts, not hidden in this template.",
+            "",
+        ]
+    )
+
+
 SERVICE_TEMPLATES: tuple[ServiceTemplate, ...] = (
     ServiceTemplate(
         "python-flask-web",
@@ -315,15 +474,69 @@ SERVICE_TEMPLATES: tuple[ServiceTemplate, ...] = (
         render_python_flask_web,
     ),
     ServiceTemplate(
+        "business-portal",
+        "Business-facing Flask portal with records, actions, route metadata, logs, seed, and noise scaffolds.",
+        ("portal", "support portal", "customer portal", "investor portal"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "reverse-proxy-stub",
+        "Runnable reverse-proxy-shaped scaffold for edge routing metadata, healthcheck, and logs.",
+        ("nginx", "reverse proxy", "edge proxy", "nginx-or-equivalent-reverse-proxy"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "internal-admin-console",
+        "Internal operator/admin console scaffold with action and audit routes.",
+        ("admin console", "ops console", "release console", "internal console"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "identity-gateway",
+        "Identity and session gateway scaffold with login-shaped API routes.",
+        ("identity", "auth", "sso", "mfa", "iam"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "data-api",
+        "Internal data API scaffold with records, metadata, and export-shaped routes.",
+        ("data api", "warehouse", "records api", "customer api"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "audit-log-service",
+        "Audit/event service scaffold with event ingest and query behavior.",
+        ("audit", "log service", "event service"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "message-broker-stub",
+        "Lab-scoped broker-like HTTP scaffold for event and message workflows.",
+        ("broker", "message broker", "queue", "event bus"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "object-store",
+        "Object-store style HTTP scaffold with object metadata and retrieval-shaped routes.",
+        ("object store", "archive store", "blob store"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
+        "siem-log-viewer",
+        "Security analyst log viewer scaffold with alerts and event search shape.",
+        ("siem", "log viewer", "security monitoring"),
+        render_enterprise_flask_service,
+    ),
+    ServiceTemplate(
         "attacker-workstation-ssh",
         "Linux learner workstation with SSH and common diagnostic tools.",
-        ("attacker workstation", "linux learner workstation", "linux learner attack workstation"),
+        ("attacker workstation", "linux learner workstation", "linux learner attack workstation", "linux-ssh-workstation"),
         render_attacker_workstation_ssh,
     ),
     ServiceTemplate(
         "controlled-drop",
         "Lab-scoped final submission receiver with resettable local state.",
-        ("drop service", "controlled drop", "submission service"),
+        ("drop service", "controlled drop", "submission service", "controlled-drop-service"),
         render_controlled_drop,
     ),
 )

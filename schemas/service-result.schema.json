@@ -67,6 +67,91 @@
       "title": "Summary",
       "type": "string"
     },
+    "implemented_routes": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Implemented Routes",
+      "type": "array"
+    },
+    "data_model": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Data Model",
+      "type": "array"
+    },
+    "normal_workflows": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Normal Workflows",
+      "type": "array"
+    },
+    "vulnerable_paths": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Vulnerable Paths",
+      "type": "array"
+    },
+    "detection_evidence": {
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "title": "Detection Evidence",
+      "type": "array"
+    },
+    "healthcheck_behavior": {
+      "default": "",
+      "title": "Healthcheck Behavior",
+      "type": "string"
+    },
+    "reset_behavior": {
+      "default": "",
+      "title": "Reset Behavior",
+      "type": "string"
+    },
     "service_changes": {
       "items": {
         "$ref": "#/$defs/ServiceChangeSpec"

@@ -109,9 +109,30 @@ Initial built-in templates:
 
 - `python-flask-web`: generic Flask HTTP service with `/`, `/metadata`, and
   `/healthz`.
+- `business-portal`: business-facing portal scaffold with records, actions,
+  event logs, seed data, and route metadata.
+- `internal-admin-console`: operator/admin console scaffold with action and
+  audit-shaped routes.
+- `identity-gateway`: identity/session gateway scaffold with login and
+  MFA-shaped routes.
+- `data-api`: internal data API scaffold with metadata, records, and
+  export-shaped routes.
+- `audit-log-service`: audit/event service scaffold with event ingest and
+  query routes.
+- `message-broker-stub`: lab-scoped broker-like HTTP service for event and
+  message workflows.
+- `object-store`: object-store-shaped scaffold for object metadata and
+  retrieval routes.
+- `siem-log-viewer`: security analyst log viewer scaffold with alert and event
+  search shape.
 - `attacker-workstation-ssh`: Linux learner workstation with SSH and common
   diagnostic tools.
 - `controlled-drop`: lab-scoped submission receiver with resettable local state.
+
+Templates may be selected explicitly through `template.id`, or LabForge may
+infer a service blueprint role from the service name, runtime, and purpose.
+Blueprint inference is only a starting point; scenario authors and supervisors
+should review `services/<service>/blueprint.yaml`.
 
 Use them from `artifacts.yaml`:
 
@@ -137,7 +158,9 @@ Materialize the selected templates:
 
 ```powershell
 python -m labforge services templates
+python -m labforge services blueprints <lab-root> --out output/service-blueprints
 python -m labforge services materialize <lab-root> --force
+python -m labforge services status <lab-root>
 python -m labforge services verify <lab-root>
 ```
 

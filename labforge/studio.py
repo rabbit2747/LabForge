@@ -20,6 +20,8 @@ from .design import (
 )
 from .intake import slugify
 from .io import load_yaml
+from .model import LabSpec
+from .service_blueprints import inspect_service_implementation_status
 
 
 class StudioModel(BaseModel):
@@ -274,7 +276,17 @@ def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     summary = summarize_scenario(path).model_dump()
     summary["reports"] = available_reports(path)
     summary["fix_tasks"] = read_fix_tasks(path)
+    summary["service_status"] = read_service_status(path)
     return summary
+
+
+def read_service_status(path: Path) -> list[dict]:
+    lab_dir = path / "lab"
+    try:
+        report = inspect_service_implementation_status(LabSpec.load(lab_dir))
+    except Exception:  # noqa: BLE001 - Studio should still render partial workspaces.
+        return []
+    return [item.model_dump() for item in report.items]
 
 
 def read_fix_tasks(path: Path) -> list[dict]:
@@ -295,6 +307,8 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Fix Agent Packages", "review/fix-agent-package-report.md"),
         ("Fix Result Review", "review/fix-result-review.md"),
         ("Fix Apply Report", "review/fix-apply-report.md"),
+        ("Service Blueprints", "service-blueprints/service-blueprints.md"),
+        ("Service Status", "service-status/service-status.md"),
         ("Realism Report", "review/realism-report.md"),
         ("Lint Report", "review/lint-report.md"),
         ("Agent Review", "review/agent-review.md"),
@@ -499,6 +513,10 @@ def render_studio_html() -> str:
         <div class="panel">
           <h2>Fix Tasks</h2>
           <div id="fixTasks">${renderFixTasks(s.fix_tasks || [])}</div>
+        </div>
+        <div class="panel">
+          <h2>Service Implementation</h2>
+          <div id="serviceStatus">${renderServiceStatus(s.service_status || [])}</div>
         </div>`;
       document.getElementById('runReview').onclick = () => runReview(s.scenario_id);
       document.getElementById('generateTasks').onclick = () => generateTasks(s.scenario_id);
@@ -633,6 +651,19 @@ def render_studio_html() -> str:
           <td style="border-bottom:1px solid var(--line);padding:8px;">${escapeHtml(t.assigned_agent)}</td>
           <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="status">${escapeHtml(t.status)}</span></td>
           <td style="border-bottom:1px solid var(--line);padding:8px;"><b>${escapeHtml(t.title)}</b><br><span class="meta">${escapeHtml(t.required_action)}</span></td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    function renderServiceStatus(items) {
+      if (!items.length) return '<div class="empty">No service artifacts found yet.</div>';
+      return `<table style="width:100%; border-collapse:collapse;">
+        <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Service</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Role</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Status</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Checks</th></tr></thead>
+        <tbody>${items.map(item => `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.service)}</code><br><span class="meta">${escapeHtml(item.source_path)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;">${escapeHtml(item.role)}</td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="status">${escapeHtml(item.status)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="meta">blueprint=${item.blueprint} scaffold=${item.scaffold} runtime=${item.runtime} tests=${item.tests}</span></td>
         </tr>`).join('')}</tbody>
       </table>`;
     }

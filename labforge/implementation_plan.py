@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .agent_orchestration import AgentExecutionPackageSpec
 from .io import dump_yaml, write_text
 from .model import LabSpec
+from .service_blueprints import create_service_blueprints
 from .service_artifacts import declared_service_artifacts
 from .vulnerability_plugins import declared_vulnerability_plugins, get_vulnerability_plugin, normalize_template_id
 
@@ -20,7 +21,7 @@ class ImplementationModel(BaseModel):
 class ServiceImplementationTask(ImplementationModel):
     task_id: str
     service: str
-    category: Literal["runtime", "seed", "noise", "healthcheck", "reset", "evidence", "safety", "tests"]
+    category: Literal["blueprint", "runtime", "api", "workflow", "data", "seed", "noise", "healthcheck", "reset", "evidence", "safety", "tests"]
     title: str
     details: list[str] = Field(default_factory=list)
     expected_files: list[str] = Field(default_factory=list)
@@ -75,13 +76,31 @@ def vulnerability_plugin_context(artifact: Any) -> list[dict[str, Any]]:
 def create_service_implementation_plan(spec: LabSpec, out: Path | None = None) -> ServiceImplementationPlan:
     tasks: list[ServiceImplementationTask] = []
     services_by_name = {str(service.get("name")): service for service in spec.services}
+    blueprints_by_service = {blueprint.service: blueprint for blueprint in create_service_blueprints(spec).blueprints}
 
     for artifact in declared_service_artifacts(spec):
         service = services_by_name.get(artifact.service, {})
+        blueprint = blueprints_by_service.get(artifact.service)
         base = artifact.source_path
         task_prefix = normalize_task_prefix(artifact.service)
         tasks.extend(
             [
+                ServiceImplementationTask(
+                    task_id=f"{task_prefix}-blueprint",
+                    service=artifact.service,
+                    category="blueprint",
+                    title="Review service blueprint",
+                    details=[
+                        f"Blueprint role: {blueprint.role if blueprint else 'not generated'}",
+                        f"Template: {blueprint.template if blueprint else 'not generated'}",
+                        f"Normal workflows: {len(blueprint.normal_workflows) if blueprint else 0}",
+                    ],
+                    expected_files=[f"{base}/blueprint.yaml"],
+                    done_criteria=[
+                        "Blueprint explains the business role, API surface, data stores, normal workflows, and safety boundaries.",
+                        "Implementation follows the blueprint unless the supervisor explicitly approves a change.",
+                    ],
+                ),
                 ServiceImplementationTask(
                     task_id=f"{task_prefix}-runtime",
                     service=artifact.service,
@@ -98,6 +117,46 @@ def create_service_implementation_plan(spec: LabSpec, out: Path | None = None) -
                         "Service starts deterministically from generated provider output.",
                         "No external network dependency is required for core learner flow.",
                         "Learner-visible behavior comes from implemented logic, not static fake response text.",
+                    ],
+                ),
+                ServiceImplementationTask(
+                    task_id=f"{task_prefix}-api",
+                    service=artifact.service,
+                    category="api",
+                    title="Implement realistic API and UI routes",
+                    details=[f"{route.method} {route.path}: {route.purpose} (auth: {route.auth})" for route in (blueprint.routes if blueprint else [])]
+                    or ["No blueprint routes were generated. Define service-specific routes before implementation."],
+                    expected_files=[f"{base}/app.py", f"{base}/tests/"],
+                    done_criteria=[
+                        "Routes reflect normal business or operator workflows.",
+                        "Routes avoid solver-facing names such as flag, exploit, foothold, or stage.",
+                        "Authentication and authorization assumptions are explicit, even when intentionally weak for the lab.",
+                    ],
+                ),
+                ServiceImplementationTask(
+                    task_id=f"{task_prefix}-workflow",
+                    service=artifact.service,
+                    category="workflow",
+                    title="Implement normal user workflow",
+                    details=[f"{workflow.name}: {' -> '.join(workflow.steps)}" for workflow in (blueprint.normal_workflows if blueprint else [])]
+                    or ["No normal workflow was generated. Define at least one ordinary business workflow."],
+                    expected_files=[f"{base}/app.py", f"{base}/seed/", f"{base}/noise/"],
+                    done_criteria=[
+                        "A user can perform a normal non-attack workflow against the service.",
+                        "Business data changes are logged or reflected in state where appropriate.",
+                    ],
+                ),
+                ServiceImplementationTask(
+                    task_id=f"{task_prefix}-data",
+                    service=artifact.service,
+                    category="data",
+                    title="Implement data model and storage",
+                    details=[f"{store.name} ({store.kind}): {store.purpose}" for store in (blueprint.data_stores if blueprint else [])]
+                    or ["No data store blueprint was generated. Define files, database tables, or in-memory state."],
+                    expected_files=[f"{base}/seed/", f"{base}/noise/", f"{base}/app.py"],
+                    done_criteria=[
+                        "Data model supports the normal workflow and the intended lab chain.",
+                        "Seed and noise data are deterministic, synthetic, and realistic for the service role.",
                     ],
                 ),
                 ServiceImplementationTask(
@@ -224,9 +283,10 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
         task_id = f"service-build-{normalize_task_prefix(artifact.service)}"
         output_file = f".ai/outputs/{task_id}.result.yaml"
         plugin_contracts = vulnerability_plugin_contract_paths(artifact)
+        blueprint_context = f"{artifact.source_path}/blueprint.yaml"
         missing_context_files = [
             item
-            for item in [*context_files, artifact.source_path, *plugin_contracts]
+            for item in [*context_files, artifact.source_path, blueprint_context, *plugin_contracts]
             if not (spec.root / item).exists()
         ]
         task_manifest = {
@@ -237,15 +297,19 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             "lab_id": spec.lab_id,
             "service": artifact.service,
             "mission": f"Implement the `{artifact.service}` service according to its LabForge service artifact contract.",
-            "context_files": [*context_files, artifact.source_path, *plugin_contracts],
+            "context_files": [*context_files, artifact.source_path, blueprint_context, *plugin_contracts],
             "inputs": [
                 "service artifact contract",
+                "service blueprint",
                 "vulnerability plugin contracts",
                 "stage requirements",
                 "seed and noise requirements",
                 "safety boundaries",
             ],
             "expected_outputs": [
+                "implemented routes/API surface",
+                "normal workflow behavior",
+                "data model and seed records",
                 "service source changes",
                 "seed/noise data updates",
                 "healthcheck/reset hooks",
@@ -262,6 +326,7 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             "assigned_runtime": adapter,
             "output_file": output_file,
             "implementation_tasks": [task.model_dump() for task in tasks_by_service.get(artifact.service, [])],
+            "blueprint_file": blueprint_context,
             "vulnerability_plugins": vulnerability_plugin_context(artifact),
         }
         package = AgentExecutionPackageSpec(
@@ -299,6 +364,13 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
                     "status": "needs-review",
                     "service": artifact.service,
                     "summary": "",
+                    "implemented_routes": [],
+                    "data_model": [],
+                    "normal_workflows": [],
+                    "vulnerable_paths": [],
+                    "detection_evidence": [],
+                    "healthcheck_behavior": "",
+                    "reset_behavior": "",
                     "service_changes": [],
                     "findings": [],
                     "open_questions": [],
@@ -326,10 +398,12 @@ def render_service_builder_system_prompt() -> str:
             "- Keep offensive behavior inside declared lab networks and synthetic data.",
             "- Do not add uncontrolled external callbacks, privileged Docker access, or host filesystem dependencies.",
             "- Prefer realistic bounded service behavior over static fake response text.",
+            "- Implement normal business routes, data, and workflows before lab-specific attack behavior.",
+            "- Treat `blueprint.yaml` as the service contract for UI/API shape, data stores, and normal workflows.",
             "",
             "## Output Contract",
             "",
-            "Write a LabForge service result YAML containing task_id, status, service, summary, service_changes, findings, and open_questions.",
+            "Write a LabForge service result YAML containing task_id, status, service, summary, implemented_routes, data_model, normal_workflows, vulnerable_paths, detection_evidence, healthcheck_behavior, reset_behavior, service_changes, findings, and open_questions.",
             "",
         ]
     )
@@ -351,6 +425,15 @@ def render_service_builder_task_prompt(
         f"- Source path: `{artifact.source_path}`",
         f"- Runtime: `{artifact.runtime}`",
         f"- Purpose: {artifact.purpose}",
+        f"- Blueprint file: `{artifact.source_path}/blueprint.yaml`",
+        "",
+        "## Required Implementation Shape",
+        "",
+        "- Implement real routes or handlers for the blueprint API surface.",
+        "- Implement at least one normal non-attack workflow for the service role.",
+        "- Implement deterministic seed data, realistic noise data, and evidence logs.",
+        "- Implement healthcheck and reset scripts that verify the actual service behavior.",
+        "- Keep exact answer keys, final objects, and solver-only payloads out of reusable template metadata.",
         "",
         "## Vulnerability Plugin Contracts",
         "",
@@ -413,6 +496,7 @@ def render_service_builder_task_prompt(
         "## Done Criteria",
         "",
         "- The service starts from provider-generated output.",
+        "- Blueprint routes, workflows, and data stores are represented in code or documented as intentionally deferred.",
         "- Healthcheck and reset scripts reflect the actual implementation.",
         "- Seed, noise, evidence logs, and tests match the contract.",
         "- Safety boundaries are enforced by code, config, or provider controls where feasible.",

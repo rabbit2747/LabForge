@@ -60,6 +60,7 @@ service_artifacts:
 ```text
 services/<service-name>/
 |-- README.md
+|-- blueprint.yaml
 |-- Dockerfile or provider-specific build files
 |-- src/ or app/
 |-- seed/
@@ -77,6 +78,18 @@ boundaries.
 
 ## CLI Workflow
 
+Create service builder blueprints:
+
+```powershell
+python -m labforge services blueprints <lab-root>
+python -m labforge services blueprints <lab-root> --out output/service-blueprints
+```
+
+Blueprints describe each service's role, template, API surface, data stores,
+normal workflows, seed/noise expectations, evidence logs, healthcheck/reset
+contract, and safety boundaries. `services scaffold` also writes
+`services/<service>/blueprint.yaml` for each service.
+
 Create placeholder service directories and hooks:
 
 ```powershell
@@ -93,11 +106,27 @@ python -m labforge services materialize <lab-root> --force
 ```
 
 `services materialize` writes runtime files such as `Dockerfile`, `app.py`,
-`healthcheck.sh`, `reset.sh`, `seed/metadata.json`, and smoke tests for each
-declared service artifact. Built-in templates provide reusable infrastructure
-parts only. Scenario-specific vulnerable behavior, clues, final objects, and
-solution paths still belong in scenario-specific service code or instructor-only
-artifacts.
+`healthcheck.sh`, `reset.sh`, `blueprint.yaml`, `seed/metadata.json`,
+`seed/blueprint.json`, realistic starter records/noise where the selected
+template supports them, and smoke tests for each declared service artifact.
+Built-in templates provide reusable infrastructure parts only.
+Scenario-specific vulnerable behavior, clues, final objects, and solution paths
+still belong in scenario-specific service code or instructor-only artifacts.
+
+Report service implementation status:
+
+```powershell
+python -m labforge services status <lab-root>
+python -m labforge services status <lab-root> --format json
+```
+
+Status levels:
+
+- `missing`: service directory is absent.
+- `scaffolded`: contract files exist.
+- `blueprinted`: `blueprint.yaml` exists.
+- `runtime`: runtime files exist.
+- `tested`: runtime files and at least one substantive test exist.
 
 When `vulnerability_plugins` are declared, materialization also writes reviewable
 contract files under `services/<service>/plugins/*.contract.yaml`. These files
@@ -168,6 +197,18 @@ task_id: service-build-entry-service
 status: complete
 service: entry-service
 summary: Implemented the entry service runtime, healthcheck, reset hook, and tests.
+implemented_routes:
+  - GET /healthz
+  - GET /metadata
+data_model:
+  - metadata.json
+normal_workflows:
+  - operator opens metadata and submits a business request
+vulnerable_paths: []
+detection_evidence:
+  - application.log records normal and abnormal requests
+healthcheck_behavior: GET /healthz returns 200 when seed data is present.
+reset_behavior: Remove transient state and restore deterministic seed data.
 service_changes:
   - target_path: app.py
     content: |
@@ -183,9 +224,11 @@ open_questions: []
 ```
 
 `services agent-packages` creates initial service-builder result stubs in this
-shape with `status: needs-review`, the target `service`, and an empty
-`service_changes` list. A service result becomes applyable only after the
-builder changes `status` to `complete` and provides concrete `service_changes`.
+shape with `status: needs-review`, the target `service`, empty implementation
+summary fields, and an empty `service_changes` list. A service result becomes
+applyable only after the builder changes `status` to `complete`, describes
+implemented routes/data/workflows/evidence/reset behavior, and provides
+concrete `service_changes`.
 
 Apply the result:
 

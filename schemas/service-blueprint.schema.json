@@ -1,0 +1,216 @@
+{
+  "$defs": {
+    "ServiceDataStoreBlueprint": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "default": "file",
+          "title": "Kind",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "seed_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Seed Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "purpose"
+      ],
+      "title": "ServiceDataStoreBlueprint",
+      "type": "object"
+    },
+    "ServiceRouteBlueprint": {
+      "additionalProperties": true,
+      "properties": {
+        "method": {
+          "default": "GET",
+          "title": "Method",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "auth": {
+          "default": "none",
+          "title": "Auth",
+          "type": "string"
+        },
+        "learner_visible": {
+          "default": true,
+          "title": "Learner Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "purpose"
+      ],
+      "title": "ServiceRouteBlueprint",
+      "type": "object"
+    },
+    "ServiceWorkflowBlueprint": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "normal_outcome": {
+          "default": "",
+          "title": "Normal Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "actor"
+      ],
+      "title": "ServiceWorkflowBlueprint",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "service": {
+      "title": "Service",
+      "type": "string"
+    },
+    "template": {
+      "title": "Template",
+      "type": "string"
+    },
+    "runtime": {
+      "title": "Runtime",
+      "type": "string"
+    },
+    "purpose": {
+      "title": "Purpose",
+      "type": "string"
+    },
+    "role": {
+      "default": "generic-service",
+      "enum": [
+        "business-portal",
+        "internal-admin-console",
+        "identity-gateway",
+        "data-api",
+        "audit-log-service",
+        "message-broker-stub",
+        "object-store",
+        "siem-log-viewer",
+        "attacker-workstation",
+        "controlled-drop",
+        "generic-service"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "exposed": {
+      "default": false,
+      "title": "Exposed",
+      "type": "boolean"
+    },
+    "routes": {
+      "items": {
+        "$ref": "#/$defs/ServiceRouteBlueprint"
+      },
+      "title": "Routes",
+      "type": "array"
+    },
+    "data_stores": {
+      "items": {
+        "$ref": "#/$defs/ServiceDataStoreBlueprint"
+      },
+      "title": "Data Stores",
+      "type": "array"
+    },
+    "normal_workflows": {
+      "items": {
+        "$ref": "#/$defs/ServiceWorkflowBlueprint"
+      },
+      "title": "Normal Workflows",
+      "type": "array"
+    },
+    "seed_data": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Seed Data",
+      "type": "array"
+    },
+    "noise_data": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Noise Data",
+      "type": "array"
+    },
+    "evidence_logs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Logs",
+      "type": "array"
+    },
+    "healthcheck": {
+      "title": "Healthcheck",
+      "type": "string"
+    },
+    "reset": {
+      "title": "Reset",
+      "type": "string"
+    },
+    "safety_boundaries": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Safety Boundaries",
+      "type": "array"
+    },
+    "implementation_notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Implementation Notes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "service",
+    "template",
+    "runtime",
+    "purpose",
+    "healthcheck",
+    "reset"
+  ],
+  "title": "ServiceBuilderBlueprint",
+  "type": "object"
+}

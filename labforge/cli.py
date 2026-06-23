@@ -56,6 +56,12 @@ from .realism import check_realism, realism_profiles_to_markdown, realism_report
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
+from .service_blueprints import (
+    create_service_blueprints,
+    inspect_service_implementation_status,
+    service_blueprints_to_markdown,
+    service_status_to_markdown,
+)
 from .studio import run_studio
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
@@ -682,6 +688,30 @@ def command_services_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_blueprints(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    report = create_service_blueprints(spec, Path(args.out) if args.out else None)
+    if args.out:
+        print(f"Rendered service blueprints: {Path(args.out).resolve()}")
+    elif args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(service_blueprints_to_markdown(report))
+    return 0
+
+
+def command_services_status(args: argparse.Namespace) -> int:
+    spec = LabSpec.load(Path(args.lab))
+    report = inspect_service_implementation_status(spec, Path(args.out) if args.out else None)
+    if args.out:
+        print(f"Rendered service status: {Path(args.out).resolve()}")
+    elif args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(service_status_to_markdown(report))
+    return 0
+
+
 def command_services_agent_packages(args: argparse.Namespace) -> int:
     try:
         get_agent_adapter(args.adapter)
@@ -1215,6 +1245,16 @@ def main(argv: list[str] | None = None) -> int:
     services_plan_parser.add_argument("--out")
     services_plan_parser.add_argument("--format", choices=["text", "json"], default="text")
     services_plan_parser.set_defaults(func=command_services_plan)
+    services_blueprints_parser = services_sub.add_parser("blueprints", help="Create service builder blueprints for each service artifact")
+    services_blueprints_parser.add_argument("lab")
+    services_blueprints_parser.add_argument("--out")
+    services_blueprints_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_blueprints_parser.set_defaults(func=command_services_blueprints)
+    services_status_parser = services_sub.add_parser("status", help="Report blueprint, scaffold, runtime, and test status for service implementations")
+    services_status_parser.add_argument("lab")
+    services_status_parser.add_argument("--out")
+    services_status_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_status_parser.set_defaults(func=command_services_status)
     services_agent_packages_parser = services_sub.add_parser("agent-packages", help="Create per-service service-builder agent packages")
     services_agent_packages_parser.add_argument("lab")
     services_agent_packages_parser.add_argument("--out", required=True)

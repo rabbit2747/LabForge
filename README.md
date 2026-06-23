@@ -75,6 +75,8 @@ python -m labforge services check examples/scenario-02-ad-domain-compromise
 python -m labforge services templates
 python -m labforge services vulnerability-plugins
 python -m labforge services verify examples/scenario-02-ad-domain-compromise
+python -m labforge services blueprints examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-blueprints
+python -m labforge services status examples/scenario-02-ad-domain-compromise
 python -m labforge services plan examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-plan
 python -m labforge services agent-packages examples/scenario-02-ad-domain-compromise --out output/scenario-02-service-agents --adapter manual
 python -m labforge services run-agents output/scenario-02-service-agents --adapter codex --dry-run --service hr-portal
@@ -162,10 +164,17 @@ PowerShell scripts automatically detect whether Docker is available in the
 current shell or in any WSL distro on Windows, then run through the first usable
 runtime. The provider also consumes `service_artifacts` contracts to document
 service build contexts, reset behavior, healthchecks, evidence logs, and safety
-boundaries. `services materialize` can generate safe runnable Docker service
-runtimes from built-in infrastructure templates such as `python-flask-web`,
+boundaries. `services blueprints` now generates service-builder blueprints that
+describe each service's role, API surface, data stores, normal workflows,
+healthcheck/reset contract, evidence logs, and safety boundaries. `services
+materialize` can generate safe runnable Docker service runtimes from built-in
+infrastructure templates such as `python-flask-web`, `business-portal`,
+`internal-admin-console`, `identity-gateway`, `data-api`, `audit-log-service`,
+`message-broker-stub`, `object-store`, `siem-log-viewer`,
 `attacker-workstation-ssh`, and `controlled-drop`, or fall back to a generic
-safe runtime when no template is selected. LabForge does not yet generate full
+safe runtime when no template is selected. `services status` reports whether
+each service is missing, scaffolded, blueprinted, materialized as a runtime, or
+tested. LabForge does not yet generate full
 scenario-specific vulnerable service source code, production VM infrastructure,
 complete Ansible roles, complete Terraform modules, or production-grade
 enforcement logic for WAF, IDS, SIEM, or EDR controls.
@@ -251,6 +260,8 @@ python -m labforge workflow status output/new-lab --provider docker-compose --pr
 python -m labforge services scaffold output/new-lab
 python -m labforge services materialize output/new-lab --force
 python -m labforge services verify output/new-lab
+python -m labforge services blueprints output/new-lab --out output/new-lab-service-blueprints
+python -m labforge services status output/new-lab
 python -m labforge services plan output/new-lab --out output/new-lab-service-plan
 python -m labforge services agent-packages output/new-lab --out output/new-lab-service-agents --adapter manual
 python -m labforge services run-agents output/new-lab-service-agents --adapter claude-code --dry-run

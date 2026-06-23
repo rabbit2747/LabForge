@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .model import LabSpec
 from .service_artifacts import REQUIRED_FILES, RUNTIME_FILES, declared_service_artifacts, service_check
+from .service_blueprints import ServiceBuilderBlueprint
 from .service_templates import template_id_for_artifact
 from .vulnerability_plugins import declared_vulnerability_plugins, get_vulnerability_plugin
 
@@ -78,6 +79,7 @@ def verify_services(spec: LabSpec) -> ServiceVerificationReport:
             continue
         verify_required_file_content(findings, artifact.service, service_root, artifact.source_path)
         verify_runtime_files(findings, artifact.service, service_root, artifact.source_path)
+        verify_blueprint(findings, artifact, service_root, artifact.source_path)
         verify_seed_noise_tests(findings, artifact, service_root, artifact.source_path)
         verify_contract_depth(findings, artifact, service_root, artifact.source_path)
         verify_template_boundaries(findings, artifact, service_root, artifact.source_path)
@@ -159,6 +161,66 @@ def verify_seed_noise_tests(findings: list[ServiceVerificationFinding], artifact
                 category="seed",
                 path=f"{source_path}/seed",
                 message="Seed inputs are declared but the seed directory has no substantive files.",
+            )
+        )
+
+
+def verify_blueprint(findings: list[ServiceVerificationFinding], artifact, service_root: Path, source_path: str) -> None:
+    blueprint_path = service_root / "blueprint.yaml"
+    if not blueprint_path.exists():
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=artifact.service,
+                category="blueprint",
+                path=f"{source_path}/blueprint.yaml",
+                message="Service blueprint is missing. Run `labforge services blueprints` or `labforge services scaffold`.",
+            )
+        )
+        return
+    try:
+        import yaml
+
+        blueprint = ServiceBuilderBlueprint.model_validate(yaml.safe_load(blueprint_path.read_text(encoding="utf-8")) or {})
+    except Exception as exc:  # noqa: BLE001 - report blueprint parse errors.
+        findings.append(
+            ServiceVerificationFinding(
+                severity="error",
+                service=artifact.service,
+                category="blueprint",
+                path=f"{source_path}/blueprint.yaml",
+                message=f"Service blueprint is invalid: {exc}",
+            )
+        )
+        return
+    if not blueprint.routes:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=artifact.service,
+                category="blueprint",
+                path=f"{source_path}/blueprint.yaml",
+                message="Blueprint declares no service routes.",
+            )
+        )
+    if not blueprint.normal_workflows:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=artifact.service,
+                category="blueprint",
+                path=f"{source_path}/blueprint.yaml",
+                message="Blueprint declares no normal business workflow.",
+            )
+        )
+    if not blueprint.data_stores:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=artifact.service,
+                category="blueprint",
+                path=f"{source_path}/blueprint.yaml",
+                message="Blueprint declares no data store.",
             )
         )
     if artifact.noise_inputs and not directory_has_substantive_files(service_root / "noise"):
