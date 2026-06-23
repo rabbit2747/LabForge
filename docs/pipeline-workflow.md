@@ -102,6 +102,12 @@ starts can still validate the live lab.
 The endpoint manifest records learner-visible URLs, SSH connection commands,
 health URLs, override variable names, and internal DNS names in a
 machine-readable form for Studio or external orchestration tools.
+Studio can run safe lifecycle actions against this generated package:
+validate, start, service healthcheck, status, and stop. These actions are fixed
+buttons, not arbitrary shell input. Their last results are written under
+`supervisor-package/lifecycle/studio-*-last.md`, and Studio uses generated
+`LABFORGE_PORT_*` override variables when default published ports are already
+occupied.
 
 When runtime materialization is enabled, the pipeline writes baseline MVP
 service-builder result files from the generated service code and reviews them in

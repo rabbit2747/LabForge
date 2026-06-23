@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import platform
+import socket
+import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,6 +25,7 @@ from .intake import normalize_prompt_text, slugify
 from .io import load_yaml
 from .model import LabSpec
 from .pipeline import create_lab_pipeline
+from .provider_lifecycle import provider_lifecycle, render_lifecycle_result
 from .service_blueprints import inspect_service_implementation_status
 
 
@@ -109,6 +113,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/apply-fix-results"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
                 self.send_json(apply_fix_results(self.studio_workspace, scenario_id, payload))
+                return
+            if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/lifecycle"):
+                scenario_id = parsed.path.strip("/").split("/")[2]
+                self.send_json(run_package_lifecycle(self.studio_workspace, scenario_id, payload))
                 return
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
@@ -305,6 +313,205 @@ def apply_fix_results(workspace: Path, scenario_id: str, payload: dict) -> dict:
     return read_scenario_detail(workspace, scenario_id)
 
 
+def run_package_lifecycle(workspace: Path, scenario_id: str, payload: dict) -> dict:
+    path = safe_scenario_path(workspace, scenario_id)
+    action = str(payload.get("action", "")).strip().lower()
+    if action not in {"validate", "start", "healthcheck", "status", "stop"}:
+        raise ValueError("unsupported lifecycle action")
+    generated_dir = path / "supervisor-package" / "generated"
+    if not generated_dir.exists():
+        raise ValueError("supervisor package has not been generated")
+
+    lifecycle_dir = path / "supervisor-package" / "lifecycle"
+    lifecycle_dir.mkdir(parents=True, exist_ok=True)
+
+    if action == "validate":
+        result = provider_lifecycle(generated_dir, provider="docker-compose", action="validate", execute=True, timeout_seconds=120)
+        result_payload = result.model_dump()
+        report = render_lifecycle_result(result)
+    elif action == "start":
+        env_overrides = allocate_port_overrides(generated_dir)
+        result = provider_lifecycle(
+            generated_dir,
+            provider="docker-compose",
+            action="deploy",
+            execute=True,
+            timeout_seconds=240,
+            env_overrides=env_overrides,
+        )
+        result_payload = result.model_dump()
+        if env_overrides:
+            result_payload["env_overrides"] = env_overrides
+        report = render_lifecycle_result(result)
+        if env_overrides:
+            report += "\n## Environment Overrides\n\n" + "\n".join(f"- `{key}={value}`" for key, value in env_overrides.items()) + "\n"
+    elif action == "stop":
+        result = provider_lifecycle(generated_dir, provider="docker-compose", action="destroy", execute=True, remove_volumes=False, timeout_seconds=120)
+        result_payload = result.model_dump()
+        report = render_lifecycle_result(result)
+    elif action == "status":
+        result = provider_lifecycle(generated_dir, provider="docker-compose", action="status", execute=True, timeout_seconds=60)
+        result_payload = result.model_dump()
+        report = render_lifecycle_result(result)
+    else:
+        result_payload = run_service_healthcheck(generated_dir, timeout_seconds=180)
+        report = lifecycle_payload_to_markdown(result_payload)
+
+    report_path = lifecycle_dir / f"studio-{action}-last.md"
+    json_path = lifecycle_dir / f"studio-{action}-last.json"
+    report_path.write_text(report, encoding="utf-8", newline="\n")
+    json_path.write_text(json.dumps(result_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    detail = read_scenario_detail(workspace, scenario_id)
+    detail["last_lifecycle"] = {
+        "action": action,
+        "status": result_payload.get("status", "unknown"),
+        "report": str(report_path.relative_to(path)),
+        "json": str(json_path.relative_to(path)),
+        "result": result_payload,
+    }
+    return detail
+
+
+def run_service_healthcheck(generated_dir: Path, *, timeout_seconds: int) -> dict:
+    command = fixed_script_command(generated_dir, "services-healthcheck")
+    if not command:
+        return {
+            "provider": "docker-compose",
+            "action": "healthcheck",
+            "mode": "execute",
+            "status": "failed",
+            "output_dir": str(generated_dir.resolve()),
+            "commands": [],
+            "stdout": "",
+            "stderr": "",
+            "message": "services-healthcheck script was not found.",
+        }
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=generated_dir,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return {
+            "provider": "docker-compose",
+            "action": "healthcheck",
+            "mode": "execute",
+            "status": "failed",
+            "output_dir": str(generated_dir.resolve()),
+            "commands": [command],
+            "stdout": stdout,
+            "stderr": stderr,
+            "message": f"Command timed out after {timeout_seconds}s.",
+        }
+    return {
+        "provider": "docker-compose",
+        "action": "healthcheck",
+        "mode": "execute",
+        "status": "completed" if completed.returncode == 0 else "failed",
+        "output_dir": str(generated_dir.resolve()),
+        "commands": [command],
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+        "message": "" if completed.returncode == 0 else f"Command failed with exit code {completed.returncode}.",
+    }
+
+
+def allocate_port_overrides(generated_dir: Path) -> dict[str, str]:
+    manifest_path = generated_dir / "endpoints.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - start can continue without auto overrides.
+        return {}
+    endpoints = manifest.get("published_endpoints", [])
+    if not isinstance(endpoints, list):
+        return {}
+    overrides: dict[str, str] = {}
+    reserved: set[int] = set()
+    for endpoint in endpoints:
+        if not isinstance(endpoint, dict):
+            continue
+        env_name = endpoint.get("override_env")
+        default_port = endpoint.get("default_host_port")
+        if not env_name or not isinstance(default_port, int):
+            continue
+        if is_port_available(default_port, reserved):
+            reserved.add(default_port)
+            continue
+        replacement = find_available_port(19000, reserved)
+        overrides[str(env_name)] = str(replacement)
+        reserved.add(replacement)
+    return overrides
+
+
+def is_port_available(port: int, reserved: set[int]) -> bool:
+    if port in reserved:
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def find_available_port(start: int, reserved: set[int]) -> int:
+    for port in range(start, 65535):
+        if is_port_available(port, reserved):
+            return port
+    raise ValueError("no available TCP port found for Studio lifecycle start")
+
+
+def fixed_script_command(generated_dir: Path, script_name: str) -> list[str] | None:
+    if platform.system().lower() == "windows":
+        script = generated_dir / "scripts" / f"{script_name}.ps1"
+        if script.exists():
+            return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)]
+    script = generated_dir / "scripts" / f"{script_name}.sh"
+    if script.exists():
+        return ["sh", str(script)]
+    return None
+
+
+def lifecycle_payload_to_markdown(result: dict) -> str:
+    lines = [
+        "# Provider Lifecycle Result",
+        "",
+        f"- Provider: `{result.get('provider', '-')}`",
+        f"- Action: `{result.get('action', '-')}`",
+        f"- Mode: `{result.get('mode', '-')}`",
+        f"- Status: `{result.get('status', '-')}`",
+        f"- Output directory: `{result.get('output_dir', '-')}`",
+        f"- Host OS: `{platform.system()}`",
+        "",
+        "## Commands",
+        "",
+    ]
+    commands = result.get("commands") or []
+    if commands:
+        lines.extend(f"- `{' '.join(command)}`" for command in commands)
+    else:
+        lines.append("- No commands planned.")
+    if result.get("message"):
+        lines += ["", "## Message", "", str(result["message"])]
+    if result.get("stdout"):
+        lines += ["", "## Stdout", "", "```text", str(result["stdout"]).strip(), "```"]
+    if result.get("stderr"):
+        lines += ["", "## Stderr", "", "```text", str(result["stderr"]).strip(), "```"]
+    lines.append("")
+    return "\n".join(lines)
+
+
 def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     path = safe_scenario_path(workspace, scenario_id)
     summary = summarize_scenario(path).model_dump()
@@ -352,6 +559,11 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Supervisor Package", "supervisor-package/package-report.md"),
         ("Quickstart", "supervisor-package/generated/QUICKSTART.md"),
         ("Endpoint Manifest", "supervisor-package/generated/endpoints.json"),
+        ("Last Validate", "supervisor-package/lifecycle/studio-validate-last.md"),
+        ("Last Start", "supervisor-package/lifecycle/studio-start-last.md"),
+        ("Last Healthcheck", "supervisor-package/lifecycle/studio-healthcheck-last.md"),
+        ("Last Status", "supervisor-package/lifecycle/studio-status-last.md"),
+        ("Last Stop", "supervisor-package/lifecycle/studio-stop-last.md"),
         ("Provider README", "supervisor-package/generated/README.md"),
         ("Docker Compose", "supervisor-package/generated/docker-compose.yml"),
         ("Workflow Report", "workflow/workflow-report.md"),
@@ -579,6 +791,19 @@ def render_studio_html() -> str:
           <div id="endpointSummary">${renderEndpoints(s.endpoints || {})}</div>
         </div>
         <div class="panel">
+          <div class="toolbar">
+            <h2>Runtime Lifecycle</h2>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button data-lifecycle="validate">Validate</button>
+              <button data-lifecycle="start" class="primary">Start</button>
+              <button data-lifecycle="healthcheck">Healthcheck</button>
+              <button data-lifecycle="status">Status</button>
+              <button data-lifecycle="stop">Stop</button>
+            </div>
+          </div>
+          <pre id="lifecycleViewer">${renderLifecycleSummary(s.last_lifecycle)}</pre>
+        </div>
+        <div class="panel">
           <h2>Fix Tasks</h2>
           <div id="fixTasks">${renderFixTasks(s.fix_tasks || [])}</div>
         </div>
@@ -592,6 +817,7 @@ def render_studio_html() -> str:
       document.getElementById('reviewFixResults').onclick = () => reviewFixResults(s.scenario_id);
       document.getElementById('applyFixResults').onclick = () => applyFixResults(s.scenario_id);
       detail.querySelectorAll('[data-report]').forEach(btn => btn.onclick = () => loadReport(s.scenario_id, decodeURIComponent(btn.dataset.report)));
+      detail.querySelectorAll('[data-lifecycle]').forEach(btn => btn.onclick = () => runLifecycle(s.scenario_id, btn.dataset.lifecycle, btn));
     }
 
     async function runReview(id) {
@@ -676,6 +902,28 @@ def render_studio_html() -> str:
     async function loadReport(id, path) {
       const res = await fetch(`/api/scenarios/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`);
       document.getElementById('reportViewer').textContent = await res.text();
+    }
+
+    async function runLifecycle(id, action, btn) {
+      btn.disabled = true;
+      const oldText = btn.textContent;
+      btn.textContent = `${oldText}...`;
+      const viewer = document.getElementById('lifecycleViewer');
+      viewer.textContent = `Running ${action}...`;
+      try {
+        const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/lifecycle`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ action })
+        });
+        renderDetail(detail);
+        await loadScenarios();
+      } catch (err) {
+        viewer.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
     }
 
     document.getElementById('promptFile').addEventListener('change', async (event) => {
@@ -791,6 +1039,20 @@ def render_studio_html() -> str:
           <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Service</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">DNS</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Networks</th></tr></thead>
           <tbody>${internalRows}</tbody>
         </table>`;
+    }
+    function renderLifecycleSummary(item) {
+      if (!item) return 'No lifecycle action has been executed from Studio yet.';
+      const result = item.result || {};
+      const commands = (result.commands || []).map(cmd => Array.isArray(cmd) ? cmd.join(' ') : String(cmd)).join('\n');
+      return [
+        `action: ${item.action}`,
+        `status: ${item.status}`,
+        `report: ${item.report}`,
+        commands ? `commands:\n${commands}` : '',
+        result.message ? `message:\n${result.message}` : '',
+        result.stdout ? `stdout:\n${result.stdout}` : '',
+        result.stderr ? `stderr:\n${result.stderr}` : ''
+      ].filter(Boolean).join('\n\n');
     }
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

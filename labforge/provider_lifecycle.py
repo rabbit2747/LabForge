@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -35,6 +36,7 @@ def provider_lifecycle(
     execute: bool = False,
     remove_volumes: bool = False,
     timeout_seconds: int = 60,
+    env_overrides: dict[str, str] | None = None,
 ) -> ProviderLifecycleResult:
     output_dir = output_dir.resolve()
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
@@ -73,17 +75,33 @@ def provider_lifecycle(
 
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
+    child_env = os.environ.copy()
+    if env_overrides:
+        child_env.update(env_overrides)
     for command in commands:
         try:
             completed = subprocess.run(
                 command,
                 cwd=output_dir,
+                env=child_env,
                 check=False,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout_seconds,
+            )
+        except OSError as exc:
+            return ProviderLifecycleResult(
+                provider=provider,
+                action=action,
+                mode=mode,
+                status="failed",
+                output_dir=str(output_dir),
+                commands=commands,
+                stdout="\n".join(part for part in stdout_parts if part),
+                stderr="\n".join(part for part in stderr_parts if part),
+                message=f"Command could not be started: {' '.join(command)} ({exc})",
             )
         except subprocess.TimeoutExpired as exc:
             stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
@@ -157,12 +175,12 @@ def lifecycle_script(
     *,
     remove_volumes: bool = False,
 ) -> list[str] | None:
-    if action == "status":
-        return None
     if action == "validate":
         script_name = "validate"
     elif action == "deploy":
         script_name = "start"
+    elif action == "status":
+        script_name = "status"
     else:
         script_name = "destroy" if remove_volumes else "stop"
     if platform.system().lower() == "windows":

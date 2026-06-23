@@ -25,7 +25,7 @@ From those files, LabForge currently generates:
 
 - `docker-compose.yml`
 - Docker Compose security-control scaffolds for selected protected controls
-- Docker Compose runtime scripts for validate, start, stop, and reset
+- Docker Compose runtime scripts for validate, start, status, stop, and reset
 - Docker Compose `QUICKSTART.md` and `endpoints.json` for startup commands,
   URLs, SSH commands, and port overrides
 - student/supervisor README
@@ -171,7 +171,7 @@ interface has a working `docker-compose` provider plus skeleton `ansible`,
 Jinja2 templates and can emit `unprotected` and `protected` architecture views.
 The Docker Compose provider can materialize selected protected controls as safe
 control scaffold services with labels, networks, and log volumes. It also emits
-PowerShell and shell runtime scripts for validation, start, stop, and reset;
+PowerShell and shell runtime scripts for validation, start, status, stop, and reset;
 PowerShell scripts automatically detect whether Docker is available in the
 current shell or in any WSL distro on Windows, then run through the first usable
 runtime. The Docker Compose provider also emits a generated `QUICKSTART.md`
@@ -281,9 +281,12 @@ supervisors. Studio can create scenarios from natural-language text, load a
 prompt from a local file into the form, list multiple scenario workspaces, show
 which design step is complete, run design review, generate fix tasks, package
 fix tasks, review fix-agent results, dry-run fix-result application, display
-generated reports, and show generated endpoint manifests with learner-visible
-URLs, SSH commands, health URLs, internal DNS names, and port override
-variables.
+generated reports, show generated endpoint manifests with learner-visible URLs,
+SSH commands, health URLs, internal DNS names, and port override variables, and
+run safe provider lifecycle actions for the generated supervisor package:
+validate, start, service healthcheck, status, and stop. Studio uses the
+generated `LABFORGE_PORT_*` variables to avoid occupied default ports when it
+starts a Docker Compose lab.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system
