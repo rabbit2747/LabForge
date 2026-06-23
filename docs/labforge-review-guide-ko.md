@@ -811,41 +811,40 @@ examples/scenario-02-ad-domain-compromise
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
 - generated `docker-compose.yml`은 runnable MVP runtime을 실행할 수 있으며, 지원되지 않는 취약 서비스 구현과 시나리오 고유 체인은 service builder 또는 agent가 확장해야 한다.
 
-## 14. 수정된 개발 단계 제안
+## 14. MVP 이후 개발 우선순위
 
-LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오 제작 방식 자체에 포함되어야 한다. 따라서 기존의 provider 고도화 중심 계획을 다음 순서로 재정렬한다.
+MVP는 자연어 시나리오를 받아 검증 가능한 runnable package까지 생성할 수 있음을 증명했다.
+이후 개발은 구현이 쉬운 순서가 아니라, LabForge가 실제 프리미엄 실습 제작 프레임워크가 되기 위해 중요한 순서로 진행한다.
 
-1. Core Spec / Validation
+1. 취약점/공격기법 scaffold 확장
 
-   `scenario.yaml`, `topology.yaml`, `stages.yaml`, v0.2 선택 파일, pydantic 검증, JSON Schema export를 안정화한다.
+   현재 일부 취약점은 안전한 MVP scaffold 수준이다.
+   다음 단계에서는 각 취약점/공격기법 scaffold가 실제 서비스처럼 보이는 라우트, 정상 업무 흐름, 데이터, 로그, reset hook, healthcheck, evidence log를 포함해야 한다.
+   학습자가 “문제용 엔드포인트”를 누르는 느낌이 아니라 실제 기업 서비스의 기능을 오용하거나 취약점을 발견하는 느낌을 받아야 한다.
 
-2. Runtime Awareness
+2. LLM agent orchestration 고도화
 
-   `doctor`와 `plan`을 통해 Windows, WSL, Docker, VM, hybrid 실행 위치를 판단한다.
+   전체 Orchestrator LLM과 specialist agent를 명확히 분리한다.
+   필요한 agent는 scenario designer, MITRE mapper, industry realism reviewer, security-control architect, infrastructure architect, provider engineer, service builder, QA/playtest reviewer 등이다.
+   각 agent는 system prompt, task prompt, 입력 산출물, 출력 schema, supervisor review gate를 가져야 한다.
 
-3. Agent Orchestration Foundation
+3. 실제 lab 품질 검증 루프 강화
 
-   Orchestrator LLM과 전문 agent 구조를 도입하기 위한 dry-run 기반을 만든다. 실제 LLM 호출 전에도 agent role, task, output, decision artifact가 생성되어야 한다.
+   “생성됨”은 완료가 아니다.
+   생성된 lab은 실제 실행, 접속 가능성, 풀이 가능성, reset 안정성, 현실성, CTF스러운 문구, 과도한 힌트, 끊어진 링크, 서비스 healthcheck, learner entrypoint까지 검증되어야 한다.
+   가능하면 자동 검증과 사람/LLM 기반 플레이테스트를 함께 사용한다.
 
-4. Provider Execution Layer
+4. 산업군별 현실성 검사 심화
 
-   Docker Compose runtime script는 1차 구현되었다. Hybrid/Ludus/Ansible/Terraform provider는 deterministic skeleton 산출물을 생성한다. 다음에는 provider별 실제 deploy/destroy와 VM/AD provisioning을 고도화한다.
+   단순 키워드 검사가 아니라 전용 industry realism agent가 인프라, 서비스, UI, 업무 기능, 데이터, noise, 보안장치, 배포 모델을 모두 검토해야 한다.
+   예를 들어 증권사 또는 금융권 시나리오라면 HTS/MTS 성격의 고객 채널, 주문계, 계좌계, FDS, 망분리, 배치 서버, 보안관제, 감사/컴플라이언스 데이터를 확인해야 한다.
+   산업군 이름만 붙은 일반 CTF형 구성을 통과시키면 안 된다.
 
-5. Service Artifact Standard
+5. Docker 외 provider 확장
 
-   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다. `services materialize`는 지원 플러그인에 대해 lab-scoped 취약 동작이 포함된 scenario-derived MVP runtime을 생성한다.
-
-6. LLM Adapter
-
-   `manual` adapter는 구현되었다. OpenAI, Claude CLI, MCP adapter는 registry slot만 있으며 실제 live execution은 아직 붙이지 않는다.
-
-7. Scenario Production
-
-   scenario 02-10을 LabForge YAML로 변환하고 agent-assisted QA loop를 적용한다.
-
-8. Orion Echo Rebuild Verification
-
-   기존 Orion Echo 산출물을 그대로 복제하지 않는다. Orion Echo 시나리오와 학습 목표를 LabForge 방식으로 재제작하고, 실습 체인이 정확히 동작하는지 검증한다.
+   Docker Compose provider는 MVP 실행 경로로 검증되었다.
+   AD, Windows Server, Proxmox, Terraform, Ansible, Ludus, hybrid VM 환경은 Docker만으로 표현하기 어려운 시나리오를 위해 고도화해야 한다.
+   이 단계의 목표는 provider plan만 만드는 것이 아니라, 감독자가 선택한 실행 환경에서 실제 배포/초기화/리셋/제거까지 가능한 provider로 발전시키는 것이다.
 
 ## 15. 사용 예시 전체 흐름
 

@@ -211,6 +211,33 @@ and schemas for named-scenario markers. It keeps examples such as Orion Echo as
 scenario inputs or regression fixtures, not as hidden branches in framework
 core.
 
+## Post-MVP Development Priorities
+
+The MVP proves that a natural-language scenario can become a verified runnable
+package. The next work is ordered by the current product priority:
+
+1. Expand vulnerability and attack-technique scaffolds. Supported scaffolds
+   should move from generic starters toward realistic, lab-scoped service
+   behavior with believable routes, data, operational noise, reset hooks, and
+   evidence logs.
+2. Improve LLM agent orchestration. The Orchestrator LLM and specialist agents
+   should be separated into explicit scenario, MITRE, industry-realism,
+   security-control, infrastructure, provider, implementation, and QA roles with
+   reviewable contracts.
+3. Strengthen lab quality verification. A generated lab must be tested for
+   runtime behavior, learner reachability, solution-path plausibility, industry
+   realism, anti-CTF wording, and reset reliability before learner delivery.
+4. Deepen industry-specific realism review. Specialist reviewers must judge the
+   actual infrastructure, services, UI, workflows, data, security controls, and
+   deployment model for the declared industry. For example, a securities or
+   banking lab should account for HTS/MTS-like customer channels, order
+   management, account systems, fraud detection, network separation, batch
+   operations, and security monitoring instead of accepting a few finance
+   keywords.
+5. Extend non-Docker providers. AD, Windows Server, Proxmox, Terraform,
+   Ansible, Ludus, and hybrid VM environments must become practical provider
+   targets when Docker alone cannot represent the scenario.
+
 The `intake from-prompt` command starts from a natural-language scenario idea.
 It preserves the original prompt, infers a conservative `scenario-intake.yaml`,
 analyzes prompt clues into `prompt-analysis.yaml` and `prompt-analysis.md`, and
