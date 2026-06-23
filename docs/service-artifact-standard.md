@@ -161,6 +161,9 @@ Current minimum-runnable vulnerability scaffolds:
 - `idor-object-access`
 - `ssrf-internal-fetch`
 - `diagnostic-command-injection`
+- `build-pipeline-abuse`
+- `signed-update-publish`
+- `customer-update-callback`
 
 Validate that every declared service artifact has a matching implementation
 directory and required files:

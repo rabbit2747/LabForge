@@ -575,6 +575,54 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                 }
             )
 
+    supply_chain_terms = [
+        "supply chain",
+        "trusted build",
+        "build pipeline",
+        "release pipeline",
+        "release",
+        "signing",
+        "signed manifest",
+        "update channel",
+        "customer agent",
+        "software update",
+        "pipeline",
+        "공급망",
+        "빌드",
+        "배포",
+        "서명",
+        "업데이트",
+    ]
+    if any(term in scenario_text for term in supply_chain_terms):
+        if any(word in service_text for word in ["build", "pipeline", "release-console", "release", "ci", "cd"]):
+            plugins.append(
+                {
+                    "id": "build-pipeline-abuse",
+                    "repo": "example/product-agent",
+                    "ref": "refs/heads/release/lab",
+                    "channel": "training",
+                    "patch_ref_field": "support_patch_ref",
+                }
+            )
+        if any(word in service_text for word in ["sign", "update", "release-console", "release", "publish"]):
+            plugins.append(
+                {
+                    "id": "signed-update-publish",
+                    "channel": "training",
+                    "signing_identity": "lab-release-signing",
+                    "manifest_contract": ["product", "channel", "version", "build_id", "artifact", "signature"],
+                }
+            )
+        if any(word in service_text for word in ["customer", "agent", "app", "api"]):
+            plugins.append(
+                {
+                    "id": "customer-update-callback",
+                    "channel": "training",
+                    "final_dataset": "LABFORGE_SYNTHETIC_SUPPLY_CHAIN_EXPORT",
+                    "callback_scope": "lab-internal learner callback",
+                }
+            )
+
     return plugins
 
 

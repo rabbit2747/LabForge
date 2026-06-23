@@ -187,9 +187,12 @@ Initial built-in plugin contracts:
 | --- | --- |
 | `ssti-preview` | minimum runnable Flask scaffold |
 | `stored-xss-review` | minimum runnable Flask scaffold |
-| `idor-object-access` | contract only |
-| `ssrf-internal-fetch` | contract only |
-| `diagnostic-command-injection` | contract only |
+| `idor-object-access` | minimum runnable Flask scaffold |
+| `ssrf-internal-fetch` | minimum runnable Flask scaffold |
+| `diagnostic-command-injection` | minimum runnable Flask scaffold |
+| `build-pipeline-abuse` | minimum runnable Flask scaffold |
+| `signed-update-publish` | minimum runnable Flask scaffold |
+| `customer-update-callback` | minimum runnable Flask scaffold |
 
 LabForge does not try to scaffold every vulnerability at once. New scaffold
 coverage should be added only when the generated behavior can be realistic,

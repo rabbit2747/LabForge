@@ -381,6 +381,14 @@ python -m labforge provider status output/qa-smoke/provider-output --provider do
 python -m labforge provider destroy output/qa-smoke/provider-output --provider docker-compose --volumes
 ```
 
+Supported minimum-runnable vulnerability scaffolds include web-entry behaviors
+(`ssti-preview`, `stored-xss-review`, `idor-object-access`,
+`ssrf-internal-fetch`, `diagnostic-command-injection`) and supply-chain workflow
+behaviors (`build-pipeline-abuse`, `signed-update-publish`,
+`customer-update-callback`). These are generic lab-scoped starters: scenario
+authors and service-builder agents still adapt UI, data, noise, and stage logic
+for the specific target organization.
+
 Release gates are stricter than smoke checks. Warnings from lint or service
 verification fail the gate, which is useful before a lab is handed to learners:
 
