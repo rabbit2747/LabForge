@@ -220,8 +220,9 @@ natural language. It creates the design workspace, runs the first supervisor
 review, packages design correction tasks for specialist agents, scaffolds
 service artifacts, renders service blueprints, creates the service
 implementation plan, materializes safe starter runtimes, packages
-service-builder agent tasks, verifies service quality gates, executes supported
-plugin runtime smoke checks, creates the runnable supervisor package, and writes
+service-builder agent tasks, reviews whether service-builder results are ready
+to apply, verifies service quality gates, executes supported plugin runtime
+smoke checks, creates the runnable supervisor package, and writes
 `pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
 It also writes a supervisor gate bundle: `pipeline-gate.md`,
 `pipeline-gate.yaml`, and `pipeline-gate.json`, plus

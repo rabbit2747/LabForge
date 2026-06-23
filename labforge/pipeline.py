@@ -13,7 +13,7 @@ from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .packaging import create_supervisor_package
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
-from .service_artifacts import materialize_service_runtimes, scaffold_service_artifacts
+from .service_artifacts import materialize_service_runtimes, review_service_results, scaffold_service_artifacts, service_result_batch_review_to_markdown
 from .service_blueprints import create_service_blueprints, inspect_service_implementation_status
 from .service_verification import verify_services
 from .workflow import create_workflow_report, workflow_report_to_markdown
@@ -226,6 +226,37 @@ def create_lab_pipeline(
                 summary="Skipped by request.",
             )
         )
+
+    service_result_review_dir = out / "service-result-review"
+    service_result_review_dir.mkdir(parents=True, exist_ok=True)
+    service_result_review = review_service_results(spec, service_agent_dir / ".ai" / "outputs", force=True)
+    write_text(service_result_review_dir / "service-result-review.md", service_result_batch_review_to_markdown(service_result_review))
+    write_text(service_result_review_dir / "service-result-review.yaml", dump_yaml(service_result_review.model_dump()))
+    steps.append(
+        PipelineStepResult(
+            id="service-result-review",
+            title="Review service-builder result readiness",
+            status=(
+                "done"
+                if service_result_review.status == "ready"
+                else ("failed" if service_result_review.status == "failed" else "warning")
+            ),
+            summary=(
+                f"Service result review status: {service_result_review.status}; "
+                f"ready={service_result_review.ready_count}, needs_review={service_result_review.needs_review_count}, "
+                f"failed={service_result_review.failed_count}."
+            ),
+            artifacts=[
+                str(service_result_review_dir / "service-result-review.md"),
+                str(service_result_review_dir / "service-result-review.yaml"),
+            ],
+            warnings=[
+                f"{review.service or 'unknown'}:{review.status}:{'; '.join(review.errors) or 'review required'}"
+                for review in service_result_review.reviews
+                if review.status != "ready"
+            ][:20],
+        )
+    )
 
     verification_dir = out / "service-verification"
     verification_dir.mkdir(parents=True, exist_ok=True)
@@ -575,6 +606,35 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
             required_action="Run `python -m labforge services agent-packages <lab> --out <workspace>/service-agents`." if not service_packages else "Run service-builder agents and review results." if not service_results else "",
         )
     )
+
+    service_result_review_path = workspace / "service-result-review" / "service-result-review.yaml"
+    if service_result_review_path.exists():
+        service_result_review = load_yaml(service_result_review_path)
+        review_status = str(service_result_review.get("status", "failed"))
+        items.append(
+            PipelineGateItem(
+                name="service-result-review",
+                status="passed" if review_status == "ready" else ("failed" if review_status == "failed" else "warning"),
+                evidence=[
+                    f"status={review_status}",
+                    f"ready={service_result_review.get('ready_count', 'unknown')}",
+                    f"needs_review={service_result_review.get('needs_review_count', 'unknown')}",
+                    f"failed={service_result_review.get('failed_count', 'unknown')}",
+                ],
+                required_action="Run service-builder agents, then `python -m labforge services review-results ...` until service results are ready."
+                if review_status != "ready"
+                else "",
+            )
+        )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="service-result-review",
+                status="missing",
+                evidence=[str(service_result_review_path)],
+                required_action="Run `python -m labforge services review-results <lab> --results <workspace>/service-agents/.ai/outputs --force`.",
+            )
+        )
 
     if any(item.status == "failed" for item in items):
         decision: PipelineGateDecision = "blocked"

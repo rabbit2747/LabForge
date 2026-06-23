@@ -42,6 +42,7 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 | Service plan | `service-plan/` | Split service implementation into agent-ready tasks. |
 | Runtime materialization | per-service runtime files | Create safe starter service runtimes for early provider and QA testing. |
 | Service agent packages | `service-agents/.ai/service-build/` | Package service-builder prompts and result stubs. |
+| Service result review | `service-result-review/` | Review service-builder result stubs or outputs and report whether they are ready to apply. |
 | Service verification | `service-verification/` | Check runtime, blueprint, scaffold, tests, and hook readiness. |
 | Plugin runtime smoke | `plugin-runtime-smoke/` | Import generated MVP services and execute supported lab-scoped plugin routes with Flask test clients. |
 | Service status | `service-status/` | Summarize whether each service is missing, scaffolded, blueprinted, runtime-ready, or tested. |
