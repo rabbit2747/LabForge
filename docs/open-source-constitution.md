@@ -71,6 +71,15 @@ it can work across different learner, supervisor, and infrastructure machines.
     not hard-code final answers, exact exploit commands, magic scoring strings,
     or one fixed learner solution path.
 
+12. Never change the framework through scenario-specific hooks.
+
+    Do not add framework code paths, provider branches, parser exceptions,
+    hidden mappings, or hooks that exist only to make one named scenario work.
+    A scenario such as Orion Echo may be used as a regression fixture, but the
+    framework must improve through general contracts, schemas, plugins,
+    providers, validators, or agent workflows that can apply to other scenarios
+    with the same structure.
+
 ## Review Checklist
 
 Before merging a change, check:
@@ -84,4 +93,6 @@ Before merging a change, check:
   applicable?
 - Do templates provide reusable infrastructure parts rather than reusable
   puzzle answers?
+- Does the change avoid scenario-specific hooks, hidden mappings, or hard-coded
+  behavior for one named lab?
 - Are local-only reference materials excluded from commits?

@@ -65,6 +65,10 @@ LabForge는 다음 원칙을 따른다.
 
    이 프레임워크는 단순 문제 제작기가 아니라 MITRE 기반 교육 콘텐츠 제작 도구다.
 
+6. 특정 시나리오 전용 hook으로 프레임워크를 바꾸지 않는다.
+
+   Orion Echo 같은 기존 시나리오는 회귀 검증 입력이나 예시로 사용할 수 있다. 하지만 LabForge core, provider, parser, validator, template, agent workflow에 특정 시나리오 이름을 위한 예외 분기, 숨은 매핑, 고정값, 전용 hook을 넣어서는 안 된다. 어떤 시나리오를 만들다가 프레임워크 개선이 필요해지면, 그 개선은 schema, plugin contract, provider capability, validator rule, agent workflow처럼 다른 시나리오에도 적용 가능한 일반 기능으로 추상화해야 한다.
+
 ## 4. 현재 구현 범위
 
 현재 구현된 MVP 기능은 다음과 같다.

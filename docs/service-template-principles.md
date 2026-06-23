@@ -50,6 +50,17 @@ Do not put these in reusable templates:
 - hidden grader-only names that learners cannot infer
 - one fixed chain such as web bug -> internal API -> object store -> drop
 
+## No Scenario-Specific Framework Hooks
+
+Do not add framework branches, provider exceptions, parser shortcuts, hidden
+mappings, or template hooks that exist only to make one named scenario work.
+
+A scenario such as Orion Echo may be used as a regression fixture, example
+input, or quality bar. It must not become a special case in LabForge core. If a
+scenario reveals a missing capability, add a general schema field, plugin
+contract, provider capability, validation rule, template feature, or agent
+workflow that can apply to any scenario with the same structure.
+
 ## Good Template Metadata
 
 ```yaml
