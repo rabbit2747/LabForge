@@ -287,11 +287,12 @@ run safe provider lifecycle actions for the generated supervisor package:
 validate, start, service healthcheck, status, and stop. Studio uses the
 generated `LABFORGE_PORT_*` variables to avoid occupied default ports when it
 starts a Docker Compose lab, then updates the endpoint panel with the effective
-runtime URLs and SSH ports actually used for that run. Studio can also run the
-strict release gate for the selected scenario and display the release readiness
-checks beside the runtime controls, so a supervisor can move from natural
-language intake to runnable package validation and final readiness review in one
-web console.
+runtime URLs and SSH ports actually used for that run. Studio also surfaces the
+pipeline supervisor gate decision, blocking items, and next commands, then can
+run the strict release gate for the selected scenario and display the release
+readiness checks beside the runtime controls. A supervisor can move from
+natural-language intake to runnable package validation and final readiness
+review in one web console.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system

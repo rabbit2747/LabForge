@@ -642,6 +642,7 @@ def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     summary["fix_tasks"] = read_fix_tasks(path)
     summary["service_status"] = read_service_status(path)
     summary["endpoints"] = read_endpoint_manifest(path)
+    summary["pipeline_gate"] = read_pipeline_gate_summary(path)
     summary["release_gate"] = read_release_gate_summary(path)
     return summary
 
@@ -698,6 +699,37 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Agent Review", "review/agent-review.md"),
     ]
     return [{"name": name, "path": rel} for name, rel in candidates if (path / rel).exists()]
+
+
+def read_pipeline_gate_summary(path: Path) -> dict:
+    report_path = path / "pipeline-gate.yaml"
+    if not report_path.exists():
+        return {}
+    try:
+        data = load_yaml(report_path)
+    except Exception as exc:  # noqa: BLE001 - optional Studio metadata must not hide the scenario.
+        return {"decision": "error", "ready_for_supervisor": False, "ready_for_release_gate": False, "error": str(exc)}
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        items = []
+    next_commands = data.get("next_commands", [])
+    if not isinstance(next_commands, list):
+        next_commands = []
+    blockers = [
+        item
+        for item in items
+        if isinstance(item, dict) and str(item.get("status", "")).lower() in {"failed", "missing", "warning"}
+    ]
+    return {
+        "decision": str(data.get("decision", "unknown")),
+        "ready_for_supervisor": bool(data.get("ready_for_supervisor", False)),
+        "ready_for_release_gate": bool(data.get("ready_for_release_gate", False)),
+        "items": items,
+        "blockers": blockers,
+        "next_commands": [str(command) for command in next_commands],
+        "report": "pipeline-gate.md",
+        "yaml": "pipeline-gate.yaml",
+    }
 
 
 def read_release_gate_summary(path: Path) -> dict:
@@ -936,6 +968,10 @@ def render_studio_html() -> str:
         <div class="panel">
           <h2>Generated Endpoints</h2>
           <div id="endpointSummary">${renderEndpoints(s.endpoints || {})}</div>
+        </div>
+        <div class="panel">
+          <h2>Supervisor Gate</h2>
+          <div id="pipelineGateSummary">${renderPipelineGateSummary(s.pipeline_gate || {})}</div>
         </div>
         <div class="panel">
           <div class="toolbar">
@@ -1220,6 +1256,33 @@ def render_studio_html() -> str:
           <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Service</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">DNS</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Networks</th></tr></thead>
           <tbody>${internalRows}</tbody>
         </table>`;
+    }
+    function renderPipelineGateSummary(gate) {
+      if (!gate || !gate.decision) return '<div class="empty">No pipeline gate has been generated yet.</div>';
+      const blockers = gate.blockers || [];
+      const nextCommands = gate.next_commands || [];
+      const blockerRows = blockers.length ? blockers.map(item => {
+        const evidence = (item.evidence || []).join(' | ') || '-';
+        return `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(item.name)}</code></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="status ${item.status === 'passed' ? 'passed' : ''}">${escapeHtml(item.status)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="meta">${escapeHtml(evidence)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="meta">${escapeHtml(item.required_action || '-')}</span></td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="4" style="padding:8px;">No blocking gate items.</td></tr>';
+      const commands = nextCommands.length ? `<pre style="min-height:0;max-height:220px;">${escapeHtml(nextCommands.join('\\n'))}</pre>` : '<div class="empty">No next command suggested.</div>';
+      return `
+        <div class="meta" style="margin-bottom:10px;">
+          <span class="status ${gate.ready_for_release_gate ? 'passed' : ''}">decision ${escapeHtml(gate.decision)}</span>
+          <span>supervisor ${gate.ready_for_supervisor ? 'ready' : 'not ready'}</span>
+          <span>release gate ${gate.ready_for_release_gate ? 'ready' : 'not ready'}</span>
+        </div>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:14px;">
+          <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Item</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Status</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Evidence</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Required Action</th></tr></thead>
+          <tbody>${blockerRows}</tbody>
+        </table>
+        <h3 style="font-size:14px;margin:0 0 8px;">Next Commands</h3>
+        ${commands}`;
     }
     function renderLifecycleSummary(item) {
       if (!item) return 'No lifecycle action has been executed from Studio yet.';

@@ -118,7 +118,8 @@ when needed, requires the generated industry-realism reviewer evidence, writes
 `release-gate/release-gate-report.md` and
 `release-gate/release-gate-report.yaml`, and displays the individual readiness
 checks in the Release Gate panel. This keeps the human supervisor workflow in
-one place: create the full pipeline, inspect generated endpoints, start and
+one place: create the full pipeline, inspect the Supervisor Gate decision,
+blocking items, and next commands, inspect generated endpoints, start and
 healthcheck the lab, then run the final release readiness gate before learner
 delivery.
 

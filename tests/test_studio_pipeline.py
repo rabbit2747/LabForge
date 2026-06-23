@@ -32,6 +32,10 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(any(step["name"] == "Supervisor package" and step["complete"] for step in detail["steps"]))
             self.assertTrue(any(report["name"] == "Quickstart" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Endpoint Manifest" for report in detail["reports"]))
+            self.assertEqual(detail["pipeline_gate"]["decision"], "release-candidate")
+            self.assertTrue(detail["pipeline_gate"]["ready_for_supervisor"])
+            self.assertTrue(detail["pipeline_gate"]["ready_for_release_gate"])
+            self.assertTrue(detail["pipeline_gate"]["next_commands"])
 
             release_detail = run_release_gate_for_scenario(workspace, scenario_id, {})
             gate = release_detail["last_release_gate"]
