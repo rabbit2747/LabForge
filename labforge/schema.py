@@ -7,6 +7,7 @@ from .io import write_text
 from .agent_adapters import ADAPTER_SCHEMA_MODELS
 from .adapter_smoke import ADAPTER_SMOKE_SCHEMA_MODELS
 from .agent_orchestration import AGENT_SCHEMA_MODELS
+from .design import DESIGN_SCHEMA_MODELS
 from .implementation_plan import IMPLEMENTATION_SCHEMA_MODELS
 from .intake import INTAKE_SCHEMA_MODELS
 from .linting import LINT_SCHEMA_MODELS
@@ -27,6 +28,7 @@ def export_schemas(out: Path) -> list[Path]:
         **AGENT_SCHEMA_MODELS,
         **ADAPTER_SCHEMA_MODELS,
         **ADAPTER_SMOKE_SCHEMA_MODELS,
+        **DESIGN_SCHEMA_MODELS,
         **IMPLEMENTATION_SCHEMA_MODELS,
         **INTAKE_SCHEMA_MODELS,
         **QA_SCHEMA_MODELS,

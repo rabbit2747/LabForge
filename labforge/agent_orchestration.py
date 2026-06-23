@@ -327,7 +327,13 @@ def orchestration_manifest(spec: LabSpec) -> dict[str, Any]:
     }
 
 
-def task_manifest(spec: LabSpec, role: AgentRole, order: int) -> dict[str, Any]:
+def task_manifest(
+    spec: LabSpec,
+    role: AgentRole,
+    order: int,
+    *,
+    extra_context_files: list[str] | None = None,
+) -> dict[str, Any]:
     context_files = [
         "scenario.yaml",
         "topology.yaml",
@@ -339,6 +345,8 @@ def task_manifest(spec: LabSpec, role: AgentRole, order: int) -> dict[str, Any]:
         "supervisor-selection.yaml",
         "providers/",
     ]
+    if extra_context_files:
+        context_files.extend(item for item in extra_context_files if item not in context_files)
     if role.agent_id == "industry-realism-reviewer":
         context_files.extend(
             [
@@ -367,7 +375,7 @@ def task_manifest(spec: LabSpec, role: AgentRole, order: int) -> dict[str, Any]:
     }
 
 
-def scaffold_agent_workspace(spec: LabSpec, out: Path) -> list[Path]:
+def scaffold_agent_workspace(spec: LabSpec, out: Path, *, extra_context_files: list[str] | None = None) -> list[Path]:
     written: list[Path] = []
     base = out / ".ai"
     prompts = base / "prompts"
@@ -398,7 +406,7 @@ def scaffold_agent_workspace(spec: LabSpec, out: Path) -> list[Path]:
         written.append(task_prompt_path)
 
         task_path = tasks / f"{order:02d}-{role.agent_id}.yaml"
-        write_text(task_path, dump_yaml(task_manifest(spec, role, order)))
+        write_text(task_path, dump_yaml(task_manifest(spec, role, order, extra_context_files=extra_context_files)))
         written.append(task_path)
 
         output_path = outputs / f"{order:02d}-{role.agent_id}.result.yaml"

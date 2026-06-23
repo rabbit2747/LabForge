@@ -8,6 +8,7 @@ from .adapter_smoke import adapter_smoke_to_json, adapter_smoke_to_markdown, run
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
+from .design import create_design_workspace_from_prompt
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .implementation_plan import (
     create_service_agent_packages,
@@ -155,6 +156,44 @@ def command_intake_scaffold(args: argparse.Namespace) -> int:
             print(f"- {path}")
     else:
         print("No files written. Existing files were left unchanged. Use --force to overwrite.")
+    return 0
+
+
+def command_design_from_prompt(args: argparse.Namespace) -> int:
+    if args.prompt_file:
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+    else:
+        prompt = args.prompt or ""
+    if not prompt.strip():
+        print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
+        return 2
+    try:
+        get_agent_adapter(args.adapter)
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
+    result = create_design_workspace_from_prompt(
+        Path(args.out),
+        prompt=prompt,
+        lab_id=args.lab_id,
+        title=args.title,
+        industry=args.industry,
+        difficulty=args.difficulty,
+        provider=args.provider,
+        adapter=args.adapter,
+        agent=args.agent,
+        force=args.force,
+    )
+    print(f"Created LabForge design workspace: {Path(args.out).resolve()}")
+    print(f"- intake: {Path(result.intake_dir).resolve()}")
+    print(f"- lab: {Path(result.lab_dir).resolve()}")
+    print(f"- agents: {Path(result.agent_workspace_dir).resolve()}")
+    print(f"- summary: {(Path(args.out) / 'design-workspace-summary.md').resolve()}")
+    if result.validation_errors:
+        print("Agent workspace validation failed:")
+        for error in result.validation_errors:
+            print(f"- {error}")
+        return 1
     return 0
 
 
@@ -832,6 +871,30 @@ def main(argv: list[str] | None = None) -> int:
     intake_scaffold_parser.add_argument("--out", required=True)
     intake_scaffold_parser.add_argument("--force", action="store_true")
     intake_scaffold_parser.set_defaults(func=command_intake_scaffold)
+
+    design_parser = sub.add_parser("design", help="Create design workspaces from scenario intent")
+    design_sub = design_parser.add_subparsers(dest="design_command", required=True)
+    design_from_prompt_parser = design_sub.add_parser(
+        "from-prompt",
+        help="Create intake, draft lab, agent workspace, and dry-run packages from natural language",
+    )
+    design_prompt_source = design_from_prompt_parser.add_mutually_exclusive_group(required=True)
+    design_prompt_source.add_argument("--prompt", help="Natural-language scenario prompt")
+    design_prompt_source.add_argument("--prompt-file", help="Path to a file containing the scenario prompt")
+    design_from_prompt_parser.add_argument("--out", required=True)
+    design_from_prompt_parser.add_argument("--lab-id")
+    design_from_prompt_parser.add_argument("--title")
+    design_from_prompt_parser.add_argument("--industry", help="Optional target industry override")
+    design_from_prompt_parser.add_argument("--difficulty", default="intermediate")
+    design_from_prompt_parser.add_argument(
+        "--provider",
+        default="auto",
+        choices=["auto", "docker-compose", "hybrid", "ansible", "terraform", "ludus"],
+    )
+    design_from_prompt_parser.add_argument("--adapter", default="manual")
+    design_from_prompt_parser.add_argument("--agent", help="Optional single agent id for generated execution packages")
+    design_from_prompt_parser.add_argument("--force", action="store_true")
+    design_from_prompt_parser.set_defaults(func=command_design_from_prompt)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")

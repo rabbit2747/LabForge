@@ -50,6 +50,7 @@ cd <LabForge repository root>
 
 python -m labforge intake from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/intake-brokerage-lab --industry securities --provider auto --force
 python -m labforge intake scaffold --from output/intake-brokerage-lab/scenario-intake.yaml --out output/brokerage-lab-draft --force
+python -m labforge design from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-design-workspace --industry securities --adapter manual --force
 python -m labforge intake template --out output/intake-scenario-02 --lab-id scenario-02-ad-domain-compromise --title "Scenario 02 - Active Directory Domain Compromise"
 python -m labforge intake scaffold --from output/intake-scenario-02/scenario-intake.yaml --out output/intake-scenario-02-lab --force
 python -m labforge validate examples/scenario-02-ad-domain-compromise
@@ -88,6 +89,7 @@ Expected result:
 ```text
 Created natural-language scenario intake package: <repo>\output\intake-brokerage-lab
 Scaffolded LabForge lab from intake: <repo>\output\brokerage-lab-draft
+Created LabForge design workspace: <repo>\output\brokerage-design-workspace
 Validation passed
 # LabForge Host Doctor
 # Execution Plan - Scenario 02 - Active Directory Domain Compromise
@@ -176,6 +178,11 @@ and writes an LLM transformation brief for the scenario, MITRE, infrastructure,
 industry-realism, safety, provider, and service-builder agents. This is the
 first handoff step, not a claim that the lab is fully implemented.
 
+The `design from-prompt` command performs the first full design handoff in one
+step. It creates the intake package, scaffolds a draft lab, copies the source
+prompt into the lab context, scaffolds the agent workspace, and prepares dry-run
+agent execution packages for the selected adapter.
+
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system
 prompts, per-agent task prompts, task contracts, output contracts, and decision
@@ -184,6 +191,7 @@ logs first, then later adapters can connect OpenAI, Claude CLI, or MCP.
 ```powershell
 python -m labforge intake from-prompt --prompt-file .\my-scenario-prompt.md --out output\my-scenario-intake --industry securities --provider auto --force
 python -m labforge intake scaffold --from output\my-scenario-intake\scenario-intake.yaml --out output\my-scenario-draft --force
+python -m labforge design from-prompt --prompt-file .\my-scenario-prompt.md --out output\my-scenario-design --industry securities --adapter manual --force
 python -m labforge intake template --out output/new-intake --lab-id new-lab --title "New Lab"
 python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml --out output/new-lab --force
 python -m labforge validate output/new-lab

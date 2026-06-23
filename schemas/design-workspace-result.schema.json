@@ -1,0 +1,67 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "root": {
+      "title": "Root",
+      "type": "string"
+    },
+    "intake_dir": {
+      "title": "Intake Dir",
+      "type": "string"
+    },
+    "lab_dir": {
+      "title": "Lab Dir",
+      "type": "string"
+    },
+    "agent_workspace_dir": {
+      "title": "Agent Workspace Dir",
+      "type": "string"
+    },
+    "adapter": {
+      "default": "manual",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent"
+    },
+    "files_written": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Files Written",
+      "type": "array"
+    },
+    "validation_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Errors",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "root",
+    "intake_dir",
+    "lab_dir",
+    "agent_workspace_dir"
+  ],
+  "title": "DesignWorkspaceResult",
+  "type": "object"
+}
