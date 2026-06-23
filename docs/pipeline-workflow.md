@@ -72,6 +72,11 @@ pressure, likely entrypoints, likely final objectives, named assets, requested
 attack themes, security-control hints, realism risks, and supervisor questions.
 They are evidence for review, not an approved final design.
 
+Generated `environment.yaml` and `topology.yaml` use industry-aware zones and
+networks where LabForge has a profile. For example, supply-chain scenarios use
+public edge, corporate, development, build, release, customer, and security
+monitoring zones instead of a single generic internal network.
+
 `plugin-runtime-smoke/` proves that supported generated plugin scaffolds are not
 only present on disk but executable. The smoke runner imports each generated
 Flask service, isolates its state in a temporary directory, and exercises routes

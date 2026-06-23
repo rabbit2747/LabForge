@@ -373,15 +373,24 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
 
 def topology_from_intake(intake: ScenarioIntake) -> dict:
     service_names = service_names_from_intake(intake)
+    industry = normalize_industry(intake.target_industry)
+    zone_names = industry_zone_names(industry)
+    network_names = [network_name_for_zone(zone) for zone in zone_names if zone != "attacker"]
+    if "public_edge_net" not in network_names:
+        network_names.insert(0, "public_edge_net")
+    if "control_net" not in network_names:
+        network_names.append("control_net")
     services = []
     exposed_index = 0
     for name in service_names:
         exposed = name in {"attacker-workstation", "controlled-drop"} or "entry" in name or "portal" in name
-        networks = ["public_net"] if exposed else ["internal_net"]
+        zone = service_zone_for_name(name, industry)
+        primary_network = network_name_for_zone(zone)
+        networks = ["public_edge_net"] if exposed else [primary_network]
         if name == "attacker-workstation":
-            networks = ["public_net", "internal_net", "control_net"]
+            networks = sorted(set(["public_edge_net", "control_net", *[item for item in network_names if item != "public_edge_net"]]))
         if name == "controlled-drop":
-            networks = ["public_net", "control_net"]
+            networks = ["public_edge_net", "control_net"]
         ports: list[str] = []
         if exposed:
             if name == "attacker-workstation":
@@ -407,11 +416,7 @@ def topology_from_intake(intake: ScenarioIntake) -> dict:
             }
         )
     return {
-        "networks": [
-            {"name": "public_net"},
-            {"name": "internal_net", "internal": True},
-            {"name": "control_net", "internal": True},
-        ],
+        "networks": [{"name": name, **({"internal": True} if name != "public_edge_net" else {})} for name in network_names],
         "security_controls": {"recommended": intake.security_controls or ["Firewall / Segmentation", "Central Log Collection"]},
         "deployment": {
             "recommended_model": "docker-compose",
@@ -460,25 +465,115 @@ def stages_from_intake(intake: ScenarioIntake) -> dict:
 
 
 def environment_from_intake(intake: ScenarioIntake) -> dict:
+    industry = normalize_industry(intake.target_industry)
+    zones = industry_zone_names(industry)
     assets = []
     for item in [*intake.attacker_infrastructure, *intake.target_infrastructure]:
         name = normalize_service_name(item)
+        zone = service_zone_for_name(name, industry)
         assets.append(
             {
                 "id": name,
                 "type": "attacker" if "attacker" in name else "service",
-                "zone": "attacker" if "attacker" in name else "target",
+                "zone": "attacker" if "attacker" in name else zone,
                 "os": "linux",
                 "exposure": "public" if name in {"attacker-workstation", "controlled-drop"} else "internal",
             }
         )
     return {
-        "zones": [
-            {"name": "attacker", "description": "Learner-controlled infrastructure."},
-            {"name": "target", "description": "Target enterprise lab infrastructure."},
-        ],
+        "zones": [{"name": zone, "description": zone_description(zone)} for zone in zones],
         "assets": assets,
     }
+
+
+def industry_zone_names(industry: str) -> list[str]:
+    zone_map = {
+        "supply-chain": ["attacker", "public edge", "corporate", "development", "build", "release", "customer", "security monitoring"],
+        "securities": ["attacker", "public or internet edge", "dmz", "application", "core trading", "data", "settlement", "compliance", "security monitoring"],
+        "healthcare": ["attacker", "public edge", "dmz", "clinical", "administrative", "data", "security monitoring"],
+        "manufacturing": ["attacker", "public edge", "corporate", "engineering", "ot", "data", "security monitoring"],
+        "active-directory": ["attacker", "public edge", "workstation", "server", "domain services", "data", "management", "security monitoring"],
+    }
+    return zone_map.get(industry, ["attacker", "public or internet edge", "dmz", "corporate", "data", "management", "security monitoring"])
+
+
+def network_name_for_zone(zone: str) -> str:
+    normalized = zone.replace(" or ", " ").replace("/", " ")
+    return f"{slugify(normalized).replace('-', '_')}_net"
+
+
+def zone_description(zone: str) -> str:
+    descriptions = {
+        "attacker": "Learner-controlled infrastructure.",
+        "public edge": "Externally reachable edge services and internet-facing entry points.",
+        "public or internet edge": "Externally reachable edge services and internet-facing entry points.",
+        "dmz": "Demilitarized service tier between public and internal networks.",
+        "corporate": "Internal corporate applications, knowledge systems, and operations tooling.",
+        "development": "Developer collaboration, source control, and engineering services.",
+        "build": "CI, build, artifact, and package production services.",
+        "release": "Release approval, signing, publishing, and update channel services.",
+        "customer": "Customer-side integration, tenant, agent, and downstream application services.",
+        "security monitoring": "Logging, detection, audit, and monitoring infrastructure.",
+        "data": "Data stores, document stores, exports, and sensitive business records.",
+    }
+    return descriptions.get(zone, f"{zone.title()} lab zone.")
+
+
+def service_zone_for_name(service_name: str, industry: str) -> str:
+    name = service_name.lower()
+    if "attacker" in name:
+        return "attacker"
+    if any(word in name for word in ["drop", "public", "edge", "support", "portal", "entry", "docs"]):
+        return "public edge" if industry != "securities" else "public or internet edge"
+    if industry == "supply-chain":
+        if any(word in name for word in ["wiki", "ldap", "identity", "corp"]):
+            return "corporate"
+        if any(word in name for word in ["repo", "source", "code", "developer", "dev"]):
+            return "development"
+        if any(word in name for word in ["build", "ci", "artifact", "package"]):
+            return "build"
+        if any(word in name for word in ["release", "sign", "update", "bastion", "console"]):
+            return "release"
+        if any(word in name for word in ["customer", "object", "tenant", "agent"]):
+            return "customer"
+        if any(word in name for word in ["siem", "ids", "log", "audit", "monitor"]):
+            return "security monitoring"
+        return "corporate"
+    if any(word in name for word in ["siem", "ids", "log", "audit", "monitor", "edr"]):
+        return "security monitoring"
+    if any(word in name for word in ["data", "store", "share", "object", "export", "file"]):
+        return "data"
+    if industry == "active-directory":
+        if any(word in name for word in ["domain", "ldap", "kerberos", "dns"]):
+            return "domain services"
+        if "workstation" in name:
+            return "workstation"
+        if any(word in name for word in ["admin", "pam", "management"]):
+            return "management"
+        return "server"
+    if industry == "manufacturing":
+        if any(word in name for word in ["engineering", "plc", "recipe"]):
+            return "engineering"
+        if any(word in name for word in ["ot", "scada", "mes", "historian", "plant"]):
+            return "ot"
+        return "corporate"
+    if industry == "healthcare":
+        if any(word in name for word in ["ehr", "clinical", "patient"]):
+            return "clinical"
+        if any(word in name for word in ["billing", "claims", "admin"]):
+            return "administrative"
+        return "dmz"
+    if industry == "securities":
+        if any(word in name for word in ["trade", "order", "market", "risk"]):
+            return "core trading"
+        if any(word in name for word in ["settlement", "clearing"]):
+            return "settlement"
+        if any(word in name for word in ["compliance", "audit"]):
+            return "compliance"
+        if any(word in name for word in ["gateway", "api", "app"]):
+            return "application"
+        return "dmz"
+    return "corporate"
 
 
 def artifacts_from_intake(intake: ScenarioIntake) -> dict:
