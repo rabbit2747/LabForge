@@ -35,11 +35,11 @@ LLM은 설계, 검토, 변환, 품질검수에 사용한다.
 | scenario-designer | 사건 모티브를 교육용 stage 흐름으로 변환 |
 | mitre-mapper | 각 stage를 ATT&CK Enterprise tactic/technique에 매핑 |
 | infrastructure-architect | 네트워크, 서비스, 신뢰 경계, 배포 요구사항 설계 |
-| security-controls | WAF, IDS, SIEM, EDR, firewall 배치와 telemetry 설계 |
+| security-controls | Security Control Architect 역할. WAF, IDS, SIEM, EDR, firewall 배치, protected/unprotected 차이, telemetry 설계 |
 | provider-engineer | 승인된 설계를 provider 산출물로 변환 |
 | service-builder | 취약 서비스, seed/noise 데이터, healthcheck 설계 |
 | content-guide | 학생용/강사용/감독자용 문서 작성 |
-| qa-playtester | 풀이 가능성, 막힘, magic string, CTF스러움 검토 |
+| qa-playtester | QA Playtest Reviewer 역할. learner-mode 풀이 가능성, runtime, reset, magic string, CTF스러움 검토 |
 | safety-reviewer | 격리, 외부 egress, 위험 행위, reset 안전성 검토 |
 
 ## 4. 수정된 전체 개발 Phase

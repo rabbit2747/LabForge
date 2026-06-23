@@ -164,11 +164,11 @@ DEFAULT_AGENT_ROLES: list[AgentRole] = [
     ),
     AgentRole(
         "security-controls",
-        "Security Controls Agent",
-        "Recommend firewall, WAF, IDS, SIEM, EDR, and logging controls for protected profiles.",
-        ["topology proposal", "stage flow", "supervisor training mode"],
-        ["security-controls.yaml proposal", "control placement notes", "telemetry expectations"],
-        ["Controls must be lab-contained.", "Distinguish alert-only controls from enforcement controls."],
+        "Security Control Architect Agent",
+        "Design protected-profile controls, telemetry, segmentation, and control placement without changing the attack scenario.",
+        ["topology proposal", "stage flow", "supervisor training mode", "security-control catalog"],
+        ["security-controls.yaml proposal", "control placement notes", "telemetry expectations", "protected/unprotected delta"],
+        ["Controls must be lab-contained.", "Distinguish alert-only controls from enforcement controls.", "Do not redesign the scenario or provider implementation."],
         "architecture",
     ),
     AgentRole(
@@ -200,11 +200,11 @@ DEFAULT_AGENT_ROLES: list[AgentRole] = [
     ),
     AgentRole(
         "qa-playtester",
-        "QA and Playtest Agent",
-        "Act like a learner and identify blockers, magic strings, unrealistic hints, and broken stage flow.",
-        ["built lab", "student guide", "execution plan"],
-        ["playtest report", "blocker list", "difficulty notes", "fix recommendations"],
-        ["Do not read instructor answer keys during learner-path playtest.", "Report exact reproduction steps."],
+        "QA Playtest Reviewer Agent",
+        "Validate learner reachability, runtime behavior, reset reliability, solution-path plausibility, and CTF-like leakage.",
+        ["built lab", "student guide", "execution plan", "learner entrypoints", "runtime health reports"],
+        ["playtest report", "blocker list", "difficulty notes", "CTF-leakage findings", "fix recommendations"],
+        ["Do not read instructor answer keys during learner-path playtest.", "Report exact reproduction steps.", "Separate learner-mode findings from instructor-mode verification."],
         "qa",
     ),
     AgentRole(
@@ -307,6 +307,11 @@ def orchestration_manifest(spec: LabSpec) -> dict[str, Any]:
         "orchestrator": {
             "role": "Coordinate specialist agents, merge outputs, and pass only validated artifacts to LabForge core.",
             "human_supervisor_gate": True,
+            "responsibility_boundary": [
+                "does not silently implement specialist work",
+                "does not accept unvalidated agent output as source of truth",
+                "records supervisor decisions before provider or service changes are applied",
+            ],
         },
         "phases": [
             {
@@ -314,6 +319,20 @@ def orchestration_manifest(spec: LabSpec) -> dict[str, Any]:
                 "agents": [role.agent_id for role in roles],
             }
             for phase, roles in roles_by_phase().items()
+        ],
+        "handoff_rules": [
+            "scenario-designer defines the stage flow before MITRE mapping is treated as final",
+            "mitre-mapper maps ATT&CK Enterprise tactics and techniques but does not change infrastructure",
+            "infrastructure-architect owns logical topology and trust boundaries, not provider syntax",
+            "security-controls owns protected-profile controls and telemetry, not exploit design",
+            "provider-engineer owns provider outputs after topology and controls are approved",
+            "service-builder owns service code, seed/noise data, reset, healthcheck, and lab-scoped vulnerability behavior",
+            "qa-playtester validates learner-path usability separately from instructor answer-key review",
+            "industry-realism-reviewer can block release when the lab feels like a generic CTF with industry labels",
+        ],
+        "specialist_boundaries": [
+            agent_role_dict(role)
+            for role in DEFAULT_AGENT_ROLES
         ],
         "artifact_contract": {
             "prompts_dir": ".ai/prompts",
@@ -642,18 +661,37 @@ def render_agent_system_prompt(spec: LabSpec, role: AgentRole) -> str:
 
 
 def role_specific_system_checklist(role: AgentRole) -> list[str]:
-    if role.agent_id != "industry-realism-reviewer":
-        return []
-    return [
-        "- The declared industry is evaluated as a full business environment, not as a keyword set.",
-        "- Infrastructure zones, trust boundaries, and deployment requirements match the industry.",
-        "- Each major service has a plausible business purpose, owner, data model, and operational behavior.",
-        "- UI labels, navigation, forms, dashboards, errors, and workflows feel like real software from that industry.",
-        "- Seed data and noise data look like normal business records, logs, documents, tickets, alerts, or transactions.",
-        "- Security controls and telemetry reflect how the target industry would monitor or enforce the environment.",
-        "- Any CTF-like label, magic endpoint, answer-shaped text, unrealistic service name, or thin placeholder is called out.",
-        "- The verdict distinguishes `pass`, `conditional-pass`, and `fail`; `pass` requires no major plausibility gaps.",
-    ]
+    checklists = {
+        "security-controls": [
+            "- Protected and unprotected architecture differences are explicit.",
+            "- Each control has a placement, mode (`alert`, `collect`, or `enforce`), monitored services, and expected telemetry.",
+            "- Control recommendations do not erase the intended training path unless the supervisor chooses a hardened mode.",
+            "- Diagram-only controls are labeled as such and are not described as enforced detection.",
+        ],
+        "service-builder": [
+            "- Normal business behavior is implemented before vulnerable behavior.",
+            "- Vulnerability behavior is lab-scoped, resettable, logged, and tied to a declared plugin or service contract.",
+            "- Seed data and noise data support realistic learner discovery without exposing answer-shaped strings.",
+            "- Healthcheck, reset, and evidence logs are part of the service deliverable.",
+        ],
+        "qa-playtester": [
+            "- Learner-mode testing starts only from declared learner entrypoints and student-visible information.",
+            "- Instructor-mode verification separately checks answer keys, final proof, reset, and scoring or drop behavior.",
+            "- Findings distinguish broken runtime, magic strings, excessive hints, realism gaps, and difficulty spikes.",
+            "- Every blocker includes exact reproduction steps and the artifact that should change.",
+        ],
+        "industry-realism-reviewer": [
+            "- The declared industry is evaluated as a full business environment, not as a keyword set.",
+            "- Infrastructure zones, trust boundaries, and deployment requirements match the industry.",
+            "- Each major service has a plausible business purpose, owner, data model, and operational behavior.",
+            "- UI labels, navigation, forms, dashboards, errors, and workflows feel like real software from that industry.",
+            "- Seed data and noise data look like normal business records, logs, documents, tickets, alerts, or transactions.",
+            "- Security controls and telemetry reflect how the target industry would monitor or enforce the environment.",
+            "- Any CTF-like label, magic endpoint, answer-shaped text, unrealistic service name, or thin placeholder is called out.",
+            "- The verdict distinguishes `pass`, `conditional-pass`, and `fail`; `pass` requires no major plausibility gaps.",
+        ],
+    }
+    return checklists.get(role.agent_id, [])
 
 
 def render_agent_task_prompt(spec: LabSpec, role: AgentRole, order: int) -> str:
@@ -723,15 +761,31 @@ def render_agent_task_prompt(spec: LabSpec, role: AgentRole, order: int) -> str:
 
 
 def role_specific_task_done_criteria(role: AgentRole) -> list[str]:
-    if role.agent_id != "industry-realism-reviewer":
-        return []
-    return [
-        "- Include a verdict for infrastructure realism, service realism, UI realism, workflow realism, data/noise realism, and security-control realism.",
-        "- Include concrete examples of what feels realistic and what feels fake or CTF-like.",
-        "- Include required changes that would make the lab acceptable for the declared industry.",
-        "- Do not treat `python -m labforge realism check` as sufficient evidence by itself.",
-        "- If UI screenshots or service source are unavailable, mark UI realism as `not-reviewable` and request them as an open question.",
-    ]
+    criteria = {
+        "security-controls": [
+            "- Include a control placement table for firewall, IDS, SIEM/logging, WAF, EDR, or equivalent selected controls.",
+            "- Include protected/unprotected behavior differences and expected learner impact.",
+            "- Mark controls as simulated, scaffolded, or enforceable so the supervisor can judge realism.",
+        ],
+        "service-builder": [
+            "- Include service routes, data model, seed/noise plan, vulnerable behavior, reset behavior, healthcheck, and evidence log paths.",
+            "- State which vulnerability plugin contract is implemented or why a custom contract is required.",
+            "- Include tests or smoke commands that prove the vulnerable and normal business paths both work.",
+        ],
+        "qa-playtester": [
+            "- Include learner-mode steps attempted without answer-key access.",
+            "- Include instructor-mode verification steps for final objective, reset, and runtime health.",
+            "- Classify every issue as blocker, major, minor, or polish.",
+        ],
+        "industry-realism-reviewer": [
+            "- Include a verdict for infrastructure realism, service realism, UI realism, workflow realism, data/noise realism, and security-control realism.",
+            "- Include concrete examples of what feels realistic and what feels fake or CTF-like.",
+            "- Include required changes that would make the lab acceptable for the declared industry.",
+            "- Do not treat `python -m labforge realism check` as sufficient evidence by itself.",
+            "- If UI screenshots or service source are unavailable, mark UI realism as `not-reviewable` and request them as an open question.",
+        ],
+    }
+    return criteria.get(role.agent_id, [])
 
 
 def agent_workspace_root(path: Path) -> Path:
