@@ -63,6 +63,7 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 | Service result review | `service-result-review/` | Review service-builder result stubs or outputs and report whether they are ready to apply. |
 | Service verification | `service-verification/` | Check runtime, blueprint, scaffold, tests, and hook readiness. |
 | Plugin runtime smoke | `plugin-runtime-smoke/` | Import generated MVP services and execute supported lab-scoped plugin routes with Flask test clients. |
+| Learner experience gate | `release-gate/` and `qa-smoke/` | Verify learner entrypoint, published learner URLs or SSH commands, health URLs, attacker workstation access, and controlled-drop availability from provider output. |
 | Service status | `service-status/` | Summarize whether each service is missing, scaffolded, blueprinted, runtime-ready, or tested. |
 | Supervisor package | `supervisor-package/` | Render the runnable provider package, protected/unprotected profile outputs, lifecycle command plans, documentation, execution plan, and QA evidence. |
 | Workflow report | `workflow/` | Report the next actionable build step. |

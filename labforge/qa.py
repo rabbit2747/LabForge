@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Literal
+import json
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -139,6 +140,7 @@ def run_qa_smoke(
         provider_status = "failed"
         provider_messages.append(str(exc))
     checks.append(QaCheck(name="provider-build", status=provider_status, messages=provider_messages))
+    checks.append(learner_experience_check(spec, provider_out, strict=False))
 
     overall = aggregate_status(checks)
     report = QaSmokeReport(
@@ -230,6 +232,7 @@ def run_release_gate(
         provider_status = "failed"
         provider_messages.append(str(exc))
     checks.append(QaCheck(name="provider-build", status=provider_status, messages=provider_messages))
+    checks.append(learner_experience_check(spec, provider_out, strict=True))
 
     status: Literal["passed", "failed"] = "failed" if any(check.status != "passed" for check in checks) else "passed"
     report = ReleaseGateReport(
@@ -287,6 +290,60 @@ def industry_realism_release_check(agent_result_dir: Path | None) -> QaCheck:
             messages=[*messages, "Reviewer still has open questions."],
         )
     return QaCheck(name="industry-realism-review", status="passed", messages=messages)
+
+
+def learner_experience_check(spec: LabSpec, provider_out: Path, *, strict: bool) -> QaCheck:
+    messages: list[str] = []
+    learner_entrypoint = str(spec.scenario.get("learner_entrypoint", "")).strip()
+    if not learner_entrypoint:
+        messages.append("scenario.learner_entrypoint is missing or empty.")
+
+    endpoint_manifest = provider_out / "endpoints.json"
+    published: list[dict] = []
+    if endpoint_manifest.exists():
+        try:
+            data = json.loads(endpoint_manifest.read_text(encoding="utf-8"))
+            value = data.get("published_endpoints", [])
+            if isinstance(value, list):
+                published = [item for item in value if isinstance(item, dict)]
+        except Exception as exc:  # noqa: BLE001 - QA should preserve malformed endpoint manifests.
+            messages.append(f"Could not parse endpoint manifest {endpoint_manifest}: {exc}")
+    else:
+        messages.append(f"Provider output did not include endpoint manifest: {endpoint_manifest}")
+
+    learner_visible = [
+        item for item in published
+        if item.get("url") or item.get("connect")
+    ]
+    if not learner_visible:
+        messages.append("No learner-visible URL or SSH connect command is published.")
+    if not any(str(item.get("role", "")).lower().startswith("learner") or "attacker" in str(item.get("service", "")).lower() for item in published):
+        messages.append("No learner attacker/workstation endpoint is published.")
+    if not any("drop" in str(item.get("service", "")).lower() for item in published):
+        messages.append("No controlled drop or final submission endpoint is published.")
+
+    http_without_health = [
+        str(item.get("service", "unknown"))
+        for item in published
+        if item.get("protocol") == "http" and not item.get("health_url")
+    ]
+    if http_without_health:
+        messages.append(f"HTTP learner endpoints without health_url: {', '.join(http_without_health)}")
+
+    status: Literal["passed", "warning", "failed"]
+    if not messages:
+        status = "passed"
+        messages = [
+            f"learner_entrypoint={learner_entrypoint}",
+            f"published_entrypoints={len(learner_visible)}",
+        ]
+    else:
+        status = "failed" if strict else "warning"
+    return QaCheck(
+        name="learner-experience-strict" if strict else "learner-experience",
+        status=status,
+        messages=messages,
+    )
 
 
 def find_industry_realism_result(agent_result_dir: Path) -> Path | None:

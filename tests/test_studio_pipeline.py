@@ -57,6 +57,7 @@ class StudioPipelineTest(unittest.TestCase):
                     "plugin-runtime-smoke-strict": "passed",
                     "industry-realism-review": "passed",
                     "provider-build": "passed",
+                    "learner-experience-strict": "passed",
                 },
             )
 

@@ -472,6 +472,11 @@ scenario detail page. Studio writes `release-gate/release-gate-report.md` and
 `release-gate/release-gate-report.yaml`, then shows each check result in the
 Release Gate panel.
 
+Release gates also include a learner-experience check. It reads generated
+provider output such as `endpoints.json` and fails release when no learner
+entrypoint, learner-visible URL or SSH command, endpoint health URL, attacker
+workstation, or controlled-drop path is available.
+
 The MVP matrix checks the natural-language product path across multiple built-in
 industry profiles. It creates a pipeline workspace for supply-chain, securities,
 healthcare, and manufacturing prompts, then runs each workspace through the
