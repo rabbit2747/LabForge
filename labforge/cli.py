@@ -24,6 +24,7 @@ from .design import (
     run_design_fix_task,
 )
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
+from .framework_guard import framework_guard_to_json, framework_guard_to_markdown, guard_framework_hooks
 from .implementation_plan import (
     create_service_agent_packages,
     create_service_implementation_plan,
@@ -112,6 +113,19 @@ def command_lint(args: argparse.Namespace) -> int:
     if args.strict and report.status == "warning":
         return 1
     return 0
+
+
+def command_guard_framework_hooks(args: argparse.Namespace) -> int:
+    report = guard_framework_hooks(Path(args.root))
+    if args.out:
+        out = Path(args.out)
+        write_text(out, framework_guard_to_json(report) if args.format == "json" else framework_guard_to_markdown(report))
+        print(f"Rendered framework guard report: {out.resolve()}")
+    elif args.format == "json":
+        print(framework_guard_to_json(report))
+    else:
+        print(framework_guard_to_markdown(report))
+    return 0 if report.status == "passed" else 1
 
 
 def command_init(args: argparse.Namespace) -> int:
@@ -1025,6 +1039,17 @@ def main(argv: list[str] | None = None) -> int:
     lint_parser.add_argument("--out")
     lint_parser.add_argument("--strict", action="store_true", help="Return a non-zero exit code when warnings are present")
     lint_parser.set_defaults(func=command_lint)
+
+    guard_parser = sub.add_parser("guard", help="Run framework-level safety guards")
+    guard_sub = guard_parser.add_subparsers(dest="guard_command", required=True)
+    guard_hooks_parser = guard_sub.add_parser(
+        "framework-hooks",
+        help="Detect scenario-specific markers in LabForge framework code and templates",
+    )
+    guard_hooks_parser.add_argument("root", nargs="?", default=".")
+    guard_hooks_parser.add_argument("--format", choices=["text", "json"], default="text")
+    guard_hooks_parser.add_argument("--out")
+    guard_hooks_parser.set_defaults(func=command_guard_framework_hooks)
 
     init_parser = sub.add_parser("init", help="Create a new LabForge scenario template")
     init_parser.add_argument("--out", required=True)

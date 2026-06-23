@@ -63,6 +63,7 @@ python -m labforge studio serve --workspace output/studio --host 127.0.0.1 --por
 python -m labforge intake template --out output/intake-scenario-02 --lab-id scenario-02-ad-domain-compromise --title "Scenario 02 - Active Directory Domain Compromise"
 python -m labforge intake scaffold --from output/intake-scenario-02/scenario-intake.yaml --out output/intake-scenario-02-lab --force
 python -m labforge validate examples/scenario-02-ad-domain-compromise
+python -m labforge guard framework-hooks .
 python -m labforge doctor --lab examples/scenario-02-ad-domain-compromise
 python -m labforge plan examples/scenario-02-ad-domain-compromise --provider docker-compose --profile protected
 python -m labforge realism profiles
@@ -197,6 +198,11 @@ example, on a Windows PC where Docker is only reachable inside WSL, the plan
 selects the detected WSL distro with Docker instead of assuming a fixed distro
 name.
 
+The `guard framework-hooks` command checks LabForge framework code, templates,
+and schemas for named-scenario markers. It keeps examples such as Orion Echo as
+scenario inputs or regression fixtures, not as hidden branches in framework
+core.
+
 The `intake from-prompt` command starts from a natural-language scenario idea.
 It preserves the original prompt, infers a conservative `scenario-intake.yaml`,
 and writes an LLM transformation brief for the scenario, MITRE, infrastructure,
@@ -277,6 +283,7 @@ python -m labforge intake template --out output/new-intake --lab-id new-lab --ti
 python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml --out output/new-lab --force
 python -m labforge validate output/new-lab
 python -m labforge lint output/new-lab
+python -m labforge guard framework-hooks .
 python -m labforge controls apply output/new-lab --clear --select firewall=fw-basic-segmentation --select ids=ids-east-west --profile protected
 python -m labforge workflow status output/new-lab --provider docker-compose --profile protected
 python -m labforge services scaffold output/new-lab

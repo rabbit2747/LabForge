@@ -95,4 +95,6 @@ Before merging a change, check:
   puzzle answers?
 - Does the change avoid scenario-specific hooks, hidden mappings, or hard-coded
   behavior for one named lab?
+- Does `python -m labforge guard framework-hooks .` pass from the repository
+  root?
 - Are local-only reference materials excluded from commits?

@@ -32,6 +32,9 @@ jobs:
       - name: Compile Python modules
         run: python -m compileall -q labforge
 
+      - name: Guard against scenario-specific framework hooks
+        run: python -m labforge guard framework-hooks .
+
       - name: Validate example scenario
         run: |
           python -m labforge validate examples/scenario-02-ad-domain-compromise

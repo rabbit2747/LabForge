@@ -77,6 +77,7 @@ LabForge는 다음 원칙을 따른다.
 - `lab.yaml`, `environment.yaml`, `artifacts.yaml`, `security-controls.yaml`, `supervisor-selection.yaml` 선택적 로딩
 - pydantic v2 기반 v0.2 스펙 검증
 - JSON Schema export 명령
+- `guard framework-hooks` 명령으로 LabForge core, template, schema에 특정 시나리오 전용 marker가 들어가는지 검사
 - host doctor 명령으로 Windows/Linux/macOS/WSL/Docker 실행 환경 진단
 - execution plan 명령으로 host 진단, provider, profile, deployment 요구사항을 합친 제작 순서 생성
 - 필수 필드 검증
