@@ -1,0 +1,97 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "adapter": {
+      "title": "Adapter",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "prepare",
+        "execute"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "prepared",
+        "complete",
+        "failed",
+        "not-implemented"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "package_file": {
+      "title": "Package File",
+      "type": "string"
+    },
+    "invocation_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Invocation File"
+    },
+    "output_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output File"
+    },
+    "transcript_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transcript File"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "task_id",
+    "adapter",
+    "mode",
+    "status",
+    "package_file",
+    "message"
+  ],
+  "title": "DesignFixRunReport",
+  "type": "object"
+}

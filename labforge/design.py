@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_orchestration import (
     AgentExecutionPackageSpec,
+    AgentResultSpec,
     create_agent_execution_packages,
     create_agent_review,
     review_to_json,
@@ -15,6 +16,7 @@ from .agent_orchestration import (
     validate_agent_workspace,
     write_agent_review,
 )
+from .agent_adapters import AgentAdapterError, get_agent_adapter
 from .intake import create_intake_from_prompt, scaffold_lab_from_intake
 from .io import dump_yaml, write_text
 from .linting import lint_lab, lint_report_to_json, lint_report_to_markdown
@@ -60,7 +62,17 @@ class DesignFixTask(DesignModel):
     source: str
     severity: Literal["info", "warning", "error"] = "warning"
     assigned_agent: str
-    status: Literal["pending", "packaged", "in-progress", "done", "blocked"] = "pending"
+    status: Literal[
+        "pending",
+        "packaged",
+        "prepared",
+        "running",
+        "needs-review",
+        "accepted",
+        "rejected",
+        "done",
+        "blocked",
+    ] = "pending"
     rationale: str
     required_action: str
     expected_artifacts: list[str] = Field(default_factory=list)
@@ -83,6 +95,42 @@ class DesignFixPackageReport(DesignModel):
     adapter: str = "manual"
     status: Literal["no-tasks", "packaged"] = "packaged"
     packages: list[dict[str, str]] = Field(default_factory=list)
+    next_commands: list[str] = Field(default_factory=list)
+
+
+class DesignFixRunReport(DesignModel):
+    workspace: str
+    task_id: str
+    adapter: str
+    mode: Literal["prepare", "execute"]
+    status: Literal["prepared", "complete", "failed", "not-implemented"]
+    package_file: str
+    invocation_file: str | None = None
+    output_file: str | None = None
+    transcript_file: str | None = None
+    message: str
+    next_commands: list[str] = Field(default_factory=list)
+
+
+class DesignFixResultReviewItem(DesignModel):
+    task_id: str
+    status: Literal["missing", "invalid", "not-started", "draft", "complete", "blocked", "needs-review"]
+    output_file: str
+    valid: bool = True
+    summary: str = ""
+    findings_count: int = 0
+    artifacts_count: int = 0
+    open_questions_count: int = 0
+    errors: list[str] = Field(default_factory=list)
+
+
+class DesignFixResultReviewReport(DesignModel):
+    workspace: str
+    result_dir: str
+    status: Literal["not-started", "needs-review", "passed", "blocked", "failed"]
+    totals: dict[str, int] = Field(default_factory=dict)
+    items: list[DesignFixResultReviewItem] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
     next_commands: list[str] = Field(default_factory=list)
 
 
@@ -322,6 +370,177 @@ def create_design_fix_task_packages(
     write_text(report_dir / "fix-agent-package-report.yaml", dump_yaml(report.model_dump()))
     write_text(report_dir / "fix-agent-package-report.md", render_fix_package_report(report))
     return report
+
+
+def run_design_fix_task(
+    workspace: Path,
+    *,
+    task_id: str,
+    adapter: str = "manual",
+    execute: bool = False,
+    review_dir: Path | None = None,
+) -> DesignFixRunReport:
+    workspace = workspace.resolve()
+    report_dir = review_dir or workspace / "review"
+    package_path = find_fix_task_package(workspace, task_id=task_id, review_dir=report_dir, adapter=adapter)
+    runner = get_agent_adapter(adapter)
+    update_design_fix_task_status(workspace, task_id, "running" if execute else "prepared", review_dir=report_dir)
+    if execute:
+        result = runner.execute(package_path)
+        task_status = result_status_to_task_status(result.status)
+        update_design_fix_task_status(workspace, task_id, task_status, review_dir=report_dir)
+        return DesignFixRunReport(
+            workspace=str(workspace),
+            task_id=task_id,
+            adapter=adapter,
+            mode="execute",
+            status=result.status,
+            package_file=result.package_file,
+            output_file=result.output_file,
+            transcript_file=result.transcript_file,
+            message=result.message,
+            next_commands=[
+                f"python -m labforge design review-fix-results {workspace}",
+                f"python -m labforge design review {workspace}",
+            ],
+        )
+    result = runner.prepare(package_path)
+    update_design_fix_task_status(workspace, task_id, "prepared", review_dir=report_dir)
+    return DesignFixRunReport(
+        workspace=str(workspace),
+        task_id=task_id,
+        adapter=adapter,
+        mode="prepare",
+        status=result.status,
+        package_file=result.package_file,
+        invocation_file=result.invocation_file,
+        message=result.message,
+        next_commands=[
+            f"Open `{result.invocation_file}` and run the prepared prompt in the selected LLM.",
+            f"Save the agent output to `{workspace / 'review' / 'fix-agent-results' / (task_id + '.result.yaml')}`.",
+            f"python -m labforge design review-fix-results {workspace}",
+        ],
+    )
+
+
+def review_design_fix_results(workspace: Path, *, review_dir: Path | None = None) -> DesignFixResultReviewReport:
+    workspace = workspace.resolve()
+    report_dir = review_dir or workspace / "review"
+    tasks_path = report_dir / "design-fix-tasks.yaml"
+    if not tasks_path.exists():
+        create_design_fix_tasks(workspace, review_dir=report_dir)
+    task_report = DesignFixTaskReport.model_validate(load_design_yaml(tasks_path))
+    result_dir = report_dir / "fix-agent-results"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    items: list[DesignFixResultReviewItem] = []
+    totals: dict[str, int] = {}
+    errors: list[str] = []
+
+    for task in task_report.tasks:
+        output_path = result_dir / f"{task.task_id}.result.yaml"
+        item = review_single_fix_result(task.task_id, output_path)
+        items.append(item)
+        totals[item.status] = totals.get(item.status, 0) + 1
+        if not item.valid:
+            errors.extend(item.errors)
+        if item.status in {"complete", "draft", "needs-review"}:
+            task.status = "needs-review"
+        elif item.status == "blocked":
+            task.status = "blocked"
+        elif item.status == "not-started" and task.status == "running":
+            task.status = "prepared"
+
+    status = fix_result_review_status(items)
+    write_text(tasks_path, dump_yaml(task_report.model_dump()))
+    write_text(report_dir / "design-fix-tasks.md", render_design_fix_tasks(task_report))
+    report = DesignFixResultReviewReport(
+        workspace=str(workspace),
+        result_dir=str(result_dir),
+        status=status,
+        totals=totals,
+        items=items,
+        errors=errors,
+        next_commands=[
+            f"Review `{report_dir / 'fix-result-review.md'}` and accept, reject, or repackage each proposed change.",
+            f"python -m labforge design review {workspace}",
+        ],
+    )
+    write_text(report_dir / "fix-result-review.yaml", dump_yaml(report.model_dump()))
+    write_text(report_dir / "fix-result-review.md", render_fix_result_review_report(report))
+    return report
+
+
+def find_fix_task_package(workspace: Path, *, task_id: str, review_dir: Path, adapter: str) -> Path:
+    package_dir = review_dir / "fix-agent-packages"
+    if not package_dir.exists():
+        create_design_fix_task_packages(workspace, adapter=adapter, review_dir=review_dir)
+    matches = sorted(package_dir.glob(f"{task_id}-*.package.yaml"))
+    if not matches:
+        raise AgentAdapterError(f"No fix agent package found for task `{task_id}`. Run `labforge design package-tasks` first.")
+    return matches[0]
+
+
+def update_design_fix_task_status(workspace: Path, task_id: str, status: str, *, review_dir: Path) -> None:
+    tasks_path = review_dir / "design-fix-tasks.yaml"
+    if not tasks_path.exists():
+        return
+    task_report = DesignFixTaskReport.model_validate(load_design_yaml(tasks_path))
+    for task in task_report.tasks:
+        if task.task_id == task_id:
+            task.status = status  # type: ignore[assignment]
+            write_text(tasks_path, dump_yaml(task_report.model_dump()))
+            write_text(review_dir / "design-fix-tasks.md", render_design_fix_tasks(task_report))
+            return
+
+
+def result_status_to_task_status(status: str) -> str:
+    if status == "complete":
+        return "needs-review"
+    if status == "failed":
+        return "blocked"
+    if status == "not-implemented":
+        return "prepared"
+    return "needs-review"
+
+
+def review_single_fix_result(task_id: str, output_path: Path) -> DesignFixResultReviewItem:
+    if not output_path.exists():
+        return DesignFixResultReviewItem(task_id=task_id, status="missing", output_file=str(output_path), valid=False, errors=[f"{output_path} is missing."])
+    try:
+        result = AgentResultSpec.model_validate(load_design_yaml(output_path))
+    except Exception as exc:  # noqa: BLE001 - report schema failures to the supervisor.
+        return DesignFixResultReviewItem(
+            task_id=task_id,
+            status="invalid",
+            output_file=str(output_path),
+            valid=False,
+            errors=[f"{output_path} is not a valid agent result: {exc}"],
+        )
+    return DesignFixResultReviewItem(
+        task_id=task_id,
+        status=result.status,
+        output_file=str(output_path),
+        valid=True,
+        summary=result.summary,
+        findings_count=len(result.findings),
+        artifacts_count=len(result.artifacts),
+        open_questions_count=len(result.open_questions),
+    )
+
+
+def fix_result_review_status(items: list[DesignFixResultReviewItem]) -> str:
+    if not items:
+        return "not-started"
+    statuses = {item.status for item in items}
+    if "invalid" in statuses or "missing" in statuses:
+        return "failed"
+    if "blocked" in statuses:
+        return "blocked"
+    if statuses <= {"complete"}:
+        return "passed"
+    if statuses <= {"not-started"}:
+        return "not-started"
+    return "needs-review"
 
 
 def load_design_yaml(path: Path) -> dict:
@@ -603,6 +822,75 @@ def render_fix_package_report(report: DesignFixPackageReport) -> str:
     return "\n".join(lines)
 
 
+def render_fix_run_report(report: DesignFixRunReport) -> str:
+    lines = [
+        "# LabForge Fix Agent Run Report",
+        "",
+        "## Summary",
+        "",
+        f"- Workspace: `{report.workspace}`",
+        f"- Task: `{report.task_id}`",
+        f"- Adapter: `{report.adapter}`",
+        f"- Mode: `{report.mode}`",
+        f"- Status: `{report.status}`",
+        f"- Package: `{report.package_file}`",
+        f"- Message: {report.message}",
+        "",
+        "## Artifacts",
+        "",
+    ]
+    if report.invocation_file:
+        lines.append(f"- Invocation file: `{report.invocation_file}`")
+    if report.output_file:
+        lines.append(f"- Output file: `{report.output_file}`")
+    if report.transcript_file:
+        lines.append(f"- Transcript file: `{report.transcript_file}`")
+    if not any([report.invocation_file, report.output_file, report.transcript_file]):
+        lines.append("- No adapter artifact was produced.")
+    lines += ["", "## Next Commands", "", "```powershell"]
+    lines.extend(report.next_commands)
+    lines += ["```", ""]
+    return "\n".join(lines)
+
+
+def render_fix_result_review_report(report: DesignFixResultReviewReport) -> str:
+    lines = [
+        "# LabForge Fix Result Review",
+        "",
+        "## Summary",
+        "",
+        f"- Workspace: `{report.workspace}`",
+        f"- Result directory: `{report.result_dir}`",
+        f"- Status: `{report.status}`",
+        "",
+        "## Totals",
+        "",
+    ]
+    if report.totals:
+        lines.extend(f"- `{status}`: `{count}`" for status, count in sorted(report.totals.items()))
+    else:
+        lines.append("- No fix task results found.")
+    lines += [
+        "",
+        "## Results",
+        "",
+        "| Task | Status | Valid | Findings | Artifacts | Questions | Output |",
+        "|---|---|---:|---:|---:|---:|---|",
+    ]
+    for item in report.items:
+        lines.append(
+            f"| `{item.task_id}` | `{item.status}` | `{item.valid}` | `{item.findings_count}` | "
+            f"`{item.artifacts_count}` | `{item.open_questions_count}` | `{item.output_file}` |"
+        )
+    if report.errors:
+        lines += ["", "## Errors", ""]
+        lines.extend(f"- {error}" for error in report.errors)
+    lines += ["", "## Next Commands", "", "```powershell"]
+    lines.extend(report.next_commands)
+    lines += ["```", ""]
+    return "\n".join(lines)
+
+
 def design_review_status(
     *,
     validation_errors: list[str],
@@ -707,4 +995,6 @@ DESIGN_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "design-review-report.schema.json": DesignReviewReport,
     "design-fix-task-report.schema.json": DesignFixTaskReport,
     "design-fix-package-report.schema.json": DesignFixPackageReport,
+    "design-fix-run-report.schema.json": DesignFixRunReport,
+    "design-fix-result-review-report.schema.json": DesignFixResultReviewReport,
 }

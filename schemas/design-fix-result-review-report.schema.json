@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "DesignFixResultReviewItem": {
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "missing",
+            "invalid",
+            "not-started",
+            "draft",
+            "complete",
+            "blocked",
+            "needs-review"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "output_file": {
+          "title": "Output File",
+          "type": "string"
+        },
+        "valid": {
+          "default": true,
+          "title": "Valid",
+          "type": "boolean"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "findings_count": {
+          "default": 0,
+          "title": "Findings Count",
+          "type": "integer"
+        },
+        "artifacts_count": {
+          "default": 0,
+          "title": "Artifacts Count",
+          "type": "integer"
+        },
+        "open_questions_count": {
+          "default": 0,
+          "title": "Open Questions Count",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "status",
+        "output_file"
+      ],
+      "title": "DesignFixResultReviewItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "result_dir": {
+      "title": "Result Dir",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "not-started",
+        "needs-review",
+        "passed",
+        "blocked",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "totals": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Totals",
+      "type": "object"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/DesignFixResultReviewItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "result_dir",
+    "status"
+  ],
+  "title": "DesignFixResultReviewReport",
+  "type": "object"
+}

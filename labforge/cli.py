@@ -13,9 +13,13 @@ from .design import (
     create_design_fix_task_packages,
     create_design_workspace_from_prompt,
     render_fix_package_report,
+    render_fix_result_review_report,
+    render_fix_run_report,
     render_design_fix_tasks,
     render_design_review_report,
+    review_design_fix_results,
     review_design_workspace,
+    run_design_fix_task,
 )
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .implementation_plan import (
@@ -255,6 +259,37 @@ def command_design_package_tasks(args: argparse.Namespace) -> int:
         if result.invocation_file:
             print(f"- {result.invocation_file}")
     return 0
+
+
+def command_design_run_task(args: argparse.Namespace) -> int:
+    try:
+        report = run_design_fix_task(
+            Path(args.workspace),
+            task_id=args.task,
+            adapter=args.adapter,
+            execute=args.execute,
+            review_dir=Path(args.review_dir) if args.review_dir else None,
+        )
+    except AgentAdapterError as exc:
+        print(str(exc))
+        return 1
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_fix_run_report(report))
+    return 0 if report.status in {"prepared", "complete", "not-implemented"} else 1
+
+
+def command_design_review_fix_results(args: argparse.Namespace) -> int:
+    report = review_design_fix_results(
+        Path(args.workspace),
+        review_dir=Path(args.review_dir) if args.review_dir else None,
+    )
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_fix_result_review_report(report))
+    return 0 if report.status not in {"failed", "blocked"} else 1
 
 
 def command_studio_serve(args: argparse.Namespace) -> int:
@@ -979,6 +1014,19 @@ def main(argv: list[str] | None = None) -> int:
     design_package_tasks_parser.add_argument("--prepare", action="store_true", help="Also create adapter-specific invocation files")
     design_package_tasks_parser.add_argument("--format", choices=["text", "json"], default="text")
     design_package_tasks_parser.set_defaults(func=command_design_package_tasks)
+    design_run_task_parser = design_sub.add_parser("run-task", help="Prepare or execute one packaged design fix task")
+    design_run_task_parser.add_argument("workspace", help="Directory created by `labforge design from-prompt`")
+    design_run_task_parser.add_argument("--task", required=True, help="Fix task id, for example fix-001")
+    design_run_task_parser.add_argument("--review-dir", help="Review directory containing fix-agent-packages")
+    design_run_task_parser.add_argument("--adapter", default="manual")
+    design_run_task_parser.add_argument("--execute", action="store_true", help="Call the live adapter instead of only preparing an invocation")
+    design_run_task_parser.add_argument("--format", choices=["text", "json"], default="text")
+    design_run_task_parser.set_defaults(func=command_design_run_task)
+    design_review_fix_results_parser = design_sub.add_parser("review-fix-results", help="Review agent outputs for packaged design fix tasks")
+    design_review_fix_results_parser.add_argument("workspace", help="Directory created by `labforge design from-prompt`")
+    design_review_fix_results_parser.add_argument("--review-dir", help="Review directory containing fix-agent-results")
+    design_review_fix_results_parser.add_argument("--format", choices=["text", "json"], default="text")
+    design_review_fix_results_parser.set_defaults(func=command_design_review_fix_results)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")
