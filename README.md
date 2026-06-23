@@ -292,7 +292,8 @@ pipeline supervisor gate decision, blocking items, and next commands, then can
 run the strict release gate for the selected scenario and display the release
 readiness checks beside the runtime controls. A supervisor can move from
 natural-language intake to runnable package validation and final readiness
-review in one web console.
+review in one web console. Use **Create Verified MVP** when you want Studio to
+run the full natural-language pipeline and the strict release gate in one action.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system

@@ -20,7 +20,9 @@ python -m labforge pipeline create \
 ```
 
 The same workflow is available in LabForge Studio through **Create Full
-Pipeline**.
+Pipeline**. Studio also provides **Create Verified MVP**, which runs the full
+pipeline and immediately runs the strict release gate against the generated lab
+workspace.
 
 After generation, evaluate the supervisor gate:
 

@@ -4,7 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from labforge.studio import create_pipeline_scenario, read_scenario_detail, run_release_gate_for_scenario, studio_state
+from labforge.studio import (
+    create_pipeline_scenario,
+    create_verified_mvp_scenario,
+    read_scenario_detail,
+    run_release_gate_for_scenario,
+    studio_state,
+)
 
 
 class StudioPipelineTest(unittest.TestCase):
@@ -57,6 +63,30 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(reread["release_gate"]["status"], "passed")
             self.assertTrue(any(step["name"] == "Release gate" and step["complete"] for step in reread["steps"]))
             self.assertTrue(any(report["name"] == "Release Gate" for report in reread["reports"]))
+
+    def test_verified_mvp_endpoint_runs_pipeline_and_release_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            detail = create_verified_mvp_scenario(
+                workspace,
+                {
+                    "title": "Verified MVP Smoke",
+                    "industry": "manufacturing",
+                    "adapter": "manual",
+                    "provider": "auto",
+                    "prompt": (
+                        "Create a realistic manufacturing red-team lab where a learner starts "
+                        "from a supplier portal, reaches engineering documentation, discovers "
+                        "MES and historian services, and retrieves a controlled production report."
+                    ),
+                },
+            )
+
+            self.assertEqual(detail["pipeline_gate"]["decision"], "release-candidate")
+            self.assertEqual(detail["last_release_gate"]["status"], "passed")
+            self.assertTrue(detail["last_release_gate"]["release_ready"])
+            self.assertTrue(any(step["name"] == "Release gate" and step["complete"] for step in detail["steps"]))
+            self.assertTrue(any(report["name"] == "Release Gate" for report in detail["reports"]))
 
 
 if __name__ == "__main__":

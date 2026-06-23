@@ -95,6 +95,9 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/scenarios/pipeline":
                 self.send_json(create_pipeline_scenario(self.studio_workspace, payload), status=HTTPStatus.CREATED)
                 return
+            if parsed.path == "/api/scenarios/mvp":
+                self.send_json(create_verified_mvp_scenario(self.studio_workspace, payload), status=HTTPStatus.CREATED)
+                return
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/review"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
                 self.send_json(review_scenario(self.studio_workspace, scenario_id, payload))
@@ -279,6 +282,20 @@ def create_pipeline_scenario(workspace: Path, payload: dict) -> dict:
         force=True,
     )
     return read_scenario_detail(workspace, scenario_id)
+
+
+def create_verified_mvp_scenario(workspace: Path, payload: dict) -> dict:
+    detail = create_pipeline_scenario(workspace, payload)
+    scenario_id = str(detail["scenario_id"])
+    release_provider = str(payload.get("release_provider") or payload.get("provider") or "docker-compose").strip() or "docker-compose"
+    if release_provider == "auto":
+        release_provider = "docker-compose"
+    release_payload = {
+        "provider": release_provider,
+        "profile": str(payload.get("profile", "protected")).strip() or "protected",
+        "materialize": bool(payload.get("materialize", True)),
+    }
+    return run_release_gate_for_scenario(workspace, scenario_id, release_payload)
 
 
 def review_scenario(workspace: Path, scenario_id: str, payload: dict) -> dict:
@@ -879,7 +896,8 @@ def render_studio_html() -> str:
           <h2>Create Scenario</h2>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="createScenario">Create Design</button>
-            <button class="primary" id="createPipeline">Create Full Pipeline</button>
+            <button id="createPipeline">Create Full Pipeline</button>
+            <button class="primary" id="createMvp">Create Verified MVP</button>
           </div>
         </div>
         <div class="grid">
@@ -1193,6 +1211,32 @@ def render_studio_html() -> str:
       } finally {
         btn.disabled = false;
         btn.textContent = 'Create Full Pipeline';
+      }
+    };
+
+    document.getElementById('createMvp').onclick = async () => {
+      const btn = document.getElementById('createMvp');
+      btn.disabled = true;
+      btn.textContent = 'Creating verified MVP...';
+      try {
+        const detail = await api('/api/scenarios/mvp', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title: document.getElementById('title').value,
+            industry: document.getElementById('industry').value,
+            adapter: document.getElementById('adapter').value,
+            prompt: document.getElementById('prompt').value
+          })
+        });
+        selectedId = detail.scenario_id;
+        await loadScenarios();
+        renderDetail(detail);
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Verified MVP';
       }
     };
 
