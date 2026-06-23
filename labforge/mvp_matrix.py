@@ -61,6 +61,15 @@ DEFAULT_MVP_MATRIX_CASES: tuple[MvpMatrixCase, ...] = (
         ),
     ),
     MvpMatrixCase(
+        case_id="banking",
+        industry="banking",
+        prompt=(
+            "Create a realistic regional bank red-team lab where a learner starts from a public "
+            "loan application portal, discovers document intake and core account services, "
+            "abuses an operations review workflow, and retrieves a controlled suspicious-activity export."
+        ),
+    ),
+    MvpMatrixCase(
         case_id="healthcare",
         industry="healthcare",
         prompt=(

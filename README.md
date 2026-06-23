@@ -433,11 +433,14 @@ UI, workflows, data, security controls, and operational noise before a
 supervisor accepts the lab. See `docs/realism-profiles.md` and
 `docs/industry-realism-reviewer.md`.
 
-Non-Docker providers currently generate deterministic scaffold artifacts rather
-than deploying infrastructure directly. `ansible`, `terraform`, `ludus`, and
-`hybrid` outputs include provider plans, inventory files, security profiles, and
-provider-specific starter files so provider engineers can complete the runnable
-implementation without reverse-engineering the scenario spec.
+Non-Docker providers generate deterministic provider artifacts and lifecycle
+plans rather than silently deploying infrastructure. `ansible`, `terraform`,
+`ludus`, and `hybrid` outputs include provider plans, inventory files, security
+profiles, and provider-specific starter files so provider engineers can complete
+the runnable implementation without reverse-engineering the scenario spec.
+`labforge provider validate --execute` checks that the generated scaffold is
+complete, while deploy/status/destroy produce operator-facing command plans
+until an approved external range environment is attached.
 
 QA smoke checks can validate the current lab definition, service artifact
 contracts, scenario-derived MVP runtime materialization, supported lab-scoped
@@ -450,6 +453,8 @@ python -m labforge provider validate output/qa-smoke/provider-output --provider 
 python -m labforge provider deploy output/qa-smoke/provider-output --provider docker-compose
 python -m labforge provider status output/qa-smoke/provider-output --provider docker-compose
 python -m labforge provider destroy output/qa-smoke/provider-output --provider docker-compose --volumes
+python -m labforge provider validate output/non-docker-package --provider ansible --execute
+python -m labforge provider deploy output/non-docker-package --provider terraform
 ```
 
 Supported minimum-runnable vulnerability scaffolds include web-entry behaviors
@@ -479,9 +484,9 @@ entrypoint, learner-visible URL or SSH command, endpoint health URL, attacker
 workstation, or controlled-drop path is available.
 
 The MVP matrix checks the natural-language product path across multiple built-in
-industry profiles. It creates a pipeline workspace for supply-chain, securities,
-healthcare, and manufacturing prompts, then runs each workspace through the
-pipeline gate and strict release gate:
+industry profiles. It creates pipeline workspaces for supply-chain, securities,
+banking, healthcare, and manufacturing prompts, then runs each workspace through
+the pipeline gate and strict release gate:
 
 ```powershell
 python -m labforge qa mvp-matrix --out output/mvp-matrix --provider docker-compose --profile protected --force

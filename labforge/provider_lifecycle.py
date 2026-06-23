@@ -28,6 +28,14 @@ class ProviderLifecycleResult(LifecycleModel):
     message: str = ""
 
 
+NON_DOCKER_PROVIDER_FILES: dict[str, list[str]] = {
+    "ansible": ["README.md", "provider-plan.yaml", "inventory.yaml", "security-profile.md", "site.yml"],
+    "terraform": ["README.md", "provider-plan.yaml", "inventory.yaml", "security-profile.md", "main.tf", "variables.tf"],
+    "ludus": ["README.md", "provider-plan.yaml", "inventory.yaml", "security-profile.md", "range-config.yaml"],
+    "hybrid": ["README.md", "provider-plan.yaml", "inventory.yaml", "security-profile.md", "orchestration-plan.yaml"],
+}
+
+
 def provider_lifecycle(
     output_dir: Path,
     *,
@@ -41,14 +49,7 @@ def provider_lifecycle(
     output_dir = output_dir.resolve()
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
     if provider != "docker-compose":
-        return ProviderLifecycleResult(
-            provider=provider,
-            action=action,
-            mode=mode,
-            status="not-implemented",
-            output_dir=str(output_dir),
-            message=f"Provider lifecycle action `{action}` is not implemented for `{provider}`.",
-        )
+        return non_docker_provider_lifecycle(output_dir, provider=provider, action=action, mode=mode, execute=execute)
 
     compose_file = output_dir / "docker-compose.yml"
     if not compose_file.exists():
@@ -144,6 +145,124 @@ def provider_lifecycle(
         stdout="\n".join(part for part in stdout_parts if part),
         stderr="\n".join(part for part in stderr_parts if part),
     )
+
+
+def non_docker_provider_lifecycle(
+    output_dir: Path,
+    *,
+    provider: str,
+    action: ProviderLifecycleAction,
+    mode: Literal["dry-run", "execute"],
+    execute: bool,
+) -> ProviderLifecycleResult:
+    provider_root = resolve_provider_root(output_dir, provider)
+    commands = non_docker_provider_commands(provider_root, provider, action)
+    expected_files = NON_DOCKER_PROVIDER_FILES.get(provider, [])
+    if provider not in NON_DOCKER_PROVIDER_FILES:
+        return ProviderLifecycleResult(
+            provider=provider,
+            action=action,
+            mode=mode,
+            status="not-implemented",
+            output_dir=str(provider_root),
+            commands=commands,
+            message=f"Provider lifecycle action `{action}` is not implemented for unknown provider `{provider}`.",
+        )
+
+    if not execute:
+        return ProviderLifecycleResult(
+            provider=provider,
+            action=action,
+            mode=mode,
+            status="planned",
+            output_dir=str(provider_root),
+            commands=commands,
+            message=(
+                "Dry run only. Non-Docker providers emit operator-facing lifecycle plans. "
+                "Use `validate --execute` to verify generated scaffold files before provider-specific deployment."
+            ),
+        )
+
+    missing = [item for item in expected_files if not (provider_root / item).exists()]
+    if missing:
+        return ProviderLifecycleResult(
+            provider=provider,
+            action=action,
+            mode=mode,
+            status="failed",
+            output_dir=str(provider_root),
+            commands=commands,
+            message=f"Generated `{provider}` provider output is missing required files: {', '.join(missing)}",
+        )
+
+    if action == "validate":
+        return ProviderLifecycleResult(
+            provider=provider,
+            action=action,
+            mode=mode,
+            status="completed",
+            output_dir=str(provider_root),
+            commands=commands,
+            stdout="\n".join(f"found {item}" for item in expected_files),
+            message="Generated non-Docker provider scaffold is present. Provider-specific syntax checks remain an operator step.",
+        )
+
+    return ProviderLifecycleResult(
+        provider=provider,
+        action=action,
+        mode=mode,
+        status="not-implemented",
+        output_dir=str(provider_root),
+        commands=commands,
+        message=(
+            f"`{provider}` {action} requires an operator-approved external environment. "
+            "LabForge generated the command plan but will not execute it automatically yet."
+        ),
+    )
+
+
+def resolve_provider_root(output_dir: Path, provider: str) -> Path:
+    nested = output_dir / provider
+    if nested.exists():
+        return nested.resolve()
+    return output_dir.resolve()
+
+
+def non_docker_provider_commands(output_dir: Path, provider: str, action: ProviderLifecycleAction) -> list[list[str]]:
+    if provider == "ansible":
+        if action == "validate":
+            return [["ansible-inventory", "-i", "inventory.yaml", "--list"], ["ansible-playbook", "-i", "inventory.yaml", "site.yml", "--syntax-check"]]
+        if action == "deploy":
+            return [["ansible-playbook", "-i", "inventory.yaml", "site.yml"]]
+        if action == "status":
+            return [["ansible", "all", "-i", "inventory.yaml", "-m", "ping"]]
+        return [["ansible-playbook", "-i", "inventory.yaml", "destroy.yml"]]
+    if provider == "terraform":
+        chdir = f"-chdir={output_dir}"
+        if action == "validate":
+            return [["terraform", chdir, "init", "-backend=false"], ["terraform", chdir, "validate"]]
+        if action == "deploy":
+            return [["terraform", chdir, "apply"]]
+        if action == "status":
+            return [["terraform", chdir, "state", "list"]]
+        return [["terraform", chdir, "destroy"]]
+    if provider == "ludus":
+        if action == "validate":
+            return [["ludus", "range", "config", "check", "-f", "range-config.yaml"]]
+        if action == "deploy":
+            return [["ludus", "range", "deploy", "-f", "range-config.yaml"]]
+        if action == "status":
+            return [["ludus", "range", "status"]]
+        return [["ludus", "range", "destroy"]]
+    if provider == "hybrid":
+        if action == "validate":
+            return [["labforge", "provider", "validate", str(output_dir), "--provider", "docker-compose"], ["ansible-inventory", "-i", "inventory.yaml", "--list"]]
+        if action == "deploy":
+            return [["sh", "scripts/start-docker-tier.sh"], ["ansible-playbook", "-i", "inventory.yaml", "site.yml"]]
+        if action == "status":
+            return [["sh", "scripts/status.sh"]]
+        return [["sh", "scripts/destroy.sh"]]
+    return []
 
 
 def docker_compose_commands(
