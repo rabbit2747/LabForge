@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .agent_orchestration import AgentResultSpec
+from .io import load_yaml
 from .linting import lint_lab
 from .model import LabSpec
 from .service_artifacts import declared_service_artifacts, review_service_results, service_check
@@ -38,6 +40,7 @@ class WorkflowReport(WorkflowModel):
     provider: str = "docker-compose"
     profile: str = "protected"
     result_dir: str | None = None
+    agent_result_dir: str | None = None
     steps: list[WorkflowStep] = Field(default_factory=list)
     next_commands: list[str] = Field(default_factory=list)
 
@@ -48,11 +51,13 @@ def create_workflow_report(
     provider: str = "docker-compose",
     profile: str = "protected",
     result_dir: Path | None = None,
+    agent_result_dir: Path | None = None,
     package_dir: Path | None = None,
 ) -> WorkflowReport:
     lab_root = lab_root.resolve()
     package_root = package_dir or Path("output") / f"{lab_root.name}-package"
     result_root = result_dir.resolve() if result_dir else None
+    agent_result_root = agent_result_dir.resolve() if agent_result_dir else None
 
     try:
         spec = LabSpec.load(lab_root)
@@ -78,6 +83,7 @@ def create_workflow_report(
             provider=provider,
             profile=profile,
             result_dir=str(result_root) if result_root else None,
+            agent_result_dir=str(agent_result_root) if agent_result_root else None,
             steps=[step],
             next_commands=step.next_commands,
         )
@@ -92,8 +98,9 @@ def create_workflow_report(
         service_review_step(spec, result_root),
         service_apply_step(spec, result_root),
         service_verify_step(spec),
+        industry_realism_review_step(lab_root, agent_result_root),
         provider_build_step(lab_root, provider, profile),
-        release_gate_step(lab_root, provider, profile),
+        release_gate_step(lab_root, provider, profile, agent_result_root),
         supervisor_package_step(lab_root, package_root, provider, profile),
     ]
     report_status: Literal["ready", "in-progress", "blocked"]
@@ -113,6 +120,7 @@ def create_workflow_report(
         provider=provider,
         profile=profile,
         result_dir=str(result_root) if result_root else None,
+        agent_result_dir=str(agent_result_root) if agent_result_root else None,
         steps=steps,
         next_commands=current.next_commands,
     )
@@ -338,6 +346,112 @@ def service_verify_step(spec: LabSpec) -> WorkflowStep:
     )
 
 
+def industry_realism_review_step(lab_root: Path, agent_result_root: Path | None) -> WorkflowStep:
+    default_workspace = Path("output") / f"{lab_root.name}-agents"
+    if not agent_result_root:
+        return WorkflowStep(
+            id="industry-realism-review",
+            title="Review Industry Realism",
+            status="ready",
+            purpose="Run the independent industry realism reviewer before a lab is treated as release-ready.",
+            evidence=["agent_result_dir=not-provided"],
+            next_commands=[
+                f"python -m labforge agents scaffold {quote_path(lab_root)} --out {quote_path(default_workspace)}",
+                f"python -m labforge agents run {quote_path(default_workspace)} --dry-run --adapter manual --agent industry-realism-reviewer --context-root {quote_path(lab_root)}",
+            ],
+            notes=[
+                "Static `realism check` is a pre-check only. The industry realism reviewer must inspect infrastructure, services, UI, workflows, data, security controls, and operational noise."
+            ],
+        )
+
+    result_file = find_industry_realism_result(agent_result_root)
+    if not result_file:
+        workspace = agent_workspace_from_results(agent_result_root)
+        return WorkflowStep(
+            id="industry-realism-review",
+            title="Review Industry Realism",
+            status="blocked",
+            purpose="Run the independent industry realism reviewer before a lab is treated as release-ready.",
+            evidence=[f"agent_result_dir={agent_result_root}", "result=missing"],
+            next_commands=[
+                f"python -m labforge agents run {quote_path(workspace)} --dry-run --adapter manual --agent industry-realism-reviewer --context-root {quote_path(lab_root)}",
+            ],
+            notes=["Missing `10-industry-realism-reviewer.result.yaml`."],
+        )
+
+    result = AgentResultSpec.model_validate(load_yaml(result_file))
+    verdicts = industry_realism_verdicts(result)
+    if result.status in {"not-started", "draft"}:
+        status: WorkflowStatus = "pending"
+    elif result.status in {"blocked", "needs-review"}:
+        status = "blocked"
+    elif "fail" in verdicts:
+        status = "blocked"
+    elif {"conditional-pass", "not-reviewable"} & verdicts or result.open_questions:
+        status = "warning"
+    else:
+        status = "done"
+
+    return WorkflowStep(
+        id="industry-realism-review",
+        title="Review Industry Realism",
+        status=status,
+        purpose="Confirm the lab genuinely resembles the declared target industry beyond static keyword checks.",
+        evidence=[
+            f"result={result_file}",
+            f"status={result.status}",
+            f"verdicts={','.join(sorted(verdicts)) or 'none'}",
+            f"findings={len(result.findings)}",
+            f"open_questions={len(result.open_questions)}",
+        ],
+        next_commands=[
+            f"python -m labforge agents review {quote_path(agent_workspace_from_results(agent_result_root))} --write",
+        ],
+        notes=industry_realism_notes(result),
+    )
+
+
+def find_industry_realism_result(agent_result_root: Path) -> Path | None:
+    candidates = [
+        agent_result_root / "10-industry-realism-reviewer.result.yaml",
+        agent_result_root / ".ai" / "outputs" / "10-industry-realism-reviewer.result.yaml",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    matches = sorted(agent_result_root.glob("**/10-industry-realism-reviewer.result.yaml"))
+    return matches[0] if matches else None
+
+
+def agent_workspace_from_results(agent_result_root: Path) -> Path:
+    if agent_result_root.name == "outputs" and agent_result_root.parent.name == ".ai":
+        return agent_result_root.parent.parent
+    if (agent_result_root / ".ai").exists():
+        return agent_result_root
+    return agent_result_root.parent.parent if agent_result_root.parent.name == "outputs" else agent_result_root
+
+
+def industry_realism_verdicts(result: AgentResultSpec) -> set[str]:
+    verdicts: set[str] = set()
+    for finding in result.findings:
+        if isinstance(finding, dict) and finding.get("verdict"):
+            verdicts.add(str(finding["verdict"]).strip().lower())
+    return verdicts
+
+
+def industry_realism_notes(result: AgentResultSpec) -> list[str]:
+    notes: list[str] = []
+    for finding in result.findings[:6]:
+        if isinstance(finding, dict):
+            category = finding.get("category", "finding")
+            verdict = finding.get("verdict", "unknown")
+            gap = finding.get("gap") or finding.get("evidence") or finding
+            notes.append(f"{category}:{verdict}: {gap}")
+        else:
+            notes.append(str(finding))
+    return notes
+
+
 def provider_build_step(lab_root: Path, provider: str, profile: str) -> WorkflowStep:
     out = Path("output") / f"{lab_root.name}-{provider}-{profile}"
     return WorkflowStep(
@@ -350,8 +464,9 @@ def provider_build_step(lab_root: Path, provider: str, profile: str) -> Workflow
     )
 
 
-def release_gate_step(lab_root: Path, provider: str, profile: str) -> WorkflowStep:
+def release_gate_step(lab_root: Path, provider: str, profile: str, agent_result_root: Path | None = None) -> WorkflowStep:
     out = Path("output") / f"{lab_root.name}-release-gate"
+    agent_results_arg = f" --agent-results {quote_path(agent_result_root)}" if agent_result_root else ""
     return WorkflowStep(
         id="release-gate",
         title="Run Release Gate",
@@ -359,7 +474,7 @@ def release_gate_step(lab_root: Path, provider: str, profile: str) -> WorkflowSt
         purpose="Run strict validation before a lab package is treated as releasable.",
         evidence=[f"expected_output={out}"],
         next_commands=[
-            f"python -m labforge qa release-gate {quote_path(lab_root)} --out {quote_path(out)} --provider {provider} --profile {profile} --materialize --force"
+            f"python -m labforge qa release-gate {quote_path(lab_root)} --out {quote_path(out)} --provider {provider} --profile {profile}{agent_results_arg} --materialize --force"
         ],
     )
 
@@ -396,6 +511,7 @@ def workflow_report_to_markdown(report: WorkflowReport) -> str:
         f"- Provider: `{report.provider}`",
         f"- Profile: `{report.profile}`",
         f"- Result directory: `{report.result_dir or '-'}`",
+        f"- Agent result directory: `{report.agent_result_dir or '-'}`",
         "",
         "## Steps",
         "",

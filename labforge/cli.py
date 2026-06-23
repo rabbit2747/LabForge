@@ -218,6 +218,7 @@ def command_workflow_status(args: argparse.Namespace) -> int:
         provider=args.provider,
         profile=args.profile,
         result_dir=Path(args.results) if args.results else None,
+        agent_result_dir=Path(args.agent_results) if args.agent_results else None,
         package_dir=Path(args.package_dir) if args.package_dir else None,
     )
     if args.out:
@@ -725,6 +726,7 @@ def command_qa_release_gate(args: argparse.Namespace) -> int:
         profile=args.profile,
         materialize=args.materialize,
         force=args.force,
+        agent_result_dir=Path(args.agent_results) if args.agent_results else None,
     )
     print(f"Release gate status: {report.status}")
     print(f"- {(Path(args.out) / 'release-gate-report.md').resolve()}")
@@ -836,6 +838,7 @@ def main(argv: list[str] | None = None) -> int:
         workflow_command_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
         workflow_command_parser.add_argument("--profile", default="protected", choices=["unprotected", "protected"])
         workflow_command_parser.add_argument("--results", help="Directory containing service-builder *.result.yaml files")
+        workflow_command_parser.add_argument("--agent-results", help="Directory containing agent *.result.yaml files, including industry realism reviewer output")
         workflow_command_parser.add_argument("--package-dir", help="Expected supervisor package output directory")
         workflow_command_parser.add_argument("--format", choices=["text", "json"], default="text")
         workflow_command_parser.add_argument("--out")
@@ -1017,6 +1020,7 @@ def main(argv: list[str] | None = None) -> int:
     qa_release_gate_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
     qa_release_gate_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     qa_release_gate_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize placeholder runtimes before building")
+    qa_release_gate_parser.add_argument("--agent-results", help="Directory containing agent *.result.yaml files, including industry realism reviewer output")
     qa_release_gate_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
     qa_release_gate_parser.set_defaults(func=command_qa_release_gate)
 

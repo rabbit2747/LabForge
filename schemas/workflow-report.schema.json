@@ -104,6 +104,18 @@
       "default": null,
       "title": "Result Dir"
     },
+    "agent_result_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Result Dir"
+    },
     "steps": {
       "items": {
         "$ref": "#/$defs/WorkflowStep"

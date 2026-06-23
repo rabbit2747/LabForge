@@ -75,7 +75,7 @@ python -m labforge services review-result examples/scenario-02-ad-domain-comprom
 python -m labforge services apply-result examples/scenario-02-ad-domain-compromise --result output/scenario-02-service-agents/.ai/outputs/service-build-<service>.result.yaml --dry-run
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
 python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
-python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/scenario-02-release-gate --provider docker-compose --profile protected --materialize --force
+python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/scenario-02-release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
 python -m labforge schema export --out schemas
@@ -201,6 +201,7 @@ python -m labforge agents run output/scenario-02-agents --dry-run --adapter clau
 python -m labforge agents run output/scenario-02-agents --dry-run --adapter manual --agent industry-realism-reviewer --context-root examples/scenario-02-ad-domain-compromise
 python -m labforge agents result-stub output/scenario-02-agents --task-id 02-mitre-mapper --status needs-review --summary "Draft mapping is ready for supervisor review."
 python -m labforge agents review output/scenario-02-agents --write
+python -m labforge workflow status examples/scenario-02-ad-domain-compromise --agent-results output/scenario-02-agents/.ai/outputs --provider docker-compose --profile protected
 python -m labforge agents decide output/scenario-02-agents --decision accepted --task-id 02-mitre-mapper --reason "Reviewed mapping output."
 ```
 
@@ -231,7 +232,9 @@ unless `--force` is set, and can run without changing files first.
 `workflow status` and `workflow plan` summarize the current build state and show
 the next LabForge commands a supervisor should run. They do not modify files.
 Pass `--results <service-agent-output-dir>` after service-builder packages exist
-so the workflow can include review/apply readiness in the report.
+so the workflow can include review/apply readiness in the report. Pass
+`--agent-results <agent-output-dir>` after specialist agent results exist so the
+workflow can enforce the independent `industry-realism-reviewer` gate.
 See `docs/workflow-orchestration.md` for the workflow phases and report
 contract.
 
@@ -265,7 +268,7 @@ Release gates are stricter than smoke checks. Warnings from lint or service
 verification fail the gate, which is useful before a lab is handed to learners:
 
 ```powershell
-python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/release-gate --provider docker-compose --profile protected --materialize --force
+python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
 ```
 
 The current example scenario is still a scaffold, so the release gate is

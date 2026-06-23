@@ -6,7 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .agent_orchestration import AgentResultSpec
 from .io import dump_yaml, write_text
+from .io import load_yaml
 from .linting import lint_lab
 from .model import LabSpec
 from .render import build_lab
@@ -146,6 +148,7 @@ def run_release_gate(
     profile: str,
     materialize: bool = False,
     force: bool = False,
+    agent_result_dir: Path | None = None,
 ) -> ReleaseGateReport:
     working_lab = lab_root.resolve()
     if materialize:
@@ -189,6 +192,8 @@ def run_release_gate(
         )
     )
 
+    checks.append(industry_realism_release_check(agent_result_dir))
+
     provider_out = out / "provider-output"
     provider_messages: list[str] = []
     provider_status: Literal["passed", "warning", "failed"] = "passed"
@@ -212,6 +217,70 @@ def run_release_gate(
     write_text(out / "release-gate-report.yaml", dump_yaml(report.model_dump()))
     write_text(out / "release-gate-report.md", render_release_gate_markdown(report))
     return report
+
+
+def industry_realism_release_check(agent_result_dir: Path | None) -> QaCheck:
+    if not agent_result_dir:
+        return QaCheck(
+            name="industry-realism-review",
+            status="failed",
+            messages=[
+                "Missing --agent-results. Release gate requires `industry-realism-reviewer` output, not only static realism check."
+            ],
+        )
+    result_file = find_industry_realism_result(agent_result_dir)
+    if not result_file:
+        return QaCheck(
+            name="industry-realism-review",
+            status="failed",
+            messages=[f"Missing 10-industry-realism-reviewer.result.yaml under {agent_result_dir}."],
+        )
+    result = AgentResultSpec.model_validate(load_yaml(result_file))
+    verdicts = industry_realism_verdicts(result)
+    messages = [
+        f"result={result_file}",
+        f"status={result.status}",
+        f"verdicts={','.join(sorted(verdicts)) or 'none'}",
+        f"open_questions={len(result.open_questions)}",
+    ]
+    if result.status != "complete":
+        return QaCheck(name="industry-realism-review", status="failed", messages=[*messages, "Reviewer result is not complete."])
+    if "fail" in verdicts:
+        return QaCheck(name="industry-realism-review", status="failed", messages=[*messages, "Reviewer returned fail verdict."])
+    if {"conditional-pass", "not-reviewable"} & verdicts:
+        return QaCheck(
+            name="industry-realism-review",
+            status="failed",
+            messages=[*messages, "Reviewer result is not a full pass."],
+        )
+    if result.open_questions:
+        return QaCheck(
+            name="industry-realism-review",
+            status="failed",
+            messages=[*messages, "Reviewer still has open questions."],
+        )
+    return QaCheck(name="industry-realism-review", status="passed", messages=messages)
+
+
+def find_industry_realism_result(agent_result_dir: Path) -> Path | None:
+    root = agent_result_dir.resolve()
+    candidates = [
+        root / "10-industry-realism-reviewer.result.yaml",
+        root / ".ai" / "outputs" / "10-industry-realism-reviewer.result.yaml",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    matches = sorted(root.glob("**/10-industry-realism-reviewer.result.yaml"))
+    return matches[0] if matches else None
+
+
+def industry_realism_verdicts(result: AgentResultSpec) -> set[str]:
+    verdicts: set[str] = set()
+    for finding in result.findings:
+        if isinstance(finding, dict) and finding.get("verdict"):
+            verdicts.add(str(finding["verdict"]).strip().lower())
+    return verdicts
 
 
 def aggregate_status(checks: list[QaCheck]) -> Literal["passed", "warning", "failed"]:

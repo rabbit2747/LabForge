@@ -51,6 +51,20 @@ Pass `--results` after creating service-builder packages:
 ```powershell
 python -m labforge services agent-packages <lab-root> --out output/my-lab-service-agents --adapter manual
 python -m labforge workflow status <lab-root> --results output/my-lab-service-agents/.ai/outputs
+python -m labforge agents scaffold <lab-root> --out output/my-lab-agents
+python -m labforge agents run output/my-lab-agents --dry-run --adapter manual --agent industry-realism-reviewer --context-root <lab-root>
+python -m labforge workflow status <lab-root> --agent-results output/my-lab-agents/.ai/outputs
+```
+
+The `industry-realism-review` step is a required workflow gate for release
+readiness. It is separate from static `realism check`: the reviewer must judge
+infrastructure, services, UI, workflows, data/noise, security controls, and
+deployment realism before a supervisor accepts the lab.
+
+Release gates require the same evidence:
+
+```powershell
+python -m labforge qa release-gate <lab-root> --out output/my-lab-release-gate --provider docker-compose --profile protected --agent-results output/my-lab-agents/.ai/outputs --materialize --force
 ```
 
 The workflow then includes batch review and batch apply readiness. If result
