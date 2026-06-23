@@ -21,6 +21,7 @@ from .design import (
 from .intake import slugify
 from .io import load_yaml
 from .model import LabSpec
+from .pipeline import create_lab_pipeline
 from .service_blueprints import inspect_service_implementation_status
 
 
@@ -85,6 +86,9 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             payload = self.read_json_body()
             if parsed.path == "/api/scenarios":
                 self.send_json(create_scenario(self.studio_workspace, payload), status=HTTPStatus.CREATED)
+                return
+            if parsed.path == "/api/scenarios/pipeline":
+                self.send_json(create_pipeline_scenario(self.studio_workspace, payload), status=HTTPStatus.CREATED)
                 return
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/review"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
@@ -198,6 +202,7 @@ def summarize_scenario(path: Path) -> StudioScenarioSummary:
 def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
     checks = [
         ("Source prompt", path / "lab" / "scenario-prompt.md"),
+        ("Pipeline result", path / "pipeline-summary.md"),
         ("Draft lab", path / "lab" / "scenario.yaml"),
         ("Agent workspace", path / "agents" / ".ai" / "orchestration-plan.yaml"),
         ("Run packages", path / "agents" / ".ai" / "run" / "run-plan.yaml"),
@@ -221,6 +226,29 @@ def create_scenario(workspace: Path, payload: dict) -> dict:
     scenario_id = unique_scenario_id(workspace, str(payload.get("lab_id", "")).strip() or title or prompt)
     target = workspace / scenario_id
     create_design_workspace_from_prompt(
+        target,
+        prompt=prompt,
+        lab_id=scenario_id,
+        title=title,
+        industry=industry,
+        provider=provider,
+        adapter=adapter,
+        force=True,
+    )
+    return read_scenario_detail(workspace, scenario_id)
+
+
+def create_pipeline_scenario(workspace: Path, payload: dict) -> dict:
+    prompt = str(payload.get("prompt", "")).strip()
+    if not prompt:
+        raise ValueError("prompt is required")
+    title = str(payload.get("title", "")).strip() or None
+    industry = str(payload.get("industry", "")).strip() or None
+    provider = str(payload.get("provider", "auto")).strip() or "auto"
+    adapter = str(payload.get("adapter", "manual")).strip() or "manual"
+    scenario_id = unique_scenario_id(workspace, str(payload.get("lab_id", "")).strip() or title or prompt)
+    target = workspace / scenario_id
+    create_lab_pipeline(
         target,
         prompt=prompt,
         lab_id=scenario_id,
@@ -301,6 +329,7 @@ def read_fix_tasks(path: Path) -> list[dict]:
 def available_reports(path: Path) -> list[dict[str, str]]:
     candidates = [
         ("Scenario Prompt", "lab/scenario-prompt.md"),
+        ("Pipeline Summary", "pipeline-summary.md"),
         ("Design Summary", "design-workspace-summary.md"),
         ("Design Review", "review/design-review-report.md"),
         ("Fix Tasks", "review/design-fix-tasks.md"),
@@ -425,7 +454,10 @@ def render_studio_html() -> str:
       <div class="panel">
         <div class="toolbar">
           <h2>Create Scenario</h2>
-          <button class="primary" id="createScenario">Create Design</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="createScenario">Create Design</button>
+            <button class="primary" id="createPipeline">Create Full Pipeline</button>
+          </div>
         </div>
         <div class="grid">
           <div><label>Title</label><input id="title" placeholder="Brokerage compliance export lab"></div>
@@ -638,6 +670,32 @@ def render_studio_html() -> str:
       } finally {
         btn.disabled = false;
         btn.textContent = 'Create Design';
+      }
+    };
+
+    document.getElementById('createPipeline').onclick = async () => {
+      const btn = document.getElementById('createPipeline');
+      btn.disabled = true;
+      btn.textContent = 'Running pipeline...';
+      try {
+        const detail = await api('/api/scenarios/pipeline', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title: document.getElementById('title').value,
+            industry: document.getElementById('industry').value,
+            adapter: document.getElementById('adapter').value,
+            prompt: document.getElementById('prompt').value
+          })
+        });
+        selectedId = detail.scenario_id;
+        await loadScenarios();
+        renderDetail(detail);
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Full Pipeline';
       }
     };
 

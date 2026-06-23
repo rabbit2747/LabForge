@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "PipelineStepResult": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "status": {
+          "default": "done",
+          "enum": [
+            "done",
+            "warning",
+            "skipped",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "artifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "PipelineStepResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "lab_dir": {
+      "title": "Lab Dir",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "warning",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "industry": {
+      "default": "enterprise",
+      "title": "Industry",
+      "type": "string"
+    },
+    "provider": {
+      "default": "auto",
+      "title": "Provider",
+      "type": "string"
+    },
+    "adapter": {
+      "default": "manual",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "service_count": {
+      "default": 0,
+      "title": "Service Count",
+      "type": "integer"
+    },
+    "service_ready_count": {
+      "default": 0,
+      "title": "Service Ready Count",
+      "type": "integer"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/PipelineStepResult"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "lab_dir",
+    "status"
+  ],
+  "title": "PipelineCreateResult",
+  "type": "object"
+}

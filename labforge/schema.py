@@ -12,6 +12,7 @@ from .implementation_plan import IMPLEMENTATION_SCHEMA_MODELS
 from .intake import INTAKE_SCHEMA_MODELS
 from .linting import LINT_SCHEMA_MODELS
 from .packaging import PACKAGE_SCHEMA_MODELS
+from .pipeline import PIPELINE_SCHEMA_MODELS
 from .provider_lifecycle import PROVIDER_LIFECYCLE_SCHEMA_MODELS
 from .qa import QA_SCHEMA_MODELS
 from .realism import REALISM_SCHEMA_MODELS
@@ -42,6 +43,7 @@ def export_schemas(out: Path) -> list[Path]:
         **PROVIDER_LIFECYCLE_SCHEMA_MODELS,
         **LINT_SCHEMA_MODELS,
         **PACKAGE_SCHEMA_MODELS,
+        **PIPELINE_SCHEMA_MODELS,
         **WORKFLOW_SCHEMA_MODELS,
     }.items():
         schema = model.model_json_schema()

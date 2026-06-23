@@ -50,6 +50,7 @@ cd <LabForge repository root>
 
 python -m labforge intake from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/intake-brokerage-lab --industry securities --provider auto --force
 python -m labforge intake scaffold --from output/intake-brokerage-lab/scenario-intake.yaml --out output/brokerage-lab-draft --force
+python -m labforge pipeline create --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-pipeline --industry securities --provider auto --adapter manual --force
 python -m labforge design from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-design-workspace --industry securities --adapter manual --force
 python -m labforge design review output/brokerage-design-workspace --out output/brokerage-design-review --force
 python -m labforge design tasks output/brokerage-design-workspace
@@ -98,6 +99,7 @@ Expected result:
 ```text
 Created natural-language scenario intake package: <repo>\output\intake-brokerage-lab
 Scaffolded LabForge lab from intake: <repo>\output\brokerage-lab-draft
+# LabForge Pipeline Result
 Created LabForge design workspace: <repo>\output\brokerage-design-workspace
 # LabForge Design Review Report
 Validation passed
@@ -129,6 +131,10 @@ For the service implementation contract used by scenario authors, service
 builders, providers, QA agents, and supervisors, see:
 
 [`docs/service-artifact-standard.md`](docs/service-artifact-standard.md)
+
+For the natural-language to reviewable-workspace pipeline, see:
+
+[`docs/pipeline-workflow.md`](docs/pipeline-workflow.md)
 
 For the rule that service templates must generate reusable infrastructure parts
 rather than reusable puzzles, see:
@@ -199,6 +205,13 @@ The `design from-prompt` command performs the first full design handoff in one
 step. It creates the intake package, scaffolds a draft lab, copies the source
 prompt into the lab context, scaffolds the agent workspace, and prepares dry-run
 agent execution packages for the selected adapter.
+
+The `pipeline create` command is the opinionated product path for starting from
+natural language. It creates the design workspace, runs the first supervisor
+review, scaffolds service artifacts, renders service blueprints, creates the
+service implementation plan, materializes safe starter runtimes, packages
+service-builder agent tasks, verifies service quality gates, and writes
+`pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
 
 The `design review` command collects the first supervisor-facing design review.
 It runs validation, lint, an industry realism pre-check, and an agent-output

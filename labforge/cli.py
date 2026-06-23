@@ -32,6 +32,7 @@ from .implementation_plan import (
 )
 from .intake import create_intake_from_prompt, create_intake_template, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
+from .pipeline import create_lab_pipeline, pipeline_result_to_markdown
 from .agent_orchestration import (
     append_agent_decision,
     create_agent_execution_packages,
@@ -216,6 +217,38 @@ def command_design_from_prompt(args: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     return 0
+
+
+def command_pipeline_create(args: argparse.Namespace) -> int:
+    if args.prompt and args.prompt_file:
+        print("Use either --prompt or --prompt-file, not both.")
+        return 2
+    if args.prompt_file:
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+    else:
+        prompt = args.prompt or ""
+    if not prompt.strip():
+        print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
+        return 2
+    result = create_lab_pipeline(
+        Path(args.out),
+        prompt=prompt,
+        lab_id=args.lab_id,
+        title=args.title,
+        industry=args.industry,
+        difficulty=args.difficulty,
+        provider=args.provider,
+        profile=args.profile,
+        adapter=args.adapter,
+        force=args.force,
+        materialize=not args.no_materialize,
+        package_service_agents=not args.no_service_agents,
+    )
+    if args.format == "json":
+        print(result.model_dump_json(indent=2))
+    else:
+        print(pipeline_result_to_markdown(result))
+    return 0 if result.status in {"complete", "warning"} else 1
 
 
 def command_design_review(args: argparse.Namespace) -> int:
@@ -1018,6 +1051,33 @@ def main(argv: list[str] | None = None) -> int:
     intake_scaffold_parser.add_argument("--out", required=True)
     intake_scaffold_parser.add_argument("--force", action="store_true")
     intake_scaffold_parser.set_defaults(func=command_intake_scaffold)
+
+    pipeline_parser = sub.add_parser("pipeline", help="Run opinionated end-to-end scenario creation workflows")
+    pipeline_sub = pipeline_parser.add_subparsers(dest="pipeline_command", required=True)
+    pipeline_create_parser = pipeline_sub.add_parser(
+        "create",
+        help="Create intake, draft lab, reviews, service blueprints, service scaffolds, and workflow reports from natural language",
+    )
+    pipeline_prompt_source = pipeline_create_parser.add_mutually_exclusive_group(required=True)
+    pipeline_prompt_source.add_argument("--prompt", help="Natural-language scenario prompt")
+    pipeline_prompt_source.add_argument("--prompt-file", help="Path to a file containing the scenario prompt")
+    pipeline_create_parser.add_argument("--out", required=True)
+    pipeline_create_parser.add_argument("--lab-id")
+    pipeline_create_parser.add_argument("--title")
+    pipeline_create_parser.add_argument("--industry", help="Optional target industry override")
+    pipeline_create_parser.add_argument("--difficulty", default="intermediate")
+    pipeline_create_parser.add_argument(
+        "--provider",
+        default="auto",
+        choices=["auto", "docker-compose", "hybrid", "ansible", "terraform", "ludus"],
+    )
+    pipeline_create_parser.add_argument("--profile", default="protected", choices=["unprotected", "protected"])
+    pipeline_create_parser.add_argument("--adapter", default="manual")
+    pipeline_create_parser.add_argument("--no-materialize", action="store_true", help="Skip safe runtime materialization")
+    pipeline_create_parser.add_argument("--no-service-agents", action="store_true", help="Skip service-builder package generation")
+    pipeline_create_parser.add_argument("--format", choices=["text", "json"], default="text")
+    pipeline_create_parser.add_argument("--force", action="store_true")
+    pipeline_create_parser.set_defaults(func=command_pipeline_create)
 
     design_parser = sub.add_parser("design", help="Create design workspaces from scenario intent")
     design_sub = design_parser.add_subparsers(dest="design_command", required=True)
