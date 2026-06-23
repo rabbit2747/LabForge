@@ -19,6 +19,19 @@ python -m labforge pipeline create \
   --force
 ```
 
+For automation that should create the workspace and immediately prove release
+readiness, use:
+
+```bash
+python -m labforge pipeline verified-mvp \
+  --prompt "Create a realistic securities red-team lab..." \
+  --out output/my-lab-verified-mvp \
+  --industry securities \
+  --provider auto \
+  --adapter manual \
+  --force
+```
+
 The same workflow is available in LabForge Studio through **Create Full
 Pipeline**. Studio also provides **Create Verified MVP**, which runs the full
 pipeline and immediately runs the strict release gate against the generated lab

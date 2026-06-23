@@ -53,6 +53,7 @@ cd <LabForge repository root>
 python -m labforge intake from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/intake-brokerage-lab --industry securities --provider auto --force
 python -m labforge intake scaffold --from output/intake-brokerage-lab/scenario-intake.yaml --out output/brokerage-lab-draft --force
 python -m labforge pipeline create --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-pipeline --industry securities --provider auto --adapter manual --force
+python -m labforge pipeline verified-mvp --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-verified-mvp --industry securities --provider auto --adapter manual --force
 python -m labforge pipeline gate output/brokerage-pipeline
 python -m labforge design from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-design-workspace --industry securities --adapter manual --force
 python -m labforge design review output/brokerage-design-workspace --out output/brokerage-design-review --force
@@ -236,6 +237,12 @@ It also writes a supervisor gate bundle: `pipeline-gate.md`,
 `supervisor-package/generated/` with provider output such as Docker Compose and
 `supervisor-package/lifecycle/` with executed validation evidence plus dry-run
 deploy/status/destroy command plans.
+
+The `pipeline verified-mvp` command is the one-command CLI path for automation.
+It runs the full natural-language pipeline, runs the strict release gate, and
+writes `mvp/verified-mvp.md` plus `mvp/verified-mvp.json` in the selected
+workspace. Use it when a CI job, script, or non-web workflow needs the same
+result as Studio's **Create Verified MVP** button.
 
 The `pipeline gate` command can be rerun at any time to classify the workspace
 as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or

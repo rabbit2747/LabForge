@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from labforge.cli import main
 from labforge.studio import (
     create_pipeline_scenario,
     create_verified_mvp_scenario,
@@ -91,6 +92,36 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(any(report["name"] == "Verified MVP" for report in detail["reports"]))
             self.assertTrue((workspace / str(detail["scenario_id"]) / "mvp" / "verified-mvp.json").exists())
             self.assertTrue((workspace / str(detail["scenario_id"]) / "mvp" / "verified-mvp.md").exists())
+
+    def test_verified_mvp_cli_creates_handoff_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "verified-cli"
+            code = main(
+                [
+                    "pipeline",
+                    "verified-mvp",
+                    "--prompt",
+                    (
+                        "Create a realistic healthcare red-team lab where a learner starts from "
+                        "a patient portal, discovers identity and EHR systems, abuses a clinical "
+                        "workflow, and retrieves a controlled synthetic audit export."
+                    ),
+                    "--out",
+                    str(out),
+                    "--industry",
+                    "healthcare",
+                    "--provider",
+                    "auto",
+                    "--adapter",
+                    "manual",
+                    "--force",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertTrue((out / "mvp" / "verified-mvp.json").exists())
+            self.assertTrue((out / "mvp" / "verified-mvp.md").exists())
+            self.assertTrue((out / "release-gate" / "release-gate-report.yaml").exists())
 
 
 if __name__ == "__main__":

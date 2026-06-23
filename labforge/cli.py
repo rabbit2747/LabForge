@@ -65,7 +65,7 @@ from .service_blueprints import (
     service_blueprints_to_markdown,
     service_status_to_markdown,
 )
-from .studio import run_studio
+from .studio import run_studio, write_verified_mvp_manifest
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
 from .vulnerability_scaffolds import SUPPORTED_VULNERABILITY_SCAFFOLDS
@@ -279,6 +279,65 @@ def command_pipeline_gate(args: argparse.Namespace) -> int:
     if args.strict and report.decision not in {"ready-for-supervisor", "release-candidate"}:
         return 1
     return 0
+
+
+def command_pipeline_verified_mvp(args: argparse.Namespace) -> int:
+    if args.prompt and args.prompt_file:
+        print("Use either --prompt or --prompt-file, not both.")
+        return 2
+    if args.prompt_file:
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8-sig")
+    else:
+        prompt = args.prompt or ""
+    prompt = normalize_prompt_text(prompt)
+    if not prompt.strip():
+        print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
+        return 2
+
+    out = Path(args.out)
+    result = create_lab_pipeline(
+        out,
+        prompt=prompt,
+        lab_id=args.lab_id,
+        title=args.title,
+        industry=args.industry,
+        difficulty=args.difficulty,
+        provider=args.provider,
+        profile=args.profile,
+        adapter=args.adapter,
+        force=args.force,
+        materialize=not args.no_materialize,
+        package_service_agents=not args.no_service_agents,
+    )
+    release_provider = args.release_provider or args.provider
+    if release_provider == "auto":
+        release_provider = "docker-compose"
+    release_gate = run_release_gate(
+        Path(result.lab_dir),
+        out / "release-gate",
+        provider=release_provider,
+        profile=args.profile,
+        materialize=not args.no_materialize,
+        force=True,
+        agent_result_dir=out / "agents" / ".ai" / "outputs",
+    )
+    manifest = write_verified_mvp_manifest(out.parent, out.name)
+    if args.format == "json":
+        print_json = {
+            "pipeline": result.model_dump(),
+            "release_gate": release_gate.model_dump(),
+            "verified_mvp": manifest,
+        }
+        import json
+
+        print(json.dumps(print_json, ensure_ascii=False, indent=2))
+    else:
+        print(f"Verified MVP status: {manifest.get('status')}")
+        print(f"- workspace: {out.resolve()}")
+        print(f"- manifest: {(out / 'mvp' / 'verified-mvp.md').resolve()}")
+        print(f"- manifest_json: {(out / 'mvp' / 'verified-mvp.json').resolve()}")
+        print(f"- release_gate: {release_gate.status}")
+    return 0 if result.status in {"complete", "warning"} and release_gate.release_ready else 1
 
 
 def command_design_review(args: argparse.Namespace) -> int:
@@ -1146,6 +1205,31 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_gate_parser.add_argument("--format", choices=["text", "json"], default="text")
     pipeline_gate_parser.add_argument("--strict", action="store_true", help="Return non-zero unless the workspace is ready for supervisor or release gate")
     pipeline_gate_parser.set_defaults(func=command_pipeline_gate)
+    pipeline_verified_parser = pipeline_sub.add_parser(
+        "verified-mvp",
+        help="Create a natural-language pipeline workspace and run the strict release gate in one command",
+    )
+    pipeline_verified_prompt_source = pipeline_verified_parser.add_mutually_exclusive_group(required=True)
+    pipeline_verified_prompt_source.add_argument("--prompt", help="Natural-language scenario prompt")
+    pipeline_verified_prompt_source.add_argument("--prompt-file", help="Path to a file containing the scenario prompt")
+    pipeline_verified_parser.add_argument("--out", required=True)
+    pipeline_verified_parser.add_argument("--lab-id")
+    pipeline_verified_parser.add_argument("--title")
+    pipeline_verified_parser.add_argument("--industry", help="Optional target industry override")
+    pipeline_verified_parser.add_argument("--difficulty", default="intermediate")
+    pipeline_verified_parser.add_argument(
+        "--provider",
+        default="auto",
+        choices=["auto", "docker-compose", "hybrid", "ansible", "terraform", "ludus"],
+    )
+    pipeline_verified_parser.add_argument("--release-provider", default="", choices=["", "docker-compose", "hybrid", "ansible", "terraform", "ludus"])
+    pipeline_verified_parser.add_argument("--profile", default="protected", choices=["unprotected", "protected"])
+    pipeline_verified_parser.add_argument("--adapter", default="manual")
+    pipeline_verified_parser.add_argument("--no-materialize", action="store_true", help="Skip safe runtime materialization")
+    pipeline_verified_parser.add_argument("--no-service-agents", action="store_true", help="Skip service-builder package generation")
+    pipeline_verified_parser.add_argument("--format", choices=["text", "json"], default="text")
+    pipeline_verified_parser.add_argument("--force", action="store_true")
+    pipeline_verified_parser.set_defaults(func=command_pipeline_verified_mvp)
 
     design_parser = sub.add_parser("design", help="Create design workspaces from scenario intent")
     design_sub = design_parser.add_subparsers(dest="design_command", required=True)
