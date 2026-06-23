@@ -34,6 +34,7 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 | Stage | Output | Purpose |
 | --- | --- | --- |
 | Design workspace | `intake/`, `lab/`, `agents/` | Preserve the source prompt, write prompt analysis, infer the first LabForge spec, and prepare specialist-agent packages. |
+| Baseline specialist evidence | `agents/.ai/outputs/` and `agents/.ai/reviews/` | Write deterministic baseline agent result files so the draft can pass structural review before live specialist agents refine it. |
 | Design review | `review/` | Run validation, lint, industry realism pre-check, and agent readiness review. |
 | Design fix tasks | `review/design-fix-tasks.*` | Convert review and realism findings into concrete specialist-agent correction tasks. |
 | Design fix packages | `review/fix-agent-packages/` and `review/fix-agent-results/` | Prepare correction task prompts and schema-valid result stubs so the supervisor can immediately dispatch agent work. |
@@ -98,6 +99,12 @@ service-builder result files from the generated service code and reviews them in
 reviewable and applicable; specialist agents should still refine realism,
 scenario-specific vulnerable behavior, UI, data, and noise before release.
 
+The pipeline also writes baseline specialist-agent evidence for the design
+agents. This evidence is intentionally deterministic: it proves the generated
+draft is structurally reviewable, while preserving the option for live Codex,
+Claude Code, OpenAI, MCP, or human reviewers to replace the baseline files with
+deeper analysis before publication.
+
 ## Supervisor Gate
 
 The pipeline gate classifies a workspace into one of five decisions:
@@ -108,7 +115,7 @@ The pipeline gate classifies a workspace into one of five decisions:
 | `blocked` | A structural failure prevents safe continuation. |
 | `needs-agent-work` | The workspace is usable, but design, service, or realism warnings require specialist-agent work. |
 | `ready-for-supervisor` | The workspace is ready for human supervisor review before live agent execution or release gate. |
-| `release-candidate` | The workspace has the expected evidence to run the stricter QA release gate. |
+| `release-candidate` | The workspace has the expected generated evidence, supervisor package, and validation plans to run the stricter QA release gate. |
 
 By default, `pipeline gate` is a reporting command and exits successfully after
 writing the gate files. Use `--strict` in CI or automation when the command
@@ -116,7 +123,7 @@ should fail unless the workspace is ready for supervisor or release-gate work.
 
 ## Status Semantics
 
-- `complete`: all pipeline steps completed without warnings.
+- `complete`: all pipeline steps completed without blocking warnings.
 - `warning`: the pipeline produced a usable workspace, but supervisor or agent
   review is still needed.
 - `failed`: a required stage failed and the workspace should not be used as a

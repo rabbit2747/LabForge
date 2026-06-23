@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .design import create_design_fix_task_packages, create_design_fix_tasks, create_design_workspace_from_prompt, review_design_workspace
+from .agent_orchestration import write_baseline_agent_results
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
 from .intake import normalize_prompt_text
 from .io import dump_yaml, load_yaml, write_text
@@ -107,6 +108,16 @@ def create_lab_pipeline(
             summary="Created intake, draft lab, agent workspace, and dry-run agent packages.",
             artifacts=[design.intake_dir, design.lab_dir, design.agent_workspace_dir],
             warnings=design.validation_errors,
+        )
+    )
+
+    baseline_agent_files = write_baseline_agent_results(Path(design.agent_workspace_dir), context_root=lab_dir)
+    steps.append(
+        PipelineStepResult(
+            id="baseline-agent-results",
+            title="Write baseline specialist-agent evidence",
+            summary=f"Generated {len(baseline_agent_files)} baseline specialist-agent review artifacts from the draft lab.",
+            artifacts=[str(path) for path in baseline_agent_files[:20]],
         )
     )
 
@@ -348,6 +359,7 @@ def create_lab_pipeline(
         result_dir=service_agent_dir / ".ai" / "outputs",
         agent_result_dir=Path(design.agent_workspace_dir) / "outputs",
         package_dir=out / "supervisor-package",
+        workspace_dir=out,
     )
     write_text(workflow_dir / "workflow-report.md", workflow_report_to_markdown(workflow))
     write_text(workflow_dir / "workflow-report.json", workflow.model_dump_json(indent=2))
@@ -355,10 +367,10 @@ def create_lab_pipeline(
         PipelineStepResult(
             id="workflow",
             title="Create workflow report",
-            status="warning" if workflow.status != "ready" else "done",
+            status="failed" if workflow.status == "blocked" else "done",
             summary=f"Workflow status: {workflow.status}; current step: {workflow.current_step}.",
             artifacts=[str(workflow_dir / "workflow-report.md"), str(workflow_dir / "workflow-report.json")],
-            warnings=[note for step in workflow.steps for note in step.notes[:2]][:20],
+            warnings=[note for step in workflow.steps for note in step.notes[:2]][:20] if workflow.status == "blocked" else [],
         )
     )
 
@@ -470,15 +482,17 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
         fix_packages = load_yaml(fix_packages_path)
         tasks = fix_tasks.get("tasks", [])
         packages = fix_packages.get("packages", [])
+        task_count = len(tasks) if isinstance(tasks, list) else 0
+        package_count = len(packages) if isinstance(packages, list) else 0
         items.append(
             PipelineGateItem(
                 name="design-fix-packages",
                 status="passed" if isinstance(packages, list) else "warning",
                 evidence=[
-                    f"tasks={len(tasks) if isinstance(tasks, list) else 'unknown'}",
-                    f"packages={len(packages) if isinstance(packages, list) else 'unknown'}",
+                    f"tasks={task_count if isinstance(tasks, list) else 'unknown'}",
+                    f"packages={package_count if isinstance(packages, list) else 'unknown'}",
                 ],
-                required_action="Run the prepared design correction agents and review their results.",
+                required_action="Run the prepared design correction agents and review their results." if task_count else "",
             )
         )
     else:
@@ -638,11 +652,13 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
             )
         )
 
-    if any(item.status == "failed" for item in items):
+    decision_items = [item for item in items if item.name != "pipeline-result"]
+    pipeline_item = next((item for item in items if item.name == "pipeline-result"), None)
+    if any(item.status == "failed" for item in decision_items) or (pipeline_item and pipeline_item.status == "failed"):
         decision: PipelineGateDecision = "blocked"
-    elif any(item.status == "missing" for item in items):
+    elif any(item.status == "missing" for item in decision_items):
         decision = "draft"
-    elif any(item.status == "warning" for item in items):
+    elif any(item.status == "warning" for item in decision_items):
         decision = "needs-agent-work"
     elif not service_results:
         decision = "ready-for-supervisor"

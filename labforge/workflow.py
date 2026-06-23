@@ -53,11 +53,13 @@ def create_workflow_report(
     result_dir: Path | None = None,
     agent_result_dir: Path | None = None,
     package_dir: Path | None = None,
+    workspace_dir: Path | None = None,
 ) -> WorkflowReport:
     lab_root = lab_root.resolve()
     package_root = package_dir or Path("output") / f"{lab_root.name}-package"
     result_root = result_dir.resolve() if result_dir else None
     agent_result_root = agent_result_dir.resolve() if agent_result_dir else None
+    workspace_root = workspace_dir.resolve() if workspace_dir else infer_workspace_root(lab_root, result_root, agent_result_root, package_root)
 
     try:
         spec = LabSpec.load(lab_root)
@@ -90,17 +92,17 @@ def create_workflow_report(
 
     steps = [
         lab_spec_step(spec, lab_root),
-        architecture_step(spec, lab_root, provider, profile),
+        architecture_step(spec, lab_root, provider, profile, workspace_root),
         service_contract_step(spec, lab_root),
         service_runtime_step(spec, lab_root),
-        service_plan_step(lab_root),
+        service_plan_step(lab_root, workspace_root),
         service_agent_step(lab_root, result_root),
         service_review_step(spec, result_root),
         service_apply_step(spec, result_root),
         service_verify_step(spec),
         industry_realism_review_step(lab_root, agent_result_root),
-        provider_build_step(lab_root, provider, profile),
-        release_gate_step(lab_root, provider, profile, agent_result_root),
+        provider_build_step(lab_root, provider, profile, package_root),
+        release_gate_step(lab_root, provider, profile, agent_result_root, package_root),
         supervisor_package_step(lab_root, package_root, provider, profile),
     ]
     report_status: Literal["ready", "in-progress", "blocked"]
@@ -122,7 +124,7 @@ def create_workflow_report(
         result_dir=str(result_root) if result_root else None,
         agent_result_dir=str(agent_result_root) if agent_result_root else None,
         steps=steps,
-        next_commands=current.next_commands,
+        next_commands=[] if report_status == "ready" else current.next_commands,
     )
 
 
@@ -164,11 +166,30 @@ def lab_spec_step(spec: LabSpec, lab_root: Path) -> WorkflowStep:
     )
 
 
-def architecture_step(spec: LabSpec, lab_root: Path, provider: str, profile: str) -> WorkflowStep:
+def infer_workspace_root(
+    lab_root: Path,
+    result_root: Path | None,
+    agent_result_root: Path | None,
+    package_root: Path,
+) -> Path | None:
+    if lab_root.name == "lab":
+        return lab_root.parent
+    for candidate in (result_root, agent_result_root):
+        if candidate and candidate.name == "outputs" and candidate.parent.name == ".ai":
+            return candidate.parent.parent.parent
+    if package_root.name == "supervisor-package":
+        return package_root.parent
+    return None
+
+
+def architecture_step(spec: LabSpec, lab_root: Path, provider: str, profile: str, workspace_root: Path | None = None) -> WorkflowStep:
+    protected_doc = workspace_root / "supervisor-package" / "generated" / "docs" / "architecture-protected.md" if workspace_root else None
+    unprotected_doc = workspace_root / "supervisor-package" / "generated" / "docs" / "architecture-unprotected.md" if workspace_root else None
+    status: WorkflowStatus = "done" if protected_doc and protected_doc.exists() and unprotected_doc and unprotected_doc.exists() else "ready"
     return WorkflowStep(
         id="architecture",
         title="Render Architecture And Execution Plan",
-        status="ready",
+        status=status,
         purpose="Generate host-aware architecture, security profile, provider, and execution documentation.",
         evidence=[
             f"networks={len(spec.networks)}",
@@ -240,9 +261,10 @@ def service_runtime_step(spec: LabSpec, lab_root: Path) -> WorkflowStep:
     )
 
 
-def service_plan_step(lab_root: Path) -> WorkflowStep:
+def service_plan_step(lab_root: Path, workspace_root: Path | None = None) -> WorkflowStep:
     out = Path("output") / f"{lab_root.name}-service-plan"
-    status: WorkflowStatus = "done" if (out / "service-implementation-plan.md").exists() else "ready"
+    workspace_plan = workspace_root / "service-plan" / "service-implementation-plan.md" if workspace_root else None
+    status: WorkflowStatus = "done" if (out / "service-implementation-plan.md").exists() or (workspace_plan and workspace_plan.exists()) else "ready"
     return WorkflowStep(
         id="service-plan",
         title="Create Service Implementation Plan",
@@ -316,6 +338,15 @@ def service_apply_step(spec: LabSpec, result_root: Path | None) -> WorkflowStep:
             purpose="Apply reviewed service-builder outputs into each declared service directory.",
             evidence=[f"review_status={report.status}"],
             next_commands=[f"python -m labforge services review-results {quote_path(spec.root)} --results {quote_path(result_root)} --force"],
+        )
+    verification = verify_services(spec)
+    if verification.status == "passed":
+        return WorkflowStep(
+            id="service-result-apply",
+            title="Apply Service Builder Results",
+            status="done",
+            purpose="Apply reviewed service-builder outputs into each declared service directory.",
+            evidence=[f"review_status={report.status}", f"service_verification={verification.status}"],
         )
     return WorkflowStep(
         id="service-result-apply",
@@ -452,25 +483,35 @@ def industry_realism_notes(result: AgentResultSpec) -> list[str]:
     return notes
 
 
-def provider_build_step(lab_root: Path, provider: str, profile: str) -> WorkflowStep:
+def provider_build_step(lab_root: Path, provider: str, profile: str, package_root: Path | None = None) -> WorkflowStep:
     out = Path("output") / f"{lab_root.name}-{provider}-{profile}"
+    generated_compose = package_root / "generated" / "docker-compose.yml" if package_root else None
+    status: WorkflowStatus = "done" if generated_compose and generated_compose.exists() else "ready"
     return WorkflowStep(
         id="provider-build",
         title="Render Provider Output",
-        status="ready",
+        status=status,
         purpose="Render deployable provider output and profile-specific documentation.",
         evidence=[f"expected_output={out}"],
         next_commands=[f"python -m labforge build {quote_path(lab_root)} --out {quote_path(out)} --provider {provider} --profile {profile} --force"],
     )
 
 
-def release_gate_step(lab_root: Path, provider: str, profile: str, agent_result_root: Path | None = None) -> WorkflowStep:
+def release_gate_step(
+    lab_root: Path,
+    provider: str,
+    profile: str,
+    agent_result_root: Path | None = None,
+    package_root: Path | None = None,
+) -> WorkflowStep:
     out = Path("output") / f"{lab_root.name}-release-gate"
     agent_results_arg = f" --agent-results {quote_path(agent_result_root)}" if agent_result_root else ""
+    validate_plan = package_root / "lifecycle" / "validate-plan.json" if package_root else None
+    status: WorkflowStatus = "done" if validate_plan and validate_plan.exists() else "ready"
     return WorkflowStep(
         id="release-gate",
         title="Run Release Gate",
-        status="ready",
+        status=status,
         purpose="Run strict validation before a lab package is treated as releasable.",
         evidence=[f"expected_output={out}"],
         next_commands=[
