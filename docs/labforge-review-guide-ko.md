@@ -804,12 +804,12 @@ examples/scenario-02-ad-domain-compromise
 
 한계:
 
-- 실제 취약 서비스 자동 생성은 아직 하지 않는다. 다만 `services materialize`로 안전한 Docker MVP runtime을 생성하고 실행 검증할 수 있다.
+- 모든 취약 서비스를 자동 생성하지는 않는다. 다만 지원 플러그인(`ssti-preview`, `stored-xss-review`, `idor-object-access`, `ssrf-internal-fetch`, `diagnostic-command-injection`)은 `services materialize`로 안전한 Docker MVP runtime과 lab-scoped 취약 동작을 생성하고 실행 검증할 수 있다.
 - Docker Compose 외 provider는 실제 인프라 배포를 수행하지 않는다. 다만 Ansible/Terraform/Ludus/Hybrid provider는 provider plan, inventory, security profile, starter file을 생성한다.
 - protected/unprotected profile은 문서, Docker Compose scaffold/runtime script, provider skeleton 산출물에 반영된다. 실제 WAF/IDS/SIEM/EDR 엔진 구성과 enforcement logic은 아직 생성하지 않는다.
 - security control은 diagram overlay, 문서화, Docker Compose control 서비스, provider placement matrix 수준이다.
 - JSON Schema 파일은 pydantic 모델에서 export되지만, 아직 editor integration이나 CI schema validation은 없다.
-- generated `docker-compose.yml`은 runnable MVP runtime을 실행할 수 있으며, 실제 취약 서비스 구현은 service builder 또는 agent가 확장해야 한다.
+- generated `docker-compose.yml`은 runnable MVP runtime을 실행할 수 있으며, 지원되지 않는 취약 서비스 구현과 시나리오 고유 체인은 service builder 또는 agent가 확장해야 한다.
 
 ## 14. 수정된 개발 단계 제안
 
@@ -833,7 +833,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 
 5. Service Artifact Standard
 
-   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다. `services materialize`는 실제 취약 코드가 아닌 안전한 scenario-derived MVP runtime을 생성한다.
+   취약 서비스 구현 디렉토리의 표준 구조를 정의한다. seed, noise, reset, healthcheck, attack-surface metadata를 분리한다. `services materialize`는 지원 플러그인에 대해 lab-scoped 취약 동작이 포함된 scenario-derived MVP runtime을 생성한다.
 
 6. LLM Adapter
 

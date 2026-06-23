@@ -290,6 +290,7 @@ python -m labforge workflow status output/new-lab --provider docker-compose --pr
 python -m labforge services scaffold output/new-lab
 python -m labforge services materialize output/new-lab --force
 python -m labforge services verify output/new-lab
+python -m labforge services vulnerability-plugins
 python -m labforge services blueprints output/new-lab --out output/new-lab-service-blueprints
 python -m labforge services status output/new-lab
 python -m labforge services plan output/new-lab --out output/new-lab-service-plan
@@ -370,8 +371,8 @@ provider-specific starter files so provider engineers can complete the runnable
 implementation without reverse-engineering the scenario spec.
 
 QA smoke checks can validate the current lab definition, service artifact
-contracts, scenario-derived MVP runtime materialization, and provider build in
-one pass:
+contracts, scenario-derived MVP runtime materialization, supported lab-scoped
+vulnerability scaffolds, and provider build in one pass:
 
 ```powershell
 python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force

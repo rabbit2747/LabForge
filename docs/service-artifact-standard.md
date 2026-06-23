@@ -130,9 +130,10 @@ Status levels:
 - `tested`: runtime files and at least one substantive test exist.
 
 When `vulnerability_plugins` are declared, materialization also writes reviewable
-contract files under `services/<service>/plugins/*.contract.yaml`. These files
-describe the scenario-specific behavior that service builders must implement;
-they do not generate final answers or fixed exploit chains.
+contract files under `services/<service>/plugins/*.contract.yaml`. For supported
+plugins, LabForge also adds lab-scoped MVP runtime routes and smoke tests. These
+routes prove the vulnerable behavior can execute inside the generated lab, while
+still avoiding final answers or fixed exploit chains in reusable framework code.
 
 Each declared plugin must include its required scenario configuration keys. For
 example, `ssti-preview` requires `workflow`, `template_engine`,
@@ -152,6 +153,14 @@ The command also shows scaffold coverage:
   metadata, and smoke tests.
 - `contract-only`: LabForge writes the reviewable contract, but a service
   builder must implement the runtime behavior for that scenario.
+
+Current minimum-runnable vulnerability scaffolds:
+
+- `ssti-preview`
+- `stored-xss-review`
+- `idor-object-access`
+- `ssrf-internal-fetch`
+- `diagnostic-command-injection`
 
 Validate that every declared service artifact has a matching implementation
 directory and required files:

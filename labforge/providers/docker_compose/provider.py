@@ -110,6 +110,7 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
                 }
         if service.get("read_only", True):
             entry["read_only"] = True
+            entry.setdefault("tmpfs", ["/tmp", "/state", "/var/log/labforge"])
         if "user" in service:
             entry["user"] = str(service["user"])
         if service.get("expose"):

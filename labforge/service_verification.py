@@ -314,7 +314,7 @@ def verify_template_boundaries(findings: list[ServiceVerificationFinding], artif
 
 
 def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], artifact, service_root: Path, source_path: str) -> None:
-    template_id = template_id_for_artifact(artifact)
+    template_ids = vulnerability_template_ids(artifact, service_root)
     for declared in declared_vulnerability_plugins(artifact):
         plugin_id = str(declared.get("id", "")).strip()
         if not plugin_id:
@@ -355,15 +355,18 @@ def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], art
             verify_vulnerability_scaffold_files(findings, artifact.service, plugin.plugin_id, service_root, source_path)
         if contract_path.exists():
             verify_vulnerability_contract_file(findings, artifact.service, plugin, contract_path, source_path)
-        compatible = {item.lower() for item in plugin.compatible_templates}
-        if template_id and template_id.lower() not in compatible:
+        compatible = {normalize_template_id(item) for item in plugin.compatible_templates}
+        if template_ids and not (template_ids & compatible):
             findings.append(
                 ServiceVerificationFinding(
                     severity="warning",
                     service=artifact.service,
                     category="vulnerability-plugin",
                     path=f"{source_path}/labforge-service.yaml",
-                    message=f"Plugin `{plugin.plugin_id}` is not declared compatible with template/runtime `{template_id}`.",
+                    message=(
+                        f"Plugin `{plugin.plugin_id}` is not declared compatible with "
+                        f"template/runtime `{', '.join(sorted(template_ids))}`."
+                    ),
                 )
             )
         for key in plugin.required_config_keys:
@@ -477,6 +480,20 @@ def verify_vulnerability_scaffold_files(
 
 def normalize_plugin_filename(plugin_id: str) -> str:
     return normalize_template_id(plugin_id)
+
+
+def vulnerability_template_ids(artifact, service_root: Path) -> set[str]:
+    ids = {normalize_template_id(template_id_for_artifact(artifact))}
+    blueprint_path = service_root / "blueprint.yaml"
+    if blueprint_path.exists():
+        try:
+            blueprint = yaml.safe_load(blueprint_path.read_text(encoding="utf-8")) or {}
+            template = blueprint.get("template")
+            if template:
+                ids.add(normalize_template_id(str(template)))
+        except yaml.YAMLError:
+            pass
+    return {item for item in ids if item}
 
 
 def parse_service_name(message: str) -> str:

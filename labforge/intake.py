@@ -233,6 +233,13 @@ def intake_from_natural_language_request(request: NaturalLanguageScenarioRequest
 
 def apply_prompt_analysis_to_profile(profile: dict, analysis: PromptAnalysis) -> dict:
     merged = {**profile}
+    inspiration = list(merged.get("inspiration", []))
+    for theme in analysis.requested_attack_themes:
+        item = f"attack-theme: {theme}"
+        if item not in inspiration:
+            inspiration.append(item)
+    merged["inspiration"] = inspiration
+
     existing_names = {normalize_service_name(item) for item in merged.get("target_infrastructure", [])}
     target_infrastructure = list(merged.get("target_infrastructure", []))
     for asset in analysis.named_assets:
@@ -475,6 +482,7 @@ def environment_from_intake(intake: ScenarioIntake) -> dict:
 def artifacts_from_intake(intake: ScenarioIntake) -> dict:
     service_artifacts = []
     for name in service_names_from_intake(intake):
+        vulnerability_plugins = vulnerability_plugins_for_service(intake, name)
         service_artifacts.append(
             {
                 "service": name,
@@ -488,6 +496,7 @@ def artifacts_from_intake(intake: ScenarioIntake) -> dict:
                 "reset": "reset.sh restores deterministic lab state.",
                 "evidence_logs": ["logs/app.log"],
                 "safety_boundaries": intake.safety_boundaries or ["Lab-internal behavior only."],
+                "vulnerability_plugins": vulnerability_plugins,
             }
         )
     return {
@@ -497,6 +506,100 @@ def artifacts_from_intake(intake: ScenarioIntake) -> dict:
         "instructor_only": [{"name": "scenario-intake-source", "path": "scenario-intake.yaml"}],
         "service_artifacts": service_artifacts,
     }
+
+
+def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str) -> list[dict]:
+    scenario_text = scenario_search_text(intake)
+    service_text = service_name.lower()
+    plugins: list[dict] = []
+
+    if any(word in scenario_text for word in ["ssti", "server-side template", "template injection", "jinja", "preview", "render"]):
+        if any(word in service_text for word in ["portal", "entry", "support", "hr", "public"]):
+            plugins.append(
+                {
+                    "id": "ssti-preview",
+                    "workflow": "business preview or response drafting",
+                    "template_engine": "jinja2",
+                    "execution_boundary": "isolated generated lab service",
+                    "post_exploitation_objective": "obtain a bounded service foothold or internal clue for the next stage",
+                }
+            )
+
+    if any(word in scenario_text for word in ["xss", "cross-site", "review", "bot", "manager", "approval"]) or any(
+        word in service_text for word in ["review", "release-console", "manager-console"]
+    ):
+        if any(word in service_text for word in ["console", "review", "release", "manager", "portal", "internal"]):
+            plugins.append(
+                {
+                    "id": "stored-xss-review",
+                    "storage_location": "/state/review-items.json",
+                    "reviewer_role": "privileged reviewer",
+                    "review_surface": "internal review queue",
+                    "callback_scope": "lab-internal learner callback",
+                }
+            )
+
+    if any(word in scenario_text for word in ["ssrf", "server-side request", "internal fetch", "webhook", "url fetch", "metadata"]):
+        if any(word in service_text for word in ["portal", "entry", "support", "wiki", "import", "webhook"]):
+            plugins.append(
+                {
+                    "id": "ssrf-internal-fetch",
+                    "business_fetch_reason": "server-side document, webhook, or knowledge-base lookup",
+                    "allowed_url_policy": "lab-internal HTTP targets only",
+                    "internal_targets": ["http://metadata-service:8080/metadata", "http://internal-portal:8080/metadata"],
+                    "blocked_targets": ["http://169.254.169.254/", "https://example.com/"],
+                }
+            )
+
+    if any(word in scenario_text for word in ["idor", "object", "export", "sensitive data", "dataset", "file", "archive"]):
+        if any(word in service_text for word in ["api", "object", "store", "file", "data", "sensitive", "customer"]):
+            plugins.append(
+                {
+                    "id": "idor-object-access",
+                    "object_model": "synthetic business records and export objects",
+                    "authorization_rule": "owner is checked on list views but not consistently checked on direct object reads",
+                    "reference_discovery": "object identifiers are discoverable through normal metadata or logs",
+                    "target_dataset": "scenario-defined synthetic final object",
+                }
+            )
+
+    if any(word in scenario_text for word in ["command injection", "diagnostic", "shell", "foothold", "command execution", "rce"]):
+        if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search"]):
+            plugins.append(
+                {
+                    "id": "diagnostic-command-injection",
+                    "operator_workflow": "operator diagnostic command execution",
+                    "injection_field": "diagnostic target or argument",
+                    "command_boundary": "isolated generated lab container",
+                    "observable_outputs": ["stdout", "stderr", "service event log"],
+                }
+            )
+
+    return plugins
+
+
+def scenario_search_text(intake: ScenarioIntake) -> str:
+    parts = [
+        intake.title,
+        intake.summary,
+        intake.final_objective,
+        intake.learner_entrypoint,
+        " ".join(intake.inspiration),
+        " ".join(intake.attacker_infrastructure),
+        " ".join(intake.target_infrastructure),
+    ]
+    for stage in intake.stages:
+        parts.extend(
+            [
+                stage.stage_id,
+                stage.learner_goal,
+                stage.expected_action,
+                stage.mitre_tactic,
+                " ".join(stage.mitre_techniques),
+                " ".join(stage.infrastructure_touched),
+            ]
+        )
+    return " ".join(parts).lower()
 
 
 def service_names_from_intake(intake: ScenarioIntake) -> list[str]:
@@ -567,6 +670,11 @@ def analyze_prompt(request: NaturalLanguageScenarioRequest) -> PromptAnalysis:
         {
             "initial-access": ["public", "external", "portal", "vpn", "internet-facing", "외부", "포털"],
             "web-exploitation": ["ssti", "xss", "ssrf", "idor", "rce", "upload", "웹", "취약점"],
+            "ssti": ["ssti", "server-side template", "template injection", "jinja"],
+            "stored-xss": ["stored xss", "xss", "cross-site", "review bot", "manager bot"],
+            "ssrf": ["ssrf", "server-side request", "internal fetch", "webhook", "url fetch"],
+            "idor": ["idor", "direct object", "object reference", "export object"],
+            "diagnostic-command-execution": ["diagnostic", "command injection", "command execution", "rce", "shell"],
             "identity-abuse": ["ldap", "sso", "session", "cookie", "token", "credential", "계정", "세션", "토큰"],
             "lateral-movement": ["lateral", "pivot", "tunnel", "bastion", "jump", "내부망", "이동"],
             "collection": ["export", "object", "file", "database", "sensitive", "audit", "탈취", "수집"],
