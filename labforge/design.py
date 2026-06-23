@@ -53,6 +53,28 @@ class DesignReviewReport(DesignModel):
     next_commands: list[str] = Field(default_factory=list)
 
 
+class DesignFixTask(DesignModel):
+    task_id: str
+    title: str
+    source: str
+    severity: Literal["info", "warning", "error"] = "warning"
+    assigned_agent: str
+    status: Literal["pending", "in-progress", "done", "blocked"] = "pending"
+    rationale: str
+    required_action: str
+    expected_artifacts: list[str] = Field(default_factory=list)
+    related_files: list[str] = Field(default_factory=list)
+
+
+class DesignFixTaskReport(DesignModel):
+    workspace: str
+    lab_dir: str
+    review_dir: str
+    status: Literal["no-tasks", "pending", "blocked"] = "pending"
+    tasks: list[DesignFixTask] = Field(default_factory=list)
+    next_commands: list[str] = Field(default_factory=list)
+
+
 def create_design_workspace_from_prompt(
     out: Path,
     *,
@@ -195,6 +217,158 @@ def review_design_workspace(
     return report
 
 
+def create_design_fix_tasks(workspace: Path, *, review_dir: Path | None = None) -> DesignFixTaskReport:
+    workspace = workspace.resolve()
+    lab_dir = workspace / "lab"
+    report_dir = review_dir or workspace / "review"
+    review_path = report_dir / "design-review-report.yaml"
+    if not review_path.exists():
+        review_design_workspace(workspace, out=report_dir, force=True)
+    review = DesignReviewReport.model_validate(load_design_yaml(review_path))
+    tasks = fix_tasks_from_review(review)
+    report = DesignFixTaskReport(
+        workspace=str(workspace),
+        lab_dir=str(lab_dir),
+        review_dir=str(report_dir),
+        status="no-tasks" if not tasks else "pending",
+        tasks=tasks,
+        next_commands=[
+            f"python -m labforge agents run {workspace / 'agents'} --adapter manual --context-root {lab_dir} --dry-run",
+            f"python -m labforge services plan {lab_dir} --out {workspace / 'service-plan'}",
+            f"python -m labforge workflow status {lab_dir} --agent-results {workspace / 'agents' / '.ai' / 'outputs'} --provider docker-compose --profile protected",
+        ],
+    )
+    write_text(report_dir / "design-fix-tasks.yaml", dump_yaml(report.model_dump()))
+    write_text(report_dir / "design-fix-tasks.md", render_design_fix_tasks(report))
+    return report
+
+
+def load_design_yaml(path: Path) -> dict:
+    from .io import load_yaml
+
+    return load_yaml(path)
+
+
+def fix_tasks_from_review(review: DesignReviewReport) -> list[DesignFixTask]:
+    tasks: list[DesignFixTask] = []
+    for index, warning in enumerate(review.warnings, start=1):
+        tasks.append(fix_task_from_warning(index, warning, review))
+    if not review.agent_ready_for_supervisor:
+        tasks.append(
+            DesignFixTask(
+                task_id=f"fix-{len(tasks) + 1:03d}",
+                title="Complete specialist agent outputs",
+                source="agent-review",
+                assigned_agent="orchestrator",
+                rationale="The design workspace is not ready for supervisor approval until required agent outputs are drafted and reviewed.",
+                required_action="Run or manually complete the pending specialist agent result files, then run `labforge agents review --write` again.",
+                expected_artifacts=[".ai/outputs/*.result.yaml", ".ai/reviews/agent-review.md"],
+                related_files=["agents/.ai/tasks/", "agents/.ai/outputs/"],
+            )
+        )
+    return tasks
+
+
+def fix_task_from_warning(index: int, warning: str, review: DesignReviewReport) -> DesignFixTask:
+    lowered = warning.lower()
+    assigned_agent = "scenario-designer"
+    title = "Resolve design warning"
+    required_action = "Review the warning and update the LabForge draft so the issue is resolved without adding hidden solver-only knowledge."
+    expected_artifacts = ["scenario.yaml", "topology.yaml", "stages.yaml"]
+    related_files = ["lab/scenario.yaml", "lab/topology.yaml", "lab/stages.yaml"]
+    source = "design-review"
+
+    if "missing industry capability" in lowered or lowered.startswith("capability:"):
+        assigned_agent = "industry-realism-reviewer"
+        capability = warning.split(":", 1)[-1].strip()
+        capability = capability.removeprefix("Missing industry capability:").strip()
+        title = f"Add realistic industry capability: {capability}"
+        required_action = (
+            "Update the scenario, topology, service contracts, and noise plan so the declared industry is represented by realistic services, workflows, data, and UI surfaces."
+        )
+        expected_artifacts = ["topology.yaml", "environment.yaml", "artifacts.yaml", "realism rationale"]
+        related_files = ["lab/topology.yaml", "lab/environment.yaml", "lab/artifacts.yaml", "review/realism-report.md"]
+        source = "realism-report"
+    elif "expected industry network/zone" in lowered or lowered.startswith("zone:"):
+        assigned_agent = "infrastructure-architect"
+        zone = warning.split(":", 1)[-1].strip()
+        zone = zone.removeprefix("Expected industry network/zone is not clearly represented:").strip()
+        title = f"Represent missing industry zone: {zone}"
+        required_action = "Revise network zones, service placement, and protected/unprotected architecture views so the missing enterprise zone is explicit."
+        expected_artifacts = ["topology.yaml", "environment.yaml", "architecture diagram update"]
+        related_files = ["lab/topology.yaml", "lab/environment.yaml"]
+        source = "realism-report"
+    elif "security" in lowered or "ids" in lowered or "siem" in lowered or "waf" in lowered:
+        assigned_agent = "security-controls"
+        title = "Add or refine security control coverage"
+        required_action = "Map the warning to selectable security controls and update the protected architecture without changing the unprotected learning path."
+        expected_artifacts = ["security-controls.yaml", "supervisor-selection.yaml", "protected architecture notes"]
+        related_files = ["lab/security-controls.yaml", "lab/supervisor-selection.yaml", "lab/topology.yaml"]
+    elif "service" in lowered or "healthcheck" in lowered or "artifact" in lowered:
+        assigned_agent = "service-builder"
+        title = "Repair service artifact or runtime contract"
+        required_action = "Update service artifact contracts, healthchecks, reset behavior, and seed/noise requirements for the affected service."
+        expected_artifacts = ["artifacts.yaml", "services/<service>/README.md", "healthcheck/reset contract"]
+        related_files = ["lab/artifacts.yaml", "lab/services/"]
+        source = "lint-report"
+    elif "mitre" in lowered or "technique" in lowered or "tactic" in lowered:
+        assigned_agent = "mitre-mapper"
+        title = "Correct MITRE ATT&CK mapping"
+        required_action = "Review the affected stage and map it to a precise ATT&CK Enterprise tactic and technique with learner-visible evidence."
+        expected_artifacts = ["stages.yaml", "MITRE mapping note"]
+        related_files = ["lab/stages.yaml"]
+
+    return DesignFixTask(
+        task_id=f"fix-{index:03d}",
+        title=title,
+        source=source,
+        assigned_agent=assigned_agent,
+        rationale=warning,
+        required_action=required_action,
+        expected_artifacts=expected_artifacts,
+        related_files=related_files,
+    )
+
+
+def render_design_fix_tasks(report: DesignFixTaskReport) -> str:
+    lines = [
+        "# LabForge Design Fix Tasks",
+        "",
+        "## Summary",
+        "",
+        f"- Workspace: `{report.workspace}`",
+        f"- Draft lab: `{report.lab_dir}`",
+        f"- Status: `{report.status}`",
+        f"- Task count: `{len(report.tasks)}`",
+        "",
+        "## Tasks",
+        "",
+        "| ID | Agent | Status | Title | Source |",
+        "|---|---|---|---|---|",
+    ]
+    for task in report.tasks:
+        lines.append(f"| `{task.task_id}` | `{task.assigned_agent}` | `{task.status}` | {task.title} | `{task.source}` |")
+    for task in report.tasks:
+        lines += [
+            "",
+            f"### {task.task_id} - {task.title}",
+            "",
+            f"- Assigned agent: `{task.assigned_agent}`",
+            f"- Source: `{task.source}`",
+            f"- Status: `{task.status}`",
+            f"- Rationale: {task.rationale}",
+            f"- Required action: {task.required_action}",
+            "- Expected artifacts:",
+        ]
+        lines.extend(f"  - `{item}`" for item in task.expected_artifacts)
+        lines.append("- Related files:")
+        lines.extend(f"  - `{item}`" for item in task.related_files)
+    lines += ["", "## Next Commands", "", "```powershell"]
+    lines.extend(report.next_commands)
+    lines += ["```", ""]
+    return "\n".join(lines)
+
+
 def design_review_status(
     *,
     validation_errors: list[str],
@@ -297,4 +471,5 @@ def render_design_review_report(report: DesignReviewReport) -> str:
 DESIGN_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "design-workspace-result.schema.json": DesignWorkspaceResult,
     "design-review-report.schema.json": DesignReviewReport,
+    "design-fix-task-report.schema.json": DesignFixTaskReport,
 }

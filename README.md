@@ -52,6 +52,7 @@ python -m labforge intake from-prompt --prompt "Create a realistic enterprise re
 python -m labforge intake scaffold --from output/intake-brokerage-lab/scenario-intake.yaml --out output/brokerage-lab-draft --force
 python -m labforge design from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-design-workspace --industry securities --adapter manual --force
 python -m labforge design review output/brokerage-design-workspace --out output/brokerage-design-review --force
+python -m labforge design tasks output/brokerage-design-workspace
 python -m labforge studio serve --workspace output/studio --host 127.0.0.1 --port 8765
 python -m labforge intake template --out output/intake-scenario-02 --lab-id scenario-02-ad-domain-compromise --title "Scenario 02 - Active Directory Domain Compromise"
 python -m labforge intake scaffold --from output/intake-scenario-02/scenario-intake.yaml --out output/intake-scenario-02-lab --force
@@ -191,10 +192,15 @@ It runs validation, lint, an industry realism pre-check, and an agent-output
 readiness review, then writes a review bundle with `design-review-report.md`,
 `lint-report.md`, `realism-report.md`, and `agent-review.md`.
 
+The `design tasks` command converts design review findings into a concrete fix
+queue. It maps realism, lint, security-control, service, and agent-readiness
+findings to the specialist agent that should handle each correction.
+
 The `studio serve` command starts a local web console for scenario authors and
 supervisors. Studio can create scenarios from natural-language text, load a
 prompt from a local file into the form, list multiple scenario workspaces, show
-which design step is complete, run design review, and display generated reports.
+which design step is complete, run design review, generate fix tasks, and
+display generated reports.
 
 The `agents` command creates a dry-run orchestration workspace. It does not call
 an LLM yet. It defines the future Orchestrator LLM and specialist agent system
@@ -206,6 +212,7 @@ python -m labforge intake from-prompt --prompt-file .\my-scenario-prompt.md --ou
 python -m labforge intake scaffold --from output\my-scenario-intake\scenario-intake.yaml --out output\my-scenario-draft --force
 python -m labforge design from-prompt --prompt-file .\my-scenario-prompt.md --out output\my-scenario-design --industry securities --adapter manual --force
 python -m labforge design review output\my-scenario-design --out output\my-scenario-design-review --force
+python -m labforge design tasks output\my-scenario-design
 python -m labforge studio serve --workspace output\studio --host 127.0.0.1 --port 8765
 python -m labforge intake template --out output/new-intake --lab-id new-lab --title "New Lab"
 python -m labforge intake scaffold --from output/new-intake/scenario-intake.yaml --out output/new-lab --force

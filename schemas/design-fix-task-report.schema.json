@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "DesignFixTask": {
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "severity": {
+          "default": "warning",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "assigned_agent": {
+          "title": "Assigned Agent",
+          "type": "string"
+        },
+        "status": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "in-progress",
+            "done",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "required_action": {
+          "title": "Required Action",
+          "type": "string"
+        },
+        "expected_artifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Artifacts",
+          "type": "array"
+        },
+        "related_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "title",
+        "source",
+        "assigned_agent",
+        "rationale",
+        "required_action"
+      ],
+      "title": "DesignFixTask",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "lab_dir": {
+      "title": "Lab Dir",
+      "type": "string"
+    },
+    "review_dir": {
+      "title": "Review Dir",
+      "type": "string"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "no-tasks",
+        "pending",
+        "blocked"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "#/$defs/DesignFixTask"
+      },
+      "title": "Tasks",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "lab_dir",
+    "review_dir"
+  ],
+  "title": "DesignFixTaskReport",
+  "type": "object"
+}

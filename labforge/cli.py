@@ -8,7 +8,13 @@ from .adapter_smoke import adapter_smoke_to_json, adapter_smoke_to_markdown, run
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
-from .design import create_design_workspace_from_prompt, render_design_review_report, review_design_workspace
+from .design import (
+    create_design_fix_tasks,
+    create_design_workspace_from_prompt,
+    render_design_fix_tasks,
+    render_design_review_report,
+    review_design_workspace,
+)
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .implementation_plan import (
     create_service_agent_packages,
@@ -210,6 +216,18 @@ def command_design_review(args: argparse.Namespace) -> int:
     else:
         print(render_design_review_report(report))
     return 0 if report.status != "failed" else 1
+
+
+def command_design_tasks(args: argparse.Namespace) -> int:
+    report = create_design_fix_tasks(
+        Path(args.workspace),
+        review_dir=Path(args.review_dir) if args.review_dir else None,
+    )
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_design_fix_tasks(report))
+    return 0 if report.status != "blocked" else 1
 
 
 def command_studio_serve(args: argparse.Namespace) -> int:
@@ -922,6 +940,11 @@ def main(argv: list[str] | None = None) -> int:
     design_review_parser.add_argument("--format", choices=["text", "json"], default="text")
     design_review_parser.add_argument("--force", action="store_true")
     design_review_parser.set_defaults(func=command_design_review)
+    design_tasks_parser = design_sub.add_parser("tasks", help="Convert design review findings into fix tasks")
+    design_tasks_parser.add_argument("workspace", help="Directory created by `labforge design from-prompt`")
+    design_tasks_parser.add_argument("--review-dir", help="Review directory containing design-review-report.yaml")
+    design_tasks_parser.add_argument("--format", choices=["text", "json"], default="text")
+    design_tasks_parser.set_defaults(func=command_design_tasks)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")

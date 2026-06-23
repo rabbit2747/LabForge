@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .design import create_design_workspace_from_prompt, review_design_workspace
+from .design import create_design_fix_tasks, create_design_workspace_from_prompt, review_design_workspace
 from .intake import slugify
 from .io import load_yaml
 
@@ -26,6 +26,7 @@ class StudioScenarioSummary(StudioModel):
     path: str
     updated_at: str = ""
     steps: list[dict[str, str | bool]] = Field(default_factory=list)
+    fix_tasks: list[dict] = Field(default_factory=list)
 
 
 class StudioState(StudioModel):
@@ -77,6 +78,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/review"):
                 scenario_id = parsed.path.strip("/").split("/")[2]
                 self.send_json(review_scenario(self.studio_workspace, scenario_id, payload))
+                return
+            if parsed.path.startswith("/api/scenarios/") and parsed.path.endswith("/tasks"):
+                scenario_id = parsed.path.strip("/").split("/")[2]
+                self.send_json(generate_fix_tasks(self.studio_workspace, scenario_id))
                 return
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
@@ -196,11 +201,27 @@ def review_scenario(workspace: Path, scenario_id: str, payload: dict) -> dict:
     return read_scenario_detail(workspace, scenario_id)
 
 
+def generate_fix_tasks(workspace: Path, scenario_id: str) -> dict:
+    path = safe_scenario_path(workspace, scenario_id)
+    create_design_fix_tasks(path, review_dir=path / "review")
+    return read_scenario_detail(workspace, scenario_id)
+
+
 def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     path = safe_scenario_path(workspace, scenario_id)
     summary = summarize_scenario(path).model_dump()
     summary["reports"] = available_reports(path)
+    summary["fix_tasks"] = read_fix_tasks(path)
     return summary
+
+
+def read_fix_tasks(path: Path) -> list[dict]:
+    task_path = path / "review" / "design-fix-tasks.yaml"
+    if not task_path.exists():
+        return []
+    report = load_yaml(task_path)
+    tasks = report.get("tasks", [])
+    return tasks if isinstance(tasks, list) else []
 
 
 def available_reports(path: Path) -> list[dict[str, str]]:
@@ -208,6 +229,7 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Scenario Prompt", "lab/scenario-prompt.md"),
         ("Design Summary", "design-workspace-summary.md"),
         ("Design Review", "review/design-review-report.md"),
+        ("Fix Tasks", "review/design-fix-tasks.md"),
         ("Realism Report", "review/realism-report.md"),
         ("Lint Report", "review/lint-report.md"),
         ("Agent Review", "review/agent-review.md"),
@@ -391,7 +413,10 @@ def render_studio_html() -> str:
               <h2>${escapeHtml(s.title)}</h2>
               <div class="meta"><span>${escapeHtml(s.scenario_id)}</span><span>${escapeHtml(s.industry)}</span><span class="status ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span></div>
             </div>
-            <button class="primary" id="runReview">Run Review</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="generateTasks">Generate Fix Tasks</button>
+              <button class="primary" id="runReview">Run Review</button>
+            </div>
           </div>
           <div class="steps">
             ${(s.steps || []).map(step => `<div class="step ${step.complete ? 'done' : ''}"><b>${escapeHtml(step.name)}</b><span>${step.complete ? 'complete' : 'pending'}</span></div>`).join('')}
@@ -401,8 +426,13 @@ def render_studio_html() -> str:
           <h2>Reports</h2>
           <div class="reports">${reports || '<span class="meta">No reports yet.</span>'}</div>
           <pre id="reportViewer">Select a report.</pre>
+        </div>
+        <div class="panel">
+          <h2>Fix Tasks</h2>
+          <div id="fixTasks">${renderFixTasks(s.fix_tasks || [])}</div>
         </div>`;
       document.getElementById('runReview').onclick = () => runReview(s.scenario_id);
+      document.getElementById('generateTasks').onclick = () => generateTasks(s.scenario_id);
       detail.querySelectorAll('[data-report]').forEach(btn => btn.onclick = () => loadReport(s.scenario_id, decodeURIComponent(btn.dataset.report)));
     }
 
@@ -412,6 +442,22 @@ def render_studio_html() -> str:
       btn.textContent = 'Reviewing...';
       try {
         const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/review`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+        renderDetail(detail);
+        await loadScenarios();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate Fix Tasks';
+      }
+    }
+
+    async function generateTasks(id) {
+      const btn = document.getElementById('generateTasks');
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      try {
+        const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/tasks`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
         renderDetail(detail);
         await loadScenarios();
       } catch (err) {
@@ -458,6 +504,18 @@ def render_studio_html() -> str:
     };
 
     document.getElementById('refresh').onclick = loadScenarios;
+    function renderFixTasks(tasks) {
+      if (!tasks.length) return '<div class="empty">No fix tasks generated yet.</div>';
+      return `<table style="width:100%; border-collapse:collapse;">
+        <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">ID</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Agent</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Status</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Task</th></tr></thead>
+        <tbody>${tasks.map(t => `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(t.task_id)}</code></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;">${escapeHtml(t.assigned_agent)}</td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="status">${escapeHtml(t.status)}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><b>${escapeHtml(t.title)}</b><br><span class="meta">${escapeHtml(t.required_action)}</span></td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }

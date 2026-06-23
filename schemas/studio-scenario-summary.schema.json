@@ -44,6 +44,14 @@
       },
       "title": "Steps",
       "type": "array"
+    },
+    "fix_tasks": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Fix Tasks",
+      "type": "array"
     }
   },
   "required": [
