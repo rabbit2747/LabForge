@@ -1,0 +1,86 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "lab_dir": {
+      "title": "Lab Dir",
+      "type": "string"
+    },
+    "agent_workspace_dir": {
+      "title": "Agent Workspace Dir",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "needs-agent-output",
+        "warning",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target_industry": {
+      "default": "enterprise",
+      "title": "Target Industry",
+      "type": "string"
+    },
+    "validation_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Errors",
+      "type": "array"
+    },
+    "lint_status": {
+      "default": "passed",
+      "title": "Lint Status",
+      "type": "string"
+    },
+    "realism_status": {
+      "default": "passed",
+      "title": "Realism Status",
+      "type": "string"
+    },
+    "agent_ready_for_supervisor": {
+      "default": false,
+      "title": "Agent Ready For Supervisor",
+      "type": "boolean"
+    },
+    "artifacts": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "lab_dir",
+    "agent_workspace_dir",
+    "status"
+  ],
+  "title": "DesignReviewReport",
+  "type": "object"
+}

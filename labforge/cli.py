@@ -8,7 +8,7 @@ from .adapter_smoke import adapter_smoke_to_json, adapter_smoke_to_markdown, run
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
-from .design import create_design_workspace_from_prompt
+from .design import create_design_workspace_from_prompt, render_design_review_report, review_design_workspace
 from .execution_plan import create_execution_plan, plan_to_json, plan_to_markdown
 from .implementation_plan import (
     create_service_agent_packages,
@@ -195,6 +195,20 @@ def command_design_from_prompt(args: argparse.Namespace) -> int:
             print(f"- {error}")
         return 1
     return 0
+
+
+def command_design_review(args: argparse.Namespace) -> int:
+    report = review_design_workspace(
+        Path(args.workspace),
+        out=Path(args.out) if args.out else None,
+        industry=args.industry,
+        force=args.force,
+    )
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_design_review_report(report))
+    return 0 if report.status != "failed" else 1
 
 
 def command_build(args: argparse.Namespace) -> int:
@@ -895,6 +909,13 @@ def main(argv: list[str] | None = None) -> int:
     design_from_prompt_parser.add_argument("--agent", help="Optional single agent id for generated execution packages")
     design_from_prompt_parser.add_argument("--force", action="store_true")
     design_from_prompt_parser.set_defaults(func=command_design_from_prompt)
+    design_review_parser = design_sub.add_parser("review", help="Review a generated design workspace")
+    design_review_parser.add_argument("workspace", help="Directory created by `labforge design from-prompt`")
+    design_review_parser.add_argument("--out", help="Directory for review reports. Defaults to <workspace>/review")
+    design_review_parser.add_argument("--industry", help="Override target industry for realism pre-check")
+    design_review_parser.add_argument("--format", choices=["text", "json"], default="text")
+    design_review_parser.add_argument("--force", action="store_true")
+    design_review_parser.set_defaults(func=command_design_review)
 
     build_parser = sub.add_parser("build", help="Build docker-compose and docs")
     build_parser.add_argument("lab")
