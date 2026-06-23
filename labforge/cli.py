@@ -32,7 +32,7 @@ from .implementation_plan import (
 )
 from .intake import create_intake_from_prompt, create_intake_template, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
-from .pipeline import create_lab_pipeline, pipeline_result_to_markdown
+from .pipeline import create_lab_pipeline, evaluate_pipeline_gate, pipeline_gate_to_markdown, pipeline_result_to_markdown
 from .agent_orchestration import (
     append_agent_decision,
     create_agent_execution_packages,
@@ -249,6 +249,17 @@ def command_pipeline_create(args: argparse.Namespace) -> int:
     else:
         print(pipeline_result_to_markdown(result))
     return 0 if result.status in {"complete", "warning"} else 1
+
+
+def command_pipeline_gate(args: argparse.Namespace) -> int:
+    report = evaluate_pipeline_gate(Path(args.workspace))
+    if args.format == "json":
+        print(report.model_dump_json(indent=2))
+    else:
+        print(pipeline_gate_to_markdown(report))
+    if args.strict and report.decision not in {"ready-for-supervisor", "release-candidate"}:
+        return 1
+    return 0
 
 
 def command_design_review(args: argparse.Namespace) -> int:
@@ -1078,6 +1089,14 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_create_parser.add_argument("--format", choices=["text", "json"], default="text")
     pipeline_create_parser.add_argument("--force", action="store_true")
     pipeline_create_parser.set_defaults(func=command_pipeline_create)
+    pipeline_gate_parser = pipeline_sub.add_parser(
+        "gate",
+        help="Evaluate whether a pipeline workspace is draft, blocked, ready for supervisor, or release-candidate",
+    )
+    pipeline_gate_parser.add_argument("workspace")
+    pipeline_gate_parser.add_argument("--format", choices=["text", "json"], default="text")
+    pipeline_gate_parser.add_argument("--strict", action="store_true", help="Return non-zero unless the workspace is ready for supervisor or release gate")
+    pipeline_gate_parser.set_defaults(func=command_pipeline_gate)
 
     design_parser = sub.add_parser("design", help="Create design workspaces from scenario intent")
     design_sub = design_parser.add_subparsers(dest="design_command", required=True)

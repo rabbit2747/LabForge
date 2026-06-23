@@ -51,6 +51,7 @@ cd <LabForge repository root>
 python -m labforge intake from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/intake-brokerage-lab --industry securities --provider auto --force
 python -m labforge intake scaffold --from output/intake-brokerage-lab/scenario-intake.yaml --out output/brokerage-lab-draft --force
 python -m labforge pipeline create --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-pipeline --industry securities --provider auto --adapter manual --force
+python -m labforge pipeline gate output/brokerage-pipeline
 python -m labforge design from-prompt --prompt "Create a realistic enterprise red-team lab for a brokerage firm where the learner starts from a public investor portal and reaches a controlled compliance export through internal service discovery and trust abuse." --out output/brokerage-design-workspace --industry securities --adapter manual --force
 python -m labforge design review output/brokerage-design-workspace --out output/brokerage-design-review --force
 python -m labforge design tasks output/brokerage-design-workspace
@@ -100,6 +101,7 @@ Expected result:
 Created natural-language scenario intake package: <repo>\output\intake-brokerage-lab
 Scaffolded LabForge lab from intake: <repo>\output\brokerage-lab-draft
 # LabForge Pipeline Result
+# LabForge Pipeline Gate
 Created LabForge design workspace: <repo>\output\brokerage-design-workspace
 # LabForge Design Review Report
 Validation passed
@@ -212,6 +214,13 @@ review, scaffolds service artifacts, renders service blueprints, creates the
 service implementation plan, materializes safe starter runtimes, packages
 service-builder agent tasks, verifies service quality gates, and writes
 `pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
+It also writes a supervisor gate bundle: `pipeline-gate.md`,
+`pipeline-gate.yaml`, and `pipeline-gate.json`.
+
+The `pipeline gate` command can be rerun at any time to classify the workspace
+as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or
+`release-candidate`. Use `--strict` when automation should fail unless the
+workspace is ready for supervisor or release-gate work.
 
 The `design review` command collects the first supervisor-facing design review.
 It runs validation, lint, an industry realism pre-check, and an agent-output

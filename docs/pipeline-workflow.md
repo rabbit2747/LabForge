@@ -22,6 +22,13 @@ python -m labforge pipeline create \
 The same workflow is available in LabForge Studio through **Create Full
 Pipeline**.
 
+After generation, evaluate the supervisor gate:
+
+```bash
+python -m labforge pipeline gate output/my-lab-pipeline
+python -m labforge pipeline gate output/my-lab-pipeline --strict
+```
+
 ## Pipeline Stages
 
 | Stage | Output | Purpose |
@@ -44,10 +51,29 @@ The pipeline always writes:
 - `pipeline-summary.md`
 - `pipeline-result.yaml`
 - `pipeline-result.json`
+- `pipeline-gate.md`
+- `pipeline-gate.yaml`
+- `pipeline-gate.json`
 
 These files are the supervisor-facing manifest for the generated workspace.
 They list every step, its status, produced artifacts, warnings, and next
 commands.
+
+## Supervisor Gate
+
+The pipeline gate classifies a workspace into one of five decisions:
+
+| Decision | Meaning |
+| --- | --- |
+| `draft` | The pipeline is incomplete or required artifacts are missing. |
+| `blocked` | A structural failure prevents safe continuation. |
+| `needs-agent-work` | The workspace is usable, but design, service, or realism warnings require specialist-agent work. |
+| `ready-for-supervisor` | The workspace is ready for human supervisor review before live agent execution or release gate. |
+| `release-candidate` | The workspace has the expected evidence to run the stricter QA release gate. |
+
+By default, `pipeline gate` is a reporting command and exits successfully after
+writing the gate files. Use `--strict` in CI or automation when the command
+should fail unless the workspace is ready for supervisor or release-gate work.
 
 ## Status Semantics
 

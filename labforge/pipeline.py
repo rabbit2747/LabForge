@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .design import create_design_workspace_from_prompt, review_design_workspace
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
-from .io import dump_yaml, write_text
+from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_artifacts import materialize_service_runtimes, scaffold_service_artifacts
 from .service_blueprints import create_service_blueprints, inspect_service_implementation_status
@@ -17,6 +17,8 @@ from .workflow import create_workflow_report, workflow_report_to_markdown
 
 
 PipelineStepStatus = Literal["done", "warning", "skipped", "failed"]
+PipelineGateStatus = Literal["passed", "warning", "failed", "missing"]
+PipelineGateDecision = Literal["draft", "needs-agent-work", "ready-for-supervisor", "release-candidate", "blocked"]
 
 
 class PipelineModel(BaseModel):
@@ -42,6 +44,23 @@ class PipelineCreateResult(PipelineModel):
     service_count: int = 0
     service_ready_count: int = 0
     steps: list[PipelineStepResult] = Field(default_factory=list)
+    next_commands: list[str] = Field(default_factory=list)
+
+
+class PipelineGateItem(PipelineModel):
+    name: str
+    status: PipelineGateStatus
+    evidence: list[str] = Field(default_factory=list)
+    required_action: str = ""
+
+
+class PipelineGateReport(PipelineModel):
+    workspace: str
+    lab_dir: str | None = None
+    decision: PipelineGateDecision
+    ready_for_supervisor: bool = False
+    ready_for_release_gate: bool = False
+    items: list[PipelineGateItem] = Field(default_factory=list)
     next_commands: list[str] = Field(default_factory=list)
 
 
@@ -252,7 +271,178 @@ def create_lab_pipeline(
     write_text(out / "pipeline-result.yaml", dump_yaml(result.model_dump()))
     write_text(out / "pipeline-result.json", json.dumps(result.model_dump(), ensure_ascii=False, indent=2) + "\n")
     write_text(out / "pipeline-summary.md", pipeline_result_to_markdown(result))
+    gate = evaluate_pipeline_gate(out)
+    write_pipeline_gate_report(gate, out)
     return result
+
+
+def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
+    workspace = workspace.resolve()
+    pipeline_path = workspace / "pipeline-result.yaml"
+    lab_dir = workspace / "lab"
+    items: list[PipelineGateItem] = []
+
+    if not pipeline_path.exists():
+        report = PipelineGateReport(
+            workspace=str(workspace),
+            lab_dir=str(lab_dir) if lab_dir.exists() else None,
+            decision="draft",
+            items=[
+                PipelineGateItem(
+                    name="pipeline-result",
+                    status="missing",
+                    evidence=[str(pipeline_path)],
+                    required_action="Run `python -m labforge pipeline create ...` before gate review.",
+                )
+            ],
+            next_commands=["python -m labforge pipeline create --prompt-file <prompt.md> --out <workspace> --force"],
+        )
+        write_pipeline_gate_report(report, workspace)
+        return report
+
+    pipeline_data = load_yaml(pipeline_path)
+    pipeline_result = PipelineCreateResult.model_validate(pipeline_data)
+    lab_dir = Path(pipeline_result.lab_dir)
+
+    items.append(
+        PipelineGateItem(
+            name="pipeline-result",
+            status="failed" if pipeline_result.status == "failed" else ("warning" if pipeline_result.status == "warning" else "passed"),
+            evidence=[f"status={pipeline_result.status}", f"services={pipeline_result.service_ready_count}/{pipeline_result.service_count}"],
+            required_action="Review warning steps before assigning implementation work." if pipeline_result.status == "warning" else "",
+        )
+    )
+
+    design_review_path = workspace / "review" / "design-review-report.yaml"
+    if design_review_path.exists():
+        design_review = load_yaml(design_review_path)
+        review_status = str(design_review.get("status", "failed"))
+        realism_score = design_review.get("realism_score", "unknown")
+        items.append(
+            PipelineGateItem(
+                name="design-review",
+                status="passed" if review_status == "passed" else "warning",
+                evidence=[f"status={review_status}", f"realism_score={realism_score}"],
+                required_action="Run design fix tasks and specialist-agent review before release work." if review_status != "passed" else "",
+            )
+        )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="design-review",
+                status="missing",
+                evidence=[str(design_review_path)],
+                required_action="Run `python -m labforge design review <workspace>`.",
+            )
+        )
+
+    if lab_dir.exists():
+        try:
+            spec = LabSpec.load(lab_dir)
+            service_status = inspect_service_implementation_status(spec)
+            service_ok = service_status.ready_count == service_status.service_count
+            items.append(
+                PipelineGateItem(
+                    name="service-status",
+                    status="passed" if service_ok else "warning",
+                    evidence=[f"tested={service_status.ready_count}/{service_status.service_count}"],
+                    required_action="Run service-builder agents or materialize missing services." if not service_ok else "",
+                )
+            )
+            service_verification = verify_services(spec)
+            items.append(
+                PipelineGateItem(
+                    name="service-verification",
+                    status="passed" if service_verification.status == "passed" else service_verification.status,
+                    evidence=[f"status={service_verification.status}", f"findings={len(service_verification.findings)}"],
+                    required_action="Fix service verification findings before release gate." if service_verification.status != "passed" else "",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - gate should report partial workspace state.
+            items.append(
+                PipelineGateItem(
+                    name="lab-load",
+                    status="failed",
+                    evidence=[str(exc)],
+                    required_action="Fix the generated lab YAML before continuing.",
+                )
+            )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="lab-directory",
+                status="missing",
+                evidence=[str(lab_dir)],
+                required_action="Regenerate the pipeline workspace.",
+            )
+        )
+
+    service_agents_dir = workspace / "service-agents" / ".ai" / "service-build"
+    service_outputs_dir = workspace / "service-agents" / ".ai" / "outputs"
+    service_packages = sorted(service_agents_dir.glob("*.package.yaml")) if service_agents_dir.exists() else []
+    service_results = sorted(service_outputs_dir.glob("*.result.yaml")) if service_outputs_dir.exists() else []
+    items.append(
+        PipelineGateItem(
+            name="service-agent-packages",
+            status="passed" if service_packages else "missing",
+            evidence=[f"packages={len(service_packages)}", f"results={len(service_results)}"],
+            required_action="Run `python -m labforge services agent-packages <lab> --out <workspace>/service-agents`." if not service_packages else "Run service-builder agents and review results." if not service_results else "",
+        )
+    )
+
+    if any(item.status == "failed" for item in items):
+        decision: PipelineGateDecision = "blocked"
+    elif any(item.status == "missing" for item in items):
+        decision = "draft"
+    elif any(item.status == "warning" for item in items):
+        decision = "needs-agent-work"
+    elif not service_results:
+        decision = "ready-for-supervisor"
+    else:
+        decision = "release-candidate"
+
+    next_commands = gate_next_commands(workspace, lab_dir, decision)
+    report = PipelineGateReport(
+        workspace=str(workspace),
+        lab_dir=str(lab_dir) if lab_dir.exists() else None,
+        decision=decision,
+        ready_for_supervisor=decision in {"ready-for-supervisor", "release-candidate"},
+        ready_for_release_gate=decision == "release-candidate",
+        items=items,
+        next_commands=next_commands,
+    )
+    write_pipeline_gate_report(report, workspace)
+    return report
+
+
+def gate_next_commands(workspace: Path, lab_dir: Path, decision: PipelineGateDecision) -> list[str]:
+    if decision == "blocked":
+        return [
+            f"python -m labforge validate {lab_dir}",
+            f"python -m labforge lint {lab_dir}",
+        ]
+    if decision == "draft":
+        return [f"python -m labforge pipeline create --prompt-file <prompt.md> --out {workspace} --force"]
+    if decision == "needs-agent-work":
+        return [
+            f"python -m labforge design tasks {workspace}",
+            f"python -m labforge design package-tasks {workspace} --adapter manual --prepare",
+            f"python -m labforge services run-agents {workspace / 'service-agents'} --adapter manual --dry-run",
+        ]
+    if decision == "ready-for-supervisor":
+        return [
+            f"python -m labforge services run-agents {workspace / 'service-agents'} --adapter <codex|claude-code|openai> --execute",
+            f"python -m labforge services review-results {lab_dir} --results {workspace / 'service-agents' / '.ai' / 'outputs'} --force",
+        ]
+    return [
+        f"python -m labforge qa release-gate {lab_dir} --out {workspace / 'release-gate'} --provider docker-compose --profile protected --agent-results {workspace / 'agents' / '.ai' / 'outputs'} --materialize --force"
+    ]
+
+
+def write_pipeline_gate_report(report: PipelineGateReport, workspace: Path) -> None:
+    write_text(workspace / "pipeline-gate.yaml", dump_yaml(report.model_dump()))
+    write_text(workspace / "pipeline-gate.json", json.dumps(report.model_dump(), ensure_ascii=False, indent=2) + "\n")
+    write_text(workspace / "pipeline-gate.md", pipeline_gate_to_markdown(report))
 
 
 def pipeline_result_to_markdown(result: PipelineCreateResult) -> str:
@@ -292,6 +482,29 @@ def pipeline_result_to_markdown(result: PipelineCreateResult) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def pipeline_gate_to_markdown(report: PipelineGateReport) -> str:
+    lines = [
+        "# LabForge Pipeline Gate",
+        "",
+        f"- Workspace: `{report.workspace}`",
+        f"- Lab directory: `{report.lab_dir or '-'}`",
+        f"- Decision: `{report.decision}`",
+        f"- Ready for supervisor: `{str(report.ready_for_supervisor).lower()}`",
+        f"- Ready for release gate: `{str(report.ready_for_release_gate).lower()}`",
+        "",
+        "| Item | Status | Evidence | Required Action |",
+        "|---|---|---|---|",
+    ]
+    for item in report.items:
+        evidence = "<br>".join(item.evidence) if item.evidence else "-"
+        action = item.required_action or "-"
+        lines.append(f"| `{item.name}` | {item.status} | {evidence} | {action} |")
+    lines.extend(["", "## Next Commands", ""])
+    lines.extend(f"```bash\n{command}\n```" for command in report.next_commands)
+    return "\n".join(lines).rstrip() + "\n"
+
+
 PIPELINE_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "pipeline-create-result.schema.json": PipelineCreateResult,
+    "pipeline-gate-report.schema.json": PipelineGateReport,
 }

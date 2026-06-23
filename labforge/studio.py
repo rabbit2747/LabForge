@@ -330,6 +330,7 @@ def available_reports(path: Path) -> list[dict[str, str]]:
     candidates = [
         ("Scenario Prompt", "lab/scenario-prompt.md"),
         ("Pipeline Summary", "pipeline-summary.md"),
+        ("Pipeline Gate", "pipeline-gate.md"),
         ("Design Summary", "design-workspace-summary.md"),
         ("Design Review", "review/design-review-report.md"),
         ("Fix Tasks", "review/design-fix-tasks.md"),

@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "PipelineGateItem": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "warning",
+            "failed",
+            "missing"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "required_action": {
+          "default": "",
+          "title": "Required Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "PipelineGateItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    },
+    "lab_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lab Dir"
+    },
+    "decision": {
+      "enum": [
+        "draft",
+        "needs-agent-work",
+        "ready-for-supervisor",
+        "release-candidate",
+        "blocked"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "ready_for_supervisor": {
+      "default": false,
+      "title": "Ready For Supervisor",
+      "type": "boolean"
+    },
+    "ready_for_release_gate": {
+      "default": false,
+      "title": "Ready For Release Gate",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PipelineGateItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Commands",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspace",
+    "decision"
+  ],
+  "title": "PipelineGateReport",
+  "type": "object"
+}
