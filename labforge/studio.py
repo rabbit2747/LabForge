@@ -910,7 +910,7 @@ def render_studio_html() -> str:
         </div>
         <div class="grid">
           <div><label>Title</label><input id="title" placeholder="Brokerage compliance export lab"></div>
-          <div><label>Industry</label><select id="industry"><option value="">Auto</option><option>enterprise</option><option>securities</option><option>healthcare</option><option>manufacturing</option><option>active-directory</option><option>supply-chain</option></select></div>
+          <div><label>Industry</label><select id="industry"><option value="">Auto</option><option>enterprise</option><option>securities</option><option>banking</option><option>healthcare</option><option>manufacturing</option><option>active-directory</option><option>supply-chain</option></select></div>
           <div><label>Adapter</label><select id="adapter"><option>manual</option><option>codex</option><option>claude-code</option><option>openai</option></select></div>
         </div>
         <label>Prompt file</label>

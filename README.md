@@ -229,11 +229,12 @@ package. The next work is ordered by the current product priority:
    realism, anti-CTF wording, and reset reliability before learner delivery.
 4. Deepen industry-specific realism review. Specialist reviewers must judge the
    actual infrastructure, services, UI, workflows, data, security controls, and
-   deployment model for the declared industry. For example, a securities or
-   banking lab should account for HTS/MTS-like customer channels, order
-   management, account systems, fraud detection, network separation, batch
-   operations, and security monitoring instead of accepting a few finance
-   keywords.
+   deployment model for the declared industry. For example, a securities lab
+   should account for trading channels, order management, market data,
+   settlement, compliance, and security monitoring, while a banking lab should
+   account for digital banking, accounts, loan operations, payments, fraud/FDS,
+   AML, batch operations, and security monitoring instead of accepting a few
+   finance keywords.
 5. Extend non-Docker providers. AD, Windows Server, Proxmox, Terraform,
    Ansible, Ludus, and hybrid VM environments must become practical provider
    targets when Docker alone cannot represent the scenario.

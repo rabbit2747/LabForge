@@ -490,6 +490,7 @@ def industry_zone_names(industry: str) -> list[str]:
     zone_map = {
         "supply-chain": ["attacker", "public edge", "corporate", "development", "build", "release", "customer", "security monitoring"],
         "securities": ["attacker", "public or internet edge", "dmz", "application", "core trading", "data", "settlement", "compliance", "management", "security monitoring"],
+        "banking": ["attacker", "public or internet edge", "dmz", "digital banking", "core banking", "loan operations", "payments", "data", "compliance", "management", "security monitoring"],
         "healthcare": ["attacker", "public edge", "dmz", "clinical", "administrative", "data", "security monitoring"],
         "manufacturing": ["attacker", "public edge", "corporate", "engineering", "ot", "data", "security monitoring"],
         "active-directory": ["attacker", "public edge", "workstation", "server", "domain services", "data", "management", "security monitoring"],
@@ -543,6 +544,20 @@ def service_zone_for_name(service_name: str, industry: str) -> str:
         return "security monitoring"
     if any(word in name for word in ["data", "store", "share", "object", "export", "file"]):
         return "data"
+    if industry == "banking":
+        if any(word in name for word in ["identity", "mfa", "device", "session", "gateway", "api"]):
+            return "digital banking"
+        if any(word in name for word in ["loan", "underwriting", "document", "case"]):
+            return "loan operations"
+        if any(word in name for word in ["core", "account", "deposit", "ledger", "customer-record"]):
+            return "core banking"
+        if any(word in name for word in ["payment", "payments", "wire", "ach", "card", "settlement", "reconciliation", "batch"]):
+            return "payments"
+        if any(word in name for word in ["fraud", "fds", "aml", "sar", "risk", "compliance", "regulatory"]):
+            return "compliance"
+        if any(word in name for word in ["portal", "public", "edge", "support"]):
+            return "dmz"
+        return "digital banking"
     if industry == "active-directory":
         if any(word in name for word in ["domain", "ldap", "kerberos", "dns"]):
             return "domain services"
@@ -807,6 +822,7 @@ def slugify(value: str) -> str:
 def infer_industry_from_prompt(prompt: str) -> str:
     text = prompt.lower()
     keyword_map = {
+        "banking": ["bank", "banking", "regional bank", "retail bank", "commercial bank", "loan", "deposit", "core banking", "payment", "payments", "wire", "ach", "fds", "aml", "suspicious activity"],
         "securities": ["securities", "brokerage", "trading", "market data", "stock", "증권", "거래소", "주식"],
         "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "의료", "병원", "환자"],
         "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "제조", "공장"],
@@ -828,6 +844,7 @@ def analyze_prompt(request: NaturalLanguageScenarioRequest) -> PromptAnalysis:
     industry_evidence = keyword_evidence(
         text,
         {
+            "banking": ["bank", "banking", "regional bank", "retail bank", "commercial bank", "loan", "deposit", "core banking", "payment", "payments", "wire", "ach", "fds", "aml", "suspicious activity"],
             "securities": ["securities", "brokerage", "trading", "market data", "stock", "증권", "거래소", "주식"],
             "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "의료", "병원", "환자"],
             "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "제조", "공장"],
@@ -1055,12 +1072,17 @@ def infer_realism_risks(provider_pressure: list[str], attack_themes: list[str]) 
 def normalize_industry(value: str) -> str:
     normalized = slugify(value)
     aliases = {
-        "bank": "securities",
-        "banking": "securities",
-        "regional-bank": "securities",
-        "finance": "securities",
-        "financial": "securities",
-        "financial-services": "securities",
+        "bank": "banking",
+        "banking": "banking",
+        "regional-bank": "banking",
+        "retail-bank": "banking",
+        "commercial-bank": "banking",
+        "core-banking": "banking",
+        "finance": "banking",
+        "financial": "banking",
+        "financial-services": "banking",
+        "brokerage": "securities",
+        "stock-brokerage": "securities",
         "medical": "healthcare",
         "hospital": "healthcare",
         "ad": "active-directory",
@@ -1093,6 +1115,8 @@ def scenario_profile_for_request(request: NaturalLanguageScenarioRequest) -> dic
         return active_directory_profile(request)
     if request.industry == "securities":
         return securities_profile(request)
+    if request.industry == "banking":
+        return banking_profile(request)
     if request.industry == "healthcare":
         return healthcare_profile(request)
     if request.industry == "manufacturing":
@@ -1220,6 +1244,42 @@ def securities_profile(request: NaturalLanguageScenarioRequest) -> dict:
             stage("stage-06", "Reach settlement metadata.", "Use the discovered operations context to query settlement or reconciliation records and identify the relevant controlled export identifier.", "Collection", ["T1005 Data from Local System"], ["settlement-db"]),
             stage("stage-07", "Retrieve the compliance export object.", "Use the export identifier and discovered proof material to access the synthetic compliance export through the intended lab path.", "Collection", ["T1020 Automated Exfiltration"], ["compliance-export"]),
             stage("stage-08", "Submit final proof.", "Submit the controlled compliance export proof to the drop service and verify completion evidence.", "Exfiltration", ["T1041 Exfiltration Over C2 Channel"], ["controlled-drop"]),
+        ],
+    }
+
+
+def banking_profile(request: NaturalLanguageScenarioRequest) -> dict:
+    return {
+        "inspiration": ["Retail and commercial banking intrusion pattern involving digital banking, loan operations, core account services, fraud monitoring, and compliance exports."],
+        "final_objective": "Reach a controlled banking compliance, fraud, or suspicious-activity export object and submit proof.",
+        "learner_entrypoint": "Public online banking, loan application, or customer support portal.",
+        "attacker_infrastructure": common_attacker_infrastructure(),
+        "target_infrastructure": [
+            "loan-application-portal: public digital banking and loan intake surface",
+            "customer-identity-gateway: customer login, MFA, device trust, and session service",
+            "document-intake-service: uploaded evidence and loan document processing service",
+            "loan-ops-console: internal underwriting and exception review console",
+            "core-account-service: synthetic account and deposit profile service",
+            "payments-batch-service: payment, wire, ACH, and reconciliation batch context",
+            "fraud-monitoring-service: FDS, transaction risk, and AML case context",
+            "compliance-export-service: controlled regulatory or suspicious-activity export service",
+        ],
+        "security_controls": common_security_controls()
+        + [
+            "Digital banking access logs",
+            "Fraud detection feed",
+            "AML case review audit trail",
+            "Payments batch reconciliation logging",
+        ],
+        "stages": [
+            stage("stage-01", "Identify the public banking workflow weakness.", "Inspect normal online banking, loan application, or support workflows and confirm a bounded public-facing application exploit path.", "Initial Access", ["T1190 Exploit Public-Facing Application"], ["loan-application-portal"]),
+            stage("stage-02", "Establish a bounded foothold in the digital banking tier.", "Use the entry weakness to collect service identity, environment, and internal routing context without touching real banking systems.", "Execution", ["T1059 Command and Scripting Interpreter"], ["loan-application-portal", "attacker-workstation"]),
+            stage("stage-03", "Discover internal banking services.", "Enumerate service names and separate identity, document intake, loan operations, core account, payments, fraud, and compliance systems from operational noise.", "Discovery", ["T1046 Network Service Discovery"], ["customer-identity-gateway", "document-intake-service"]),
+            stage("stage-04", "Reach loan operations context.", "Use internal documentation, metadata, or workflow clues to learn how underwriting, evidence review, and loan exceptions are handled.", "Discovery", ["T1083 File and Directory Discovery"], ["loan-ops-console"]),
+            stage("stage-05", "Abuse an operations review workflow.", "Submit controlled content or metadata reviewed by a privileged loan operations role and collect lab-scoped context exposed by that review.", "Credential Access", ["T1539 Steal Web Session Cookie"], ["loan-ops-console"]),
+            stage("stage-06", "Correlate account, payment, and fraud metadata.", "Use the discovered operations context to identify the relevant synthetic account, payment batch, fraud case, or AML export identifier.", "Collection", ["T1005 Data from Local System"], ["core-account-service", "payments-batch-service", "fraud-monitoring-service"]),
+            stage("stage-07", "Retrieve the controlled compliance export.", "Use the export identifier and proof material to access the intended synthetic regulatory or suspicious-activity export.", "Collection", ["T1020 Automated Exfiltration"], ["compliance-export-service"]),
+            stage("stage-08", "Submit final proof.", "Submit the controlled banking export proof to the drop service and verify completion evidence.", "Exfiltration", ["T1041 Exfiltration Over C2 Channel"], ["controlled-drop"]),
         ],
     }
 

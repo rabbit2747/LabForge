@@ -3,8 +3,9 @@
 LabForge labs must model the target company as a believable enterprise, not as
 a generic CTF network with renamed services. A scenario targeting a securities
 firm should look and behave like a brokerage or financial trading organization;
-a healthcare scenario should look like a provider with patient, clinical,
-billing, identity, and audit systems.
+a banking scenario should look like a digital banking, loan, account, payments,
+fraud, AML, and compliance environment; a healthcare scenario should look like
+a provider with patient, clinical, billing, identity, and audit systems.
 
 `realism check` is a fast static pre-check. It scores the draft lab across
 industry capabilities, zones, services, workflows, data/noise, security
@@ -144,12 +145,42 @@ data, management, and security-monitoring zones. Docker-only prototypes may
 represent these as Compose networks, but the logical architecture should still
 match the industry.
 
+## Banking Profile Expectations
+
+A banking lab should normally include:
+
+- Public online banking, mobile banking, loan application, support, or customer
+  onboarding surface.
+- Customer authentication, MFA, device trust, customer session management, or
+  digital banking access gateway.
+- Core account, deposit, balance, ledger, customer record, or core-banking
+  adapter service.
+- Loan origination, document intake, underwriting, servicing, or exception
+  review workflow.
+- Payment, ACH, wire, card, settlement, reconciliation, or batch processing
+  service.
+- Fraud monitoring, FDS, AML case review, suspicious activity, SAR, or
+  transaction risk workflow.
+- Compliance export, regulatory reporting, audit evidence, retention archive,
+  or controlled suspicious-activity export.
+- SOC, SIEM, EDR, IDS, access logging, and digital banking security telemetry.
+
+Network texture should include public edge, DMZ, digital banking, core banking,
+loan operations, payments, data, compliance, management, and
+security-monitoring zones. A banking lab should not be treated as a brokerage
+lab with labels changed. If the scenario involves loans or accounts, the
+service behavior, UI, seed data, and noise should reflect loan cases, account
+records, payments batches, fraud/AML queues, access logs, and compliance
+exports rather than trading orders, market data, and settlement flows.
+
 ## Noise Requirement
 
 Every meaningful service should include noise or normal business data. Examples:
 
 - Benign tickets, stale documentation, and ordinary customer requests.
 - Market notices, maintenance windows, and operational runbooks.
+- Loan applications, document review queues, payment batch logs, AML case
+  notes, suspicious-activity alerts, and digital banking login noise.
 - Failed login noise, compliance alerts, and routine security telemetry.
 - Non-target services such as HR, accounting, vendor portals, or internal wiki
   pages.
