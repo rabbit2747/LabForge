@@ -31,7 +31,7 @@ from .implementation_plan import (
     implementation_plan_to_json,
     implementation_plan_to_markdown,
 )
-from .intake import create_intake_from_prompt, create_intake_template, scaffold_lab_from_intake
+from .intake import create_intake_from_prompt, create_intake_template, normalize_prompt_text, scaffold_lab_from_intake
 from .packaging import create_supervisor_package
 from .pipeline import create_lab_pipeline, evaluate_pipeline_gate, pipeline_gate_to_markdown, pipeline_result_to_markdown
 from .agent_orchestration import (
@@ -160,9 +160,10 @@ def command_intake_from_prompt(args: argparse.Namespace) -> int:
         print("Use either --prompt or --prompt-file, not both.")
         return 2
     if args.prompt_file:
-        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8-sig")
     else:
         prompt = args.prompt or ""
+    prompt = normalize_prompt_text(prompt)
     if not prompt.strip():
         print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
         return 2
@@ -198,9 +199,10 @@ def command_intake_scaffold(args: argparse.Namespace) -> int:
 
 def command_design_from_prompt(args: argparse.Namespace) -> int:
     if args.prompt_file:
-        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8-sig")
     else:
         prompt = args.prompt or ""
+    prompt = normalize_prompt_text(prompt)
     if not prompt.strip():
         print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
         return 2
@@ -239,9 +241,10 @@ def command_pipeline_create(args: argparse.Namespace) -> int:
         print("Use either --prompt or --prompt-file, not both.")
         return 2
     if args.prompt_file:
-        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8-sig")
     else:
         prompt = args.prompt or ""
+    prompt = normalize_prompt_text(prompt)
     if not prompt.strip():
         print("A non-empty scenario prompt is required. Use --prompt or --prompt-file.")
         return 2
@@ -1018,6 +1021,7 @@ def command_provider_lifecycle(args: argparse.Namespace) -> int:
         action=args.lifecycle_action,
         execute=args.execute,
         remove_volumes=args.volumes,
+        timeout_seconds=args.timeout,
     )
     print(render_lifecycle_result(result))
     if result.status in {"planned", "completed", "not-implemented"}:
@@ -1442,11 +1446,12 @@ def main(argv: list[str] | None = None) -> int:
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)
-    for action in ("deploy", "destroy", "status"):
+    for action in ("validate", "deploy", "destroy", "status"):
         lifecycle_parser = provider_sub.add_parser(action, help=f"{action.title()} generated provider output")
         lifecycle_parser.add_argument("output", help="Generated provider output directory")
         lifecycle_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
         lifecycle_parser.add_argument("--execute", action="store_true", help="Execute the provider lifecycle command. Default is dry-run.")
+        lifecycle_parser.add_argument("--timeout", type=int, default=60, help="Execution timeout in seconds when --execute is used.")
         if action == "destroy":
             lifecycle_parser.add_argument("--volumes", action="store_true", help="Remove Docker Compose volumes during destroy")
         else:

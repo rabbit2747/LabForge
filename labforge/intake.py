@@ -131,13 +131,15 @@ def create_intake_from_prompt(
     force: bool = False,
 ) -> list[Path]:
     out.mkdir(parents=True, exist_ok=True)
+    prompt = normalize_prompt_text(prompt)
+    title = normalize_prompt_text(title) if title else None
     inferred_title = title or infer_title_from_prompt(prompt)
     inferred_lab_id = lab_id or slugify(inferred_title)
     inferred_industry = normalize_industry(industry or infer_industry_from_prompt(prompt))
     request = NaturalLanguageScenarioRequest(
         lab_id=inferred_lab_id,
         title=inferred_title,
-        prompt=prompt.strip(),
+        prompt=prompt,
         industry=inferred_industry,
         difficulty=difficulty,
         preferred_provider=provider,
@@ -659,13 +661,21 @@ def service_names_from_intake(intake: ScenarioIntake) -> list[str]:
 
 
 def infer_title_from_prompt(prompt: str) -> str:
-    text = " ".join(prompt.strip().split())
+    text = " ".join(normalize_prompt_text(prompt).split())
     if not text:
         return "Untitled Lab Scenario"
     sentence = re.split(r"[.!?\n]", text, maxsplit=1)[0].strip()
     if len(sentence) > 72:
         sentence = sentence[:72].rsplit(" ", 1)[0].strip()
     return sentence or "Untitled Lab Scenario"
+
+
+def normalize_prompt_text(value: str) -> str:
+    text = str(value or "").strip()
+    for marker in ("\ufeff", "ï»¿", "癤풠"):
+        if text.startswith(marker):
+            text = text[len(marker) :].lstrip()
+    return text
 
 
 def slugify(value: str) -> str:

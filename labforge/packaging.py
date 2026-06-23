@@ -101,6 +101,7 @@ def create_supervisor_package(
         force=force,
     )
     lifecycle_results = [
+        provider_lifecycle(generated_dir, provider=provider, action="validate", execute=True, timeout_seconds=45),
         provider_lifecycle(generated_dir, provider=provider, action="deploy", execute=False),
         provider_lifecycle(generated_dir, provider=provider, action="status", execute=False),
         provider_lifecycle(generated_dir, provider=provider, action="destroy", execute=False, remove_volumes=True),
@@ -129,12 +130,18 @@ def create_supervisor_package(
         ],
         *host_report.warnings,
         *build_warnings,
+        *[
+            f"Provider lifecycle `{result.action}` {result.status}: {result.message}"
+            for result in lifecycle_results
+            if result.status == "failed"
+        ],
     ]
     status = aggregate_package_status(
         validation_errors=validation_errors,
         lint_status=lint_report.status,
         qa_status=qa_report.status,
         build_status=build_status,
+        lifecycle_statuses=[result.status for result in lifecycle_results],
     )
     report = PackageReport(
         lab_id=spec.lab_id,
@@ -199,10 +206,11 @@ def aggregate_package_status(
     lint_status: str,
     qa_status: str,
     build_status: str,
+    lifecycle_statuses: list[str] | None = None,
 ) -> Literal["passed", "warning", "failed"]:
     if validation_errors or qa_status == "failed" or build_status == "failed":
         return "failed"
-    if lint_status == "warning" or qa_status == "warning":
+    if lint_status == "warning" or qa_status == "warning" or "failed" in (lifecycle_statuses or []):
         return "warning"
     return "passed"
 

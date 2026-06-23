@@ -80,8 +80,9 @@ pipeline creation, signed update publishing, and customer update callbacks.
 labs it includes `generated/docker-compose.yml`, rendered service directories,
 architecture documentation, diagrams, protected and unprotected profile outputs,
 host diagnostics, execution plans, QA smoke reports, service verification
-reports, and `lifecycle/*-plan.md` files that show the exact dry-run deploy,
-status, and destroy commands.
+reports, and `lifecycle/*-plan.md` files. The package executes provider
+validation during creation when the provider supports it, then records dry-run
+deploy, status, and destroy commands for the supervisor.
 
 ## Supervisor Gate
 

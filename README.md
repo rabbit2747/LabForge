@@ -381,6 +381,7 @@ in one pass:
 
 ```powershell
 python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force
+python -m labforge provider validate output/qa-smoke/provider-output --provider docker-compose --execute
 python -m labforge provider deploy output/qa-smoke/provider-output --provider docker-compose
 python -m labforge provider status output/qa-smoke/provider-output --provider docker-compose
 python -m labforge provider destroy output/qa-smoke/provider-output --provider docker-compose --volumes

@@ -12,9 +12,12 @@ class LifecycleModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+ProviderLifecycleAction = Literal["validate", "deploy", "destroy", "status"]
+
+
 class ProviderLifecycleResult(LifecycleModel):
     provider: str
-    action: Literal["deploy", "destroy", "status"]
+    action: ProviderLifecycleAction
     mode: Literal["dry-run", "execute"]
     status: Literal["planned", "completed", "failed", "not-implemented"]
     output_dir: str
@@ -28,9 +31,10 @@ def provider_lifecycle(
     output_dir: Path,
     *,
     provider: str,
-    action: Literal["deploy", "destroy", "status"],
+    action: ProviderLifecycleAction,
     execute: bool = False,
     remove_volumes: bool = False,
+    timeout_seconds: int = 60,
 ) -> ProviderLifecycleResult:
     output_dir = output_dir.resolve()
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
@@ -70,15 +74,33 @@ def provider_lifecycle(
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
     for command in commands:
-        completed = subprocess.run(
-            command,
-            cwd=output_dir,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=output_dir,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            stdout_parts.append(stdout.strip())
+            stderr_parts.append(stderr.strip())
+            return ProviderLifecycleResult(
+                provider=provider,
+                action=action,
+                mode=mode,
+                status="failed",
+                output_dir=str(output_dir),
+                commands=commands,
+                stdout="\n".join(part for part in stdout_parts if part),
+                stderr="\n".join(part for part in stderr_parts if part),
+                message=f"Command timed out after {timeout_seconds}s: {' '.join(command)}",
+            )
         stdout_parts.append(completed.stdout.strip())
         stderr_parts.append(completed.stderr.strip())
         if completed.returncode != 0:
@@ -107,7 +129,7 @@ def provider_lifecycle(
 
 
 def docker_compose_commands(
-    action: Literal["deploy", "destroy", "status"],
+    action: ProviderLifecycleAction,
     compose_file: Path,
     *,
     remove_volumes: bool = False,
@@ -117,6 +139,8 @@ def docker_compose_commands(
     if script:
         return [script]
     compose = ["docker", "compose", "-f", str(compose_file)]
+    if action == "validate":
+        return [[*compose, "config"]]
     if action == "deploy":
         return [[*compose, "up", "--build", "-d"]]
     if action == "destroy":
@@ -129,13 +153,18 @@ def docker_compose_commands(
 
 def lifecycle_script(
     output_dir: Path,
-    action: Literal["deploy", "destroy", "status"],
+    action: ProviderLifecycleAction,
     *,
     remove_volumes: bool = False,
 ) -> list[str] | None:
     if action == "status":
         return None
-    script_name = "start" if action == "deploy" else ("destroy" if remove_volumes else "stop")
+    if action == "validate":
+        script_name = "validate"
+    elif action == "deploy":
+        script_name = "start"
+    else:
+        script_name = "destroy" if remove_volumes else "stop"
     if platform.system().lower() == "windows":
         script = output_dir / "scripts" / f"{script_name}.ps1"
         if script.exists():

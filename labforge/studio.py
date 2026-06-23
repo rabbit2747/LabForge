@@ -18,7 +18,7 @@ from .design import (
     review_design_fix_results,
     review_design_workspace,
 )
-from .intake import slugify
+from .intake import normalize_prompt_text, slugify
 from .io import load_yaml
 from .model import LabSpec
 from .pipeline import create_lab_pipeline
@@ -216,10 +216,10 @@ def scenario_steps(path: Path) -> list[dict[str, str | bool]]:
 
 
 def create_scenario(workspace: Path, payload: dict) -> dict:
-    prompt = str(payload.get("prompt", "")).strip()
+    prompt = normalize_prompt_text(str(payload.get("prompt", "")))
     if not prompt:
         raise ValueError("prompt is required")
-    title = str(payload.get("title", "")).strip() or None
+    title = normalize_prompt_text(str(payload.get("title", ""))) or None
     industry = str(payload.get("industry", "")).strip() or None
     provider = str(payload.get("provider", "auto")).strip() or "auto"
     adapter = str(payload.get("adapter", "manual")).strip() or "manual"
@@ -239,10 +239,10 @@ def create_scenario(workspace: Path, payload: dict) -> dict:
 
 
 def create_pipeline_scenario(workspace: Path, payload: dict) -> dict:
-    prompt = str(payload.get("prompt", "")).strip()
+    prompt = normalize_prompt_text(str(payload.get("prompt", "")))
     if not prompt:
         raise ValueError("prompt is required")
-    title = str(payload.get("title", "")).strip() or None
+    title = normalize_prompt_text(str(payload.get("title", ""))) or None
     industry = str(payload.get("industry", "")).strip() or None
     provider = str(payload.get("provider", "auto")).strip() or "auto"
     adapter = str(payload.get("adapter", "manual")).strip() or "manual"

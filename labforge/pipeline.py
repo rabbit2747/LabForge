@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .design import create_design_workspace_from_prompt, review_design_workspace
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
+from .intake import normalize_prompt_text
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .packaging import create_supervisor_package
@@ -82,6 +83,8 @@ def create_lab_pipeline(
     package_service_agents: bool = True,
 ) -> PipelineCreateResult:
     out = out.resolve()
+    prompt = normalize_prompt_text(prompt)
+    title = normalize_prompt_text(title) if title else None
     steps: list[PipelineStepResult] = []
 
     design = create_design_workspace_from_prompt(
@@ -469,10 +472,16 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
         package_status = str(package_report.get("status", "failed"))
         artifacts = package_report.get("artifacts", [])
         generated_compose = workspace / "supervisor-package" / "generated" / "docker-compose.yml"
+        validate_plan = workspace / "supervisor-package" / "lifecycle" / "validate-plan.json"
+        validate_status = "missing"
+        if validate_plan.exists():
+            validate_report = json.loads(validate_plan.read_text(encoding="utf-8"))
+            validate_status = str(validate_report.get("status", "unknown"))
         evidence = [
             f"status={package_status}",
             f"artifacts={len(artifacts) if isinstance(artifacts, list) else 'unknown'}",
             f"docker_compose={'present' if generated_compose.exists() else 'missing'}",
+            f"validate={validate_status}",
         ]
         package_gate_status: PipelineGateStatus
         if package_status == "failed" or not generated_compose.exists():
