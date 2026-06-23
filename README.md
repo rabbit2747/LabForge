@@ -219,7 +219,8 @@ The `pipeline create` command is the opinionated product path for starting from
 natural language. It creates the design workspace, runs the first supervisor
 review, scaffolds service artifacts, renders service blueprints, creates the
 service implementation plan, materializes safe starter runtimes, packages
-service-builder agent tasks, verifies service quality gates, and writes
+service-builder agent tasks, verifies service quality gates, executes supported
+plugin runtime smoke checks, and writes
 `pipeline-summary.md`, `pipeline-result.yaml`, and `pipeline-result.json`.
 It also writes a supervisor gate bundle: `pipeline-gate.md`,
 `pipeline-gate.yaml`, and `pipeline-gate.json`.
@@ -372,7 +373,8 @@ implementation without reverse-engineering the scenario spec.
 
 QA smoke checks can validate the current lab definition, service artifact
 contracts, scenario-derived MVP runtime materialization, supported lab-scoped
-vulnerability scaffolds, and provider build in one pass:
+vulnerability scaffolds, generated plugin runtime behavior, and provider build
+in one pass:
 
 ```powershell
 python -m labforge qa smoke examples/scenario-02-ad-domain-compromise --out output/qa-smoke --provider docker-compose --profile protected --materialize --force

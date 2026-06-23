@@ -10,6 +10,7 @@ from .design import create_design_workspace_from_prompt, review_design_workspace
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
+from .plugin_runtime_smoke import run_plugin_runtime_smoke
 from .service_artifacts import materialize_service_runtimes, scaffold_service_artifacts
 from .service_blueprints import create_service_blueprints, inspect_service_implementation_status
 from .service_verification import verify_services
@@ -207,6 +208,23 @@ def create_lab_pipeline(
             summary=f"Service verification status: {verification.status}; findings: {len(verification.findings)}.",
             artifacts=[str(verification_dir / "service-verification.json")],
             warnings=[f"{finding.service}: {finding.message}" for finding in verification.findings[:20]],
+        )
+    )
+
+    runtime_smoke_dir = out / "plugin-runtime-smoke"
+    runtime_smoke = run_plugin_runtime_smoke(spec, runtime_smoke_dir)
+    steps.append(
+        PipelineStepResult(
+            id="plugin-runtime-smoke",
+            title="Execute generated plugin runtime smoke checks",
+            status="done" if runtime_smoke.status == "passed" else ("failed" if runtime_smoke.status == "failed" else "warning"),
+            summary=f"Plugin runtime smoke status: {runtime_smoke.status}; checked {len(runtime_smoke.items)} plugin instances.",
+            artifacts=[str(runtime_smoke_dir / "plugin-runtime-smoke.md"), str(runtime_smoke_dir / "plugin-runtime-smoke.yaml")],
+            warnings=[
+                f"{item.service}:{item.plugin}:{item.status}:{item.message or item.endpoint or 'ok'}"
+                for item in runtime_smoke.items
+                if item.status != "passed"
+            ][:20],
         )
     )
 

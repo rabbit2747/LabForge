@@ -41,6 +41,7 @@ python -m labforge pipeline gate output/my-lab-pipeline --strict
 | Runtime materialization | per-service runtime files | Create safe starter service runtimes for early provider and QA testing. |
 | Service agent packages | `service-agents/.ai/service-build/` | Package service-builder prompts and result stubs. |
 | Service verification | `service-verification/` | Check runtime, blueprint, scaffold, tests, and hook readiness. |
+| Plugin runtime smoke | `plugin-runtime-smoke/` | Import generated MVP services and execute supported lab-scoped plugin routes with Flask test clients. |
 | Service status | `service-status/` | Summarize whether each service is missing, scaffolded, blueprinted, runtime-ready, or tested. |
 | Workflow report | `workflow/` | Report the next actionable build step. |
 
@@ -64,6 +65,13 @@ The intake directory also includes `prompt-analysis.yaml` and
 pressure, likely entrypoints, likely final objectives, named assets, requested
 attack themes, security-control hints, realism risks, and supervisor questions.
 They are evidence for review, not an approved final design.
+
+`plugin-runtime-smoke/` proves that supported generated plugin scaffolds are not
+only present on disk but executable. The smoke runner imports each generated
+Flask service, isolates its state in a temporary directory, and exercises routes
+for the supported plugin contracts such as SSTI preview, stored review content,
+IDOR object access, SSRF policy checks, diagnostic command execution, build
+pipeline creation, signed update publishing, and customer update callbacks.
 
 ## Supervisor Gate
 

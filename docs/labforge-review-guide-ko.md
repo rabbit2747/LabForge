@@ -927,6 +927,7 @@ LLM/Agent 계층은 후반부 부가기능이 아니라 LabForge의 시나리오
 - `python -m labforge agents plan-run`, `agents run --dry-run`, `agents review`, `agents decide` 명령 추가
 - `python -m labforge agents result-stub` 명령으로 manual workflow의 schema-valid result 작성 지원
 - `python -m labforge qa smoke` 명령으로 schema/service/provider smoke gate 추가
+- `python -m labforge qa smoke`와 `python -m labforge pipeline create`에서 지원 플러그인의 실제 Flask route를 호출하는 `plugin-runtime-smoke` 검증 추가
 - scenario-02 예제를 v0.2 구조로 확장
 - `artifacts.yaml`의 `service_artifacts` 계약 추가
 - 서비스 구현 표준 문서와 생성 산출물 `docs/service-artifact-contract.md` 추가

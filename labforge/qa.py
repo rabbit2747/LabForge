@@ -11,6 +11,7 @@ from .io import dump_yaml, write_text
 from .io import load_yaml
 from .linting import lint_lab
 from .model import LabSpec
+from .plugin_runtime_smoke import run_plugin_runtime_smoke
 from .render import build_lab
 from .service_artifacts import materialize_service_runtimes, service_check
 from .service_verification import verify_services
@@ -116,6 +117,19 @@ def run_qa_smoke(
         )
     )
 
+    runtime_smoke = run_plugin_runtime_smoke(spec, out / "plugin-runtime-smoke")
+    checks.append(
+        QaCheck(
+            name="plugin-runtime-smoke",
+            status=runtime_smoke.status,
+            messages=[
+                f"{item.service}:{item.plugin}:{item.status}:{item.message or item.endpoint or 'ok'}"
+                for item in runtime_smoke.items
+                if item.status != "passed"
+            ],
+        )
+    )
+
     provider_out = out / "provider-output"
     provider_messages: list[str] = []
     provider_status: Literal["passed", "warning", "failed"] = "passed"
@@ -188,6 +202,19 @@ def run_release_gate(
             messages=[
                 f"{finding.service}:{finding.category}:{finding.path}: {finding.message}"
                 for finding in service_verification.findings
+            ],
+        )
+    )
+
+    runtime_smoke = run_plugin_runtime_smoke(spec, out / "plugin-runtime-smoke")
+    checks.append(
+        QaCheck(
+            name="plugin-runtime-smoke-strict",
+            status="passed" if runtime_smoke.status == "passed" else "failed",
+            messages=[
+                f"{item.service}:{item.plugin}:{item.status}:{item.message or item.endpoint or 'ok'}"
+                for item in runtime_smoke.items
+                if item.status != "passed"
             ],
         )
     )
