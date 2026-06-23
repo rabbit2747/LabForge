@@ -12,6 +12,7 @@ from .service_artifacts import REQUIRED_FILES, RUNTIME_FILES, declared_service_a
 from .service_blueprints import ServiceBuilderBlueprint
 from .service_templates import normalize_template_id, template_id_for_artifact
 from .vulnerability_plugins import declared_vulnerability_plugins, get_vulnerability_plugin
+from .vulnerability_scaffolds import SUPPORTED_VULNERABILITY_SCAFFOLDS
 
 
 class ServiceVerificationModel(BaseModel):
@@ -350,6 +351,8 @@ def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], art
                 )
             )
             continue
+        if normalize_template_id(plugin.plugin_id) in SUPPORTED_VULNERABILITY_SCAFFOLDS:
+            verify_vulnerability_scaffold_files(findings, artifact.service, plugin.plugin_id, service_root, source_path)
         if contract_path.exists():
             verify_vulnerability_contract_file(findings, artifact.service, plugin, contract_path, source_path)
         compatible = {item.lower() for item in plugin.compatible_templates}
@@ -434,6 +437,42 @@ def verify_vulnerability_contract_file(
                     message=f"Plugin contract does not include non-empty `{field}`.",
                 )
             )
+
+
+def verify_vulnerability_scaffold_files(
+    findings: list[ServiceVerificationFinding],
+    service: str,
+    plugin_id: str,
+    service_root: Path,
+    source_path: str,
+) -> None:
+    normalized = normalize_template_id(plugin_id)
+    app_path = service_root / "app.py"
+    marker = f"LabForge vulnerability scaffold: {normalized}"
+    if not app_path.exists():
+        return
+    app_text = read_text(app_path)
+    if marker not in app_text:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=service,
+                category="vulnerability-scaffold",
+                path=f"{source_path}/app.py",
+                message=f"Supported plugin `{plugin_id}` is declared but its runnable scaffold marker is missing from app.py.",
+            )
+        )
+    test_path = service_root / "tests" / f"test_{normalized.replace('-', '_')}_scaffold.py"
+    if not test_path.exists():
+        findings.append(
+            ServiceVerificationFinding(
+                severity="warning",
+                service=service,
+                category="vulnerability-scaffold",
+                path=f"{source_path}/tests/{test_path.name}",
+                message=f"Supported plugin `{plugin_id}` is declared but its scaffold smoke test is missing.",
+            )
+        )
 
 
 def normalize_plugin_filename(plugin_id: str) -> str:

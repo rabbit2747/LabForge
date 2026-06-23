@@ -145,6 +145,13 @@ Review available plugin contracts:
 python -m labforge services vulnerability-plugins
 ```
 
+The command also shows scaffold coverage:
+
+- `minimum-runnable`: `services materialize` adds starter runtime routes, seed
+  metadata, and smoke tests.
+- `contract-only`: LabForge writes the reviewable contract, but a service
+  builder must implement the runtime behavior for that scenario.
+
 Validate that every declared service artifact has a matching implementation
 directory and required files:
 

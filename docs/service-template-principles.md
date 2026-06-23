@@ -172,11 +172,17 @@ complete generated exploits or answer keys.
 
 Initial built-in plugin contracts:
 
-- `ssti-preview`
-- `stored-xss-review`
-- `idor-object-access`
-- `ssrf-internal-fetch`
-- `diagnostic-command-injection`
+| Plugin | Scaffold Coverage |
+| --- | --- |
+| `ssti-preview` | minimum runnable Flask scaffold |
+| `stored-xss-review` | minimum runnable Flask scaffold |
+| `idor-object-access` | contract only |
+| `ssrf-internal-fetch` | contract only |
+| `diagnostic-command-injection` | contract only |
+
+LabForge does not try to scaffold every vulnerability at once. New scaffold
+coverage should be added only when the generated behavior can be realistic,
+bounded, resettable, testable, and useful across multiple scenarios.
 
 Use them from `artifacts.yaml`:
 
@@ -209,6 +215,11 @@ Materialization writes plugin contract files under the service directory:
 ```text
 services/<service>/plugins/ssti-preview.contract.yaml
 ```
+
+For plugins with minimum runnable scaffold coverage, materialization also adds
+starter routes, seed metadata, and scaffold smoke tests. These routes are still
+scenario starter code, not final puzzle logic. Service builders must adapt the
+normal workflow, data, clues, and safety boundary to the specific lab.
 
 The plugin contract tells service builders what the scenario must define, which
 configuration keys are required, which MITRE techniques are commonly involved,

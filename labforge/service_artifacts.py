@@ -16,6 +16,7 @@ from .model import LabSpec
 from .service_blueprints import create_service_blueprints, write_service_blueprint_files
 from .service_templates import render_template_files
 from .vulnerability_plugins import render_vulnerability_plugin_contracts
+from .vulnerability_scaffolds import render_vulnerability_scaffold_files
 
 
 RECOMMENDED_DIRECTORIES = ("seed", "noise", "tests")
@@ -193,6 +194,7 @@ def scaffold_service_artifacts(spec: LabSpec, force: bool = False) -> list[Path]
             "healthcheck.sh": render_healthcheck_script(artifact),
             "reset.sh": render_reset_script(artifact),
         }
+        files.update(render_vulnerability_plugin_contracts(artifact))
         for filename, content in files.items():
             path = service_root / filename
             if path.exists() and not force:
@@ -225,6 +227,7 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             "tests/test_smoke.py": render_runtime_smoke_test(),
         }
         files.update(render_vulnerability_plugin_contracts(artifact))
+        files.update(render_vulnerability_scaffold_files(artifact, files))
         for filename, content in files.items():
             path = service_root / filename
             if path.exists() and not force:

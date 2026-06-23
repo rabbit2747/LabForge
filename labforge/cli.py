@@ -66,6 +66,7 @@ from .service_blueprints import (
 from .studio import run_studio
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
+from .vulnerability_scaffolds import SUPPORTED_VULNERABILITY_SCAFFOLDS
 from .workflow import create_workflow_report, workflow_report_to_json, workflow_report_to_markdown
 from .service_artifacts import (
     apply_service_result,
@@ -837,14 +838,15 @@ def command_services_vulnerability_plugins(args: argparse.Namespace) -> int:
         "",
         "These are scenario-specific behavior contracts, not complete puzzle generators.",
         "",
-        "| Plugin | Compatible Templates | MITRE | Required Config | Description |",
-        "|---|---|---|---|---|",
+        "| Plugin | Scaffold | Compatible Templates | MITRE | Required Config | Description |",
+        "|---|---|---|---|---|---|",
     ]
     for plugin in list_vulnerability_plugins():
         templates = ", ".join(f"`{item}`" for item in plugin.compatible_templates)
         mitre = ", ".join(f"`{item}`" for item in plugin.mitre_techniques)
         required = ", ".join(f"`{item}`" for item in plugin.required_config_keys) or "-"
-        lines.append(f"| `{plugin.plugin_id}` | {templates} | {mitre} | {required} | {plugin.description} |")
+        scaffold = "minimum-runnable" if plugin.plugin_id in SUPPORTED_VULNERABILITY_SCAFFOLDS else "contract-only"
+        lines.append(f"| `{plugin.plugin_id}` | {scaffold} | {templates} | {mitre} | {required} | {plugin.description} |")
     lines.append("")
     print("\n".join(lines))
     return 0
