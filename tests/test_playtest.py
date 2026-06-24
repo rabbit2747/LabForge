@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from labforge.io import load_yaml
-from labforge.playtest import endpoint_group, guidance_for_plugin, run_playtest
+from labforge.playtest import endpoint_group, guidance_for_plugin, plugin_handoff_context, plugin_walkthrough_steps, run_playtest, trusted_update_handoff_step
 from labforge.providers.docker_compose.provider import endpoint_expected_texts
 
 
@@ -92,6 +92,90 @@ class PlaytestTests(unittest.TestCase):
         self.assertTrue(guidance["discovery_cues"])
         self.assertIn("normal merge fields", guidance["discovery_cues"][0])
         self.assertIn("Proceed when", guidance["next_step_condition"])
+
+    def test_trusted_update_handoff_chain_is_detected_across_services(self) -> None:
+        spec = SimpleNamespace(
+            artifacts_model=SimpleNamespace(
+                service_artifacts=[
+                    SimpleNamespace(
+                        service="build-server",
+                        model_extra={"vulnerability_plugins": [{"id": "build-pipeline-abuse"}]},
+                    ),
+                    SimpleNamespace(
+                        service="update-server",
+                        model_extra={"vulnerability_plugins": [{"id": "signed-update-publish"}]},
+                    ),
+                    SimpleNamespace(
+                        service="customer-agent",
+                        model_extra={"vulnerability_plugins": [{"id": "customer-update-callback"}]},
+                    ),
+                ]
+            )
+        )
+
+        step = trusted_update_handoff_step(spec)
+        context = plugin_handoff_context(spec)
+
+        self.assertEqual(step.status, "passed")
+        self.assertIn("build-pipeline-abuse on build-server", step.evidence)
+        self.assertIn("signed-update-publish on update-server", step.evidence)
+        self.assertIn("customer-update-callback on customer-agent", step.evidence)
+        self.assertIn(
+            "signed-update-publish",
+            context[("build-server", "build-pipeline-abuse")]["next_step_condition"],
+        )
+        self.assertTrue(
+            any(
+                "build-pipeline-abuse" in cue
+                for cue in context[("update-server", "signed-update-publish")]["discovery_cues"]
+            )
+        )
+
+    def test_partial_trusted_update_handoff_chain_warns(self) -> None:
+        spec = SimpleNamespace(
+            artifacts_model=SimpleNamespace(
+                service_artifacts=[
+                    SimpleNamespace(
+                        service="build-server",
+                        model_extra={"vulnerability_plugins": [{"id": "build-pipeline-abuse"}]},
+                    )
+                ]
+            )
+        )
+
+        step = trusted_update_handoff_step(spec)
+
+        self.assertEqual(step.status, "warning")
+        self.assertTrue(any("missing=" in item for item in step.evidence))
+
+    def test_plugin_walkthrough_steps_include_trusted_update_handoff_cues(self) -> None:
+        spec = SimpleNamespace(
+            artifacts_model=SimpleNamespace(
+                service_artifacts=[
+                    SimpleNamespace(
+                        service="build-server",
+                        model_extra={"vulnerability_plugins": [{"id": "build-pipeline-abuse"}]},
+                    ),
+                    SimpleNamespace(
+                        service="update-server",
+                        model_extra={"vulnerability_plugins": [{"id": "signed-update-publish"}]},
+                    ),
+                ]
+            )
+        )
+        runtime_smoke = SimpleNamespace(
+            items=[
+                SimpleNamespace(service="build-server", plugin="build-pipeline-abuse", status="passed", endpoint="/api/build/jobs"),
+                SimpleNamespace(service="update-server", plugin="signed-update-publish", status="passed", endpoint="/api/publish"),
+            ]
+        )
+
+        steps = plugin_walkthrough_steps(spec, runtime_smoke)
+        build_step = next(step for step in steps if step.step_id == "plugin-build-server-build-pipeline-abuse")
+
+        self.assertEqual(build_step.status, "passed")
+        self.assertTrue(any("signed-update-publish" in cue for cue in build_step.discovery_cues))
+        self.assertIn("signed-update-publish", build_step.next_step_condition)
 
     def test_endpoint_group_preserves_browser_expected_texts(self) -> None:
         endpoints = endpoint_group(

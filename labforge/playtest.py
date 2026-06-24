@@ -22,6 +22,13 @@ from .vulnerability_plugins import declared_vulnerability_plugins
 PlaytestStatus = Literal["passed", "warning", "failed"]
 
 
+TRUSTED_UPDATE_CHAIN = [
+    "build-pipeline-abuse",
+    "signed-update-publish",
+    "customer-update-callback",
+]
+
+
 class PlaytestModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -173,6 +180,7 @@ def run_playtest(
         stage_implementation_coverage_step(spec, chain_manifest),
         service_chain_runtime_step(spec, working_lab, chain_manifest),
         scenario_stage_step(spec, chain_manifest),
+        trusted_update_handoff_step(spec),
         final_submission_step(final_submission_endpoints),
     ]
     steps.extend(plugin_walkthrough_steps(spec, runtime_smoke))
@@ -849,6 +857,7 @@ def final_submission_step(endpoints: list[PlaytestEndpoint]) -> PlaytestStep:
 
 def plugin_walkthrough_steps(spec: LabSpec, runtime_smoke) -> list[PlaytestStep]:
     smoke_by_plugin = {(item.service, item.plugin): item for item in runtime_smoke.items}
+    handoffs = plugin_handoff_context(spec)
     steps: list[PlaytestStep] = []
     for artifact in declared_service_artifacts(spec):
         for plugin in declared_vulnerability_plugins(artifact):
@@ -856,6 +865,9 @@ def plugin_walkthrough_steps(spec: LabSpec, runtime_smoke) -> list[PlaytestStep]
             smoke = smoke_by_plugin.get((artifact.service, plugin_id))
             status: PlaytestStatus = "passed" if smoke and smoke.status == "passed" else "warning"
             guidance = guidance_for_plugin(plugin_id, artifact.service)
+            handoff = handoffs.get((artifact.service, plugin_id), {})
+            discovery_cues = [*guidance["discovery_cues"], *handoff.get("discovery_cues", [])]
+            next_step_condition = handoff.get("next_step_condition") or guidance["next_step_condition"]
             steps.append(
                 PlaytestStep(
                     step_id=f"plugin-{artifact.service}-{plugin_id}".replace("_", "-"),
@@ -864,11 +876,96 @@ def plugin_walkthrough_steps(spec: LabSpec, runtime_smoke) -> list[PlaytestStep]
                     evidence=[smoke.endpoint if smoke else "No runtime smoke evidence for this plugin."],
                     learner_action=guidance["learner_action"],
                     expected_result=guidance["expected_result"],
-                    discovery_cues=guidance["discovery_cues"],
-                    next_step_condition=guidance["next_step_condition"],
+                    discovery_cues=discovery_cues,
+                    next_step_condition=next_step_condition,
                 )
             )
     return steps
+
+
+def plugin_handoff_context(spec: LabSpec) -> dict[tuple[str, str], dict[str, Any]]:
+    occurrences = declared_plugin_occurrences(spec)
+    by_plugin = {plugin: service for service, plugin in occurrences}
+    context: dict[tuple[str, str], dict[str, Any]] = {}
+    for index, plugin in enumerate(TRUSTED_UPDATE_CHAIN):
+        service = by_plugin.get(plugin)
+        if not service:
+            continue
+        previous_plugin = TRUSTED_UPDATE_CHAIN[index - 1] if index > 0 else ""
+        next_plugin = TRUSTED_UPDATE_CHAIN[index + 1] if index + 1 < len(TRUSTED_UPDATE_CHAIN) else ""
+        cues: list[str] = []
+        if previous_plugin and previous_plugin in by_plugin:
+            cues.append(f"Use evidence produced by `{previous_plugin}` on `{by_plugin[previous_plugin]}` as input to this workflow.")
+        if next_plugin and next_plugin in by_plugin:
+            cues.append(f"This workflow should produce handoff material for `{next_plugin}` on `{by_plugin[next_plugin]}`.")
+        next_condition = ""
+        if next_plugin and next_plugin in by_plugin:
+            next_condition = f"Proceed when `{plugin}` produces data that `{next_plugin}` can consume on `{by_plugin[next_plugin]}`."
+        elif plugin == TRUSTED_UPDATE_CHAIN[-1]:
+            next_condition = "Proceed when customer-side update state exposes the controlled final object or proof for submission."
+        context[(service, plugin)] = {
+            "discovery_cues": cues,
+            "next_step_condition": next_condition,
+        }
+    return context
+
+
+def declared_plugin_occurrences(spec: LabSpec) -> list[tuple[str, str]]:
+    occurrences: list[tuple[str, str]] = []
+    for artifact in declared_service_artifacts(spec):
+        for plugin in declared_vulnerability_plugins(artifact):
+            plugin_id = str(plugin.get("id", "")).strip()
+            if plugin_id:
+                occurrences.append((artifact.service, plugin_id))
+    return occurrences
+
+
+def trusted_update_handoff_step(spec: LabSpec) -> PlaytestStep:
+    occurrences = declared_plugin_occurrences(spec)
+    by_plugin = {plugin: service for service, plugin in occurrences}
+    present = [plugin for plugin in TRUSTED_UPDATE_CHAIN if plugin in by_plugin]
+    if not present:
+        return PlaytestStep(
+            step_id="trusted-update-handoff-01",
+            title="Trusted update handoff chain",
+            status="passed",
+            evidence=["No trusted-update plugin chain declared for this scenario."],
+            learner_action="No supply-chain trusted update handoff is required for this scenario.",
+            expected_result="Non-supply-chain scenarios are not forced into this chain.",
+        )
+    missing = [plugin for plugin in TRUSTED_UPDATE_CHAIN if plugin not in by_plugin]
+    if missing:
+        return PlaytestStep(
+            step_id="trusted-update-handoff-01",
+            title="Trusted update handoff chain",
+            status="warning",
+            evidence=[
+                f"present={', '.join(present)}",
+                f"missing={', '.join(missing)}",
+            ],
+            learner_action="Review whether the scenario needs a complete build, signing, and customer update sequence.",
+            expected_result="Supply-chain scenarios should declare build, signed update, and customer callback/update stages when that chain is part of the objective.",
+            discovery_cues=["A partial trusted-update sequence can make the lab feel like disconnected service exercises."],
+            next_step_condition="Add the missing plugin stages or explicitly remove the trusted-update objective.",
+        )
+    evidence = [
+        f"{plugin} on {by_plugin[plugin]}"
+        for plugin in TRUSTED_UPDATE_CHAIN
+    ]
+    return PlaytestStep(
+        step_id="trusted-update-handoff-01",
+        title="Trusted update handoff chain",
+        status="passed",
+        evidence=evidence,
+        learner_action="Follow the trusted update chain from build metadata to signed channel publish to customer-side update evidence.",
+        expected_result="Each stage produces material that the next stage can consume without hidden magic values.",
+        discovery_cues=[
+            "Build output should include artifact and canonical manifest metadata.",
+            "Publish should require a signed manifest, not just a raw artifact.",
+            "Customer update state should change only after the trusted channel contains the signed manifest.",
+        ],
+        next_step_condition="Proceed to final submission only after customer-side update evidence exposes the controlled object or proof.",
+    )
 
 
 def guidance_for_plugin(plugin_id: str, service: str) -> dict[str, Any]:

@@ -218,6 +218,12 @@ Generated vulnerability services now expose a learner-readable
 machine-readable `/operations/reference` endpoint. Solver checks include this
 runbook so generated labs are pushed toward natural business clues instead of
 JSON-only puzzle hints.
+Playtest also recognizes trusted-update supply-chain handoffs across
+`build-pipeline-abuse`, `signed-update-publish`, and
+`customer-update-callback` plugins. When these plugins are declared together,
+generated walkthrough and solver-plan cues explain what output from one service
+should feed the next service, reducing disconnected "click the next endpoint"
+behavior.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR
