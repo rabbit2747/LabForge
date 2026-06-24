@@ -110,13 +110,14 @@ class PlaytestTests(unittest.TestCase):
                 "vulnerability_plugins": [
                     {"id": "path-traversal-download"},
                     {"id": "diagnostic-command-injection"},
+                    {"id": "solr-velocity-rce"},
                 ]
             },
         )
 
         self.assertEqual(
             endpoint_expected_texts(artifact),
-            ["Operational Summary", "Document Library", "Operations Diagnostics Console"],
+            ["Operational Summary", "Document Library", "Operations Diagnostics Console", "Search Operations Console", "Core Status"],
         )
 
 

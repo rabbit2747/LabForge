@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import tempfile
@@ -192,6 +192,52 @@ class SolverRunnerTests(unittest.TestCase):
             self.assertEqual(report.steps[0].status, "skipped")
             self.assertIn("not published", report.steps[0].message)
 
+    def test_solver_runner_executes_solr_velocity_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SolrVelocitySmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-solr",
+                            "title": "Solver Solr",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-ops-search-solr-velocity-rce",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "ops-search",
+                                    "plugin": "solr-velocity-rce",
+                                    "evidence": ["/operations/search-admin"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "ops-search", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("system=200", report.steps[0].message)
+                self.assertIn("config=200", report.steps[0].message)
+                self.assertIn("select=200", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_fails_when_business_landing_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -307,6 +353,49 @@ class MissingLandingSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"preview": "49"}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "solr-velocity-rce"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/search-admin":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Search Operations Console</h1></body></html>")
+            return
+        if self.path == "/solr/ops-core/admin/info/system":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"lucene": {"solr-spec-version": "8.3.1"}}).encode("utf-8"))
+            return
+        if self.path.startswith("/solr/ops-core/select"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"uid=8983(solr) gid=8983(solr) groups=8983(solr)\n")
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        if self.path == "/solr/ops-core/config":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"responseHeader": {"status": 0}, "velocity_enabled": True}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()

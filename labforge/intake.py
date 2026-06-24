@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
@@ -868,6 +868,20 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                 }
             )
 
+    if any(word in scenario_text for word in ["solr", "velocity", "legacy search", "search service", "search core", "cve-2019-17558", "response writer"]):
+        if any(word in service_text for word in ["search", "solr", "ops", "audit", "log", "release", "metadata"]):
+            plugins.append(
+                {
+                    "id": "solr-velocity-rce",
+                    "core": "ops-core",
+                    "version": "8.3.1",
+                    "adjacent_service": "release-console",
+                    "search_workflow": "legacy operations search maintenance",
+                    "command_boundary": "bounded generated lab container",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "solr-velocity-rce"),
+                }
+            )
+
     supply_chain_terms = [
         "supply chain",
         "trusted build",
@@ -880,11 +894,6 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
         "customer agent",
         "software update",
         "pipeline",
-        "공급망",
-        "빌드",
-        "배포",
-        "서명",
-        "업데이트",
     ]
     if any(term in scenario_text for term in supply_chain_terms):
         if any(word in service_text for word in ["build", "pipeline", "release-console", "release", "ci", "cd"]):
@@ -968,6 +977,7 @@ def plugin_stage_terms(plugin_id: str) -> tuple[str, ...]:
         "unsafe-file-upload": ("upload", "attachment", "file upload", "review"),
         "diagnostic-command-injection": ("command", "diagnostic", "shell", "foothold", "execution", "rce"),
         "credential-exposure": ("credential", "credentials", "secret", "token", "password", "vault", "startup", "config", "bind"),
+        "solr-velocity-rce": ("solr", "velocity", "search", "response writer", "legacy", "rce", "lateral", "cve-2019-17558"),
         "build-pipeline-abuse": ("build", "pipeline", "artifact", "patch"),
         "signed-update-publish": ("signed", "signing", "publish", "manifest", "update channel"),
         "customer-update-callback": ("customer", "callback", "agent", "update", "poll"),
@@ -1019,7 +1029,7 @@ def infer_title_from_prompt(prompt: str) -> str:
 
 def normalize_prompt_text(value: str) -> str:
     text = str(value or "").strip()
-    for marker in ("\ufeff", "ï»¿", "癤풠"):
+    for marker in ("\ufeff", "챦쨩쩔", "?ㅽ뮔"):
         if text.startswith(marker):
             text = text[len(marker) :].lstrip()
     return text
@@ -1034,14 +1044,14 @@ def infer_industry_from_prompt(prompt: str) -> str:
     text = prompt.lower()
     keyword_map = {
         "banking": ["bank", "banking", "regional bank", "retail bank", "commercial bank", "loan", "deposit", "core banking", "payment", "payments", "wire", "ach", "fds", "aml", "suspicious activity"],
-        "securities": ["securities", "brokerage", "trading", "market data", "stock", "증권", "거래소", "주식"],
-        "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "의료", "병원", "환자"],
-        "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "제조", "공장"],
-        "retail": ["retail", "commerce", "pos", "loyalty", "e-commerce", "커머스", "쇼핑", "pos"],
-        "education": ["university", "school", "student", "lms", "교육", "대학교", "학생"],
-        "public-sector": ["government", "municipal", "public sector", "agency", "공공", "정부", "지자체"],
-        "supply-chain": ["supply chain", "ci/cd", "build pipeline", "release", "update channel", "공급망", "빌드", "배포"],
-        "active-directory": ["active directory", "domain controller", "kerberos", "ldap", "windows domain", "ad ", "도메인"],
+        "securities": ["securities", "brokerage", "trading", "market data", "stock", "equity", "order management", "hts", "mts"],
+        "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "clinical", "claims"],
+        "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "plc"],
+        "retail": ["retail", "commerce", "pos", "loyalty", "e-commerce", "inventory"],
+        "education": ["university", "school", "student", "lms", "registrar", "campus"],
+        "public-sector": ["government", "municipal", "public sector", "agency", "citizen service"],
+        "supply-chain": ["supply chain", "ci/cd", "build pipeline", "release", "update channel", "software update"],
+        "active-directory": ["active directory", "domain controller", "kerberos", "ldap", "windows domain", "ad "],
     }
     for industry, keywords in keyword_map.items():
         if any(keyword in text for keyword in keywords):
@@ -1056,11 +1066,11 @@ def analyze_prompt(request: NaturalLanguageScenarioRequest) -> PromptAnalysis:
         text,
         {
             "banking": ["bank", "banking", "regional bank", "retail bank", "commercial bank", "loan", "deposit", "core banking", "payment", "payments", "wire", "ach", "fds", "aml", "suspicious activity"],
-            "securities": ["securities", "brokerage", "trading", "market data", "stock", "증권", "거래소", "주식"],
-            "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "의료", "병원", "환자"],
-            "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "제조", "공장"],
-            "active-directory": ["active directory", "domain controller", "kerberos", "ldap", "windows domain", "ad ", "도메인"],
-            "supply-chain": ["supply chain", "ci/cd", "build pipeline", "release", "update channel", "공급망", "빌드", "배포"],
+            "securities": ["securities", "brokerage", "trading", "market data", "stock", "equity", "order management", "hts", "mts"],
+            "healthcare": ["healthcare", "hospital", "clinic", "patient", "ehr", "emr", "clinical", "claims"],
+            "manufacturing": ["manufacturing", "factory", "plant", "ot", "ics", "scada", "mes", "plc"],
+            "active-directory": ["active directory", "domain controller", "kerberos", "ldap", "windows domain", "ad "],
+            "supply-chain": ["supply chain", "ci/cd", "build pipeline", "release", "update channel", "software update"],
         },
     )
     provider_pressure = keyword_evidence(
@@ -1075,23 +1085,23 @@ def analyze_prompt(request: NaturalLanguageScenarioRequest) -> PromptAnalysis:
     requested_attack_themes = keyword_evidence(
         text,
         {
-            "initial-access": ["public", "external", "portal", "vpn", "internet-facing", "외부", "포털"],
-            "web-exploitation": ["ssti", "xss", "ssrf", "idor", "rce", "upload", "웹", "취약점"],
+            "initial-access": ["public", "external", "portal", "vpn", "internet-facing", "entrypoint", "exposed"],
+            "web-exploitation": ["ssti", "xss", "ssrf", "idor", "rce", "upload", "web exploit", "vulnerability"],
             "ssti": ["ssti", "server-side template", "template injection", "jinja"],
             "stored-xss": ["stored xss", "xss", "cross-site", "review bot", "manager bot"],
             "ssrf": ["ssrf", "server-side request", "internal fetch", "webhook", "url fetch"],
             "idor": ["idor", "direct object", "object reference", "export object"],
             "diagnostic-command-execution": ["diagnostic", "command injection", "command execution", "rce", "shell"],
-            "identity-abuse": ["ldap", "sso", "session", "cookie", "token", "credential", "계정", "세션", "토큰"],
-            "lateral-movement": ["lateral", "pivot", "tunnel", "bastion", "jump", "내부망", "이동"],
-            "collection": ["export", "object", "file", "database", "sensitive", "audit", "탈취", "수집"],
-            "supply-chain": ["build", "release", "pipeline", "sign", "update", "agent", "공급망", "배포"],
+            "identity-abuse": ["ldap", "sso", "session", "cookie", "token", "credential", "account"],
+            "lateral-movement": ["lateral", "pivot", "tunnel", "bastion", "jump", "internal movement"],
+            "collection": ["export", "object", "file", "database", "sensitive", "audit", "collection"],
+            "supply-chain": ["build", "release", "pipeline", "sign", "update", "agent", "supply chain"],
         },
     )
     security_control_hints = keyword_evidence(
         text,
         {
-            "firewall-segmentation": ["segmentation", "firewall", "dmz", "internal network", "망분리"],
+            "firewall-segmentation": ["segmentation", "firewall", "dmz", "internal network", "network zone"],
             "ids-network-monitoring": ["ids", "suricata", "zeek", "network detection"],
             "siem-logging": ["siem", "log", "audit", "event", "logging"],
             "endpoint-telemetry": ["edr", "sysmon", "windows event", "endpoint"],
@@ -1167,7 +1177,7 @@ def extract_markdown_table_assets(prompt: str) -> list[str]:
         if len(cells) < 2:
             continue
         first = cells[0]
-        if first.lower() in {"system", "service", "asset", "시스템", "서비스", "역할", "stage"}:
+        if first.lower() in {"system", "service", "asset", "role", "stage"}:
             continue
         if looks_like_asset_name(first):
             assets.append(first)
@@ -1222,8 +1232,8 @@ def infer_likely_final_objectives(prompt: str) -> list[str]:
     heading_objectives = extract_objectives_after_heading(prompt)
     objectives.extend(heading_objectives)
     objective_patterns = (
-        r"(?:final objective|final target|최종 목표|최종 대상)\s*[:：]\s*([^\n.]+)",
-        r"(?:reach|obtain|retrieve|submit|exfiltrate|획득|제출|도달)[^\n.]{0,120}",
+        r"(?:final objective|final target)\s*[:\-]\s*([^\n.]+)",
+        r"(?:reach|obtain|retrieve|submit|exfiltrate)[^\n.]{0,120}",
     )
     for pattern in objective_patterns:
         for match in re.findall(pattern, prompt, flags=re.IGNORECASE):
@@ -1247,7 +1257,7 @@ def extract_objectives_after_heading(prompt: str) -> list[str]:
     for line in lines:
         stripped = line.strip()
         lowered = stripped.lower()
-        if lowered.rstrip(":：") in {"최종 목표", "final objective", "final objectives", "final target"}:
+        if lowered.rstrip(":-") in {"final objective", "final objectives", "final target"}:
             collecting = True
             continue
         if collecting:

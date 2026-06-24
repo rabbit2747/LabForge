@@ -161,6 +161,44 @@ class IntakePluginEvidenceTest(unittest.TestCase):
             ["stage2_secret_ref_identified", "stage3_cached_credential_found"],
         )
 
+    def test_solr_velocity_plugin_inherits_legacy_search_stage_evidence(self) -> None:
+        intake = ScenarioIntake(
+            lab_id="solr-map",
+            title="Legacy Search Solr Velocity RCE",
+            target_industry="enterprise",
+            summary="Learner discovers an internal Apache Solr 8.3.1 search service with Velocity response writer configuration risk.",
+            final_objective="Use the legacy search foothold to identify the release console route.",
+            learner_entrypoint="Support portal shell.",
+            target_infrastructure=["ops-search", "release-console"],
+            stages=[
+                IntakeStage(
+                    stage_id="stage-05",
+                    learner_goal="Exploit the legacy search service safely inside the lab.",
+                    expected_action="Use Solr Velocity response writer behavior to run a bounded diagnostic command.",
+                    evidence=["stage5_search_rce_confirmed"],
+                    mitre_tactic="Execution",
+                    mitre_techniques=["T1190 Exploit Public-Facing Application"],
+                    infrastructure_touched=["ops-search"],
+                ),
+                IntakeStage(
+                    stage_id="stage-06",
+                    learner_goal="Use search foothold output to identify the adjacent release service.",
+                    expected_action="Run service discovery from the search context and locate release-console.",
+                    evidence=["stage6_release_route_found"],
+                    mitre_tactic="Discovery",
+                    mitre_techniques=["T1046 Network Service Discovery"],
+                    infrastructure_touched=["ops-search", "release-console"],
+                ),
+            ],
+        )
+
+        plugins = vulnerability_plugins_for_service(intake, "ops-search")
+
+        self.assertCountEqual(
+            plugin_by_id(plugins, "solr-velocity-rce")["emits_evidence"],
+            ["stage5_search_rce_confirmed", "stage6_release_route_found"],
+        )
+
     def test_automatic_plugins_without_stage_evidence_are_not_generated(self) -> None:
         intake = ScenarioIntake(
             lab_id="unmapped",
