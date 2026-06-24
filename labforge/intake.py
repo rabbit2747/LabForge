@@ -854,6 +854,20 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                 }
             )
 
+    if any(word in scenario_text for word in ["credential", "credentials", "secret", "token", "password", "vault", "startup log", "config", "configuration", "bind profile"]):
+        if any(word in service_text for word in ["portal", "ops", "admin", "console", "config", "identity", "gateway", "wiki", "support", "service"]):
+            plugins.append(
+                {
+                    "id": "credential-exposure",
+                    "config_workflow": "runtime configuration and startup diagnostics",
+                    "secret_reference": "support-vault://shared/runtime/operator-bind",
+                    "synthetic_credential": "LabForge-Operator-Training-Secret!",
+                    "downstream_service": "internal-directory",
+                    "account_name": "operator-bind",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "credential-exposure"),
+                }
+            )
+
     supply_chain_terms = [
         "supply chain",
         "trusted build",
@@ -953,6 +967,7 @@ def plugin_stage_terms(plugin_id: str) -> tuple[str, ...]:
         "path-traversal-download": ("path traversal", "directory traversal", "download", "file read", "document"),
         "unsafe-file-upload": ("upload", "attachment", "file upload", "review"),
         "diagnostic-command-injection": ("command", "diagnostic", "shell", "foothold", "execution", "rce"),
+        "credential-exposure": ("credential", "credentials", "secret", "token", "password", "vault", "startup", "config", "bind"),
         "build-pipeline-abuse": ("build", "pipeline", "artifact", "patch"),
         "signed-update-publish": ("signed", "signing", "publish", "manifest", "update channel"),
         "customer-update-callback": ("customer", "callback", "agent", "update", "poll"),

@@ -303,6 +303,7 @@ def endpoint_expected_texts(artifact: Any | None) -> list[str]:
         "path-traversal-download": ["Document Library"],
         "unsafe-file-upload": ["Case Attachment Portal"],
         "diagnostic-command-injection": ["Operations Diagnostics Console"],
+        "credential-exposure": ["Runtime Configuration", "Integration Bind Profile"],
         "build-pipeline-abuse": ["Release Build Console"],
         "signed-update-publish": ["Update Channel Console"],
         "customer-update-callback": ["Customer Agent Status"],

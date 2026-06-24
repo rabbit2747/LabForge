@@ -123,6 +123,44 @@ class IntakePluginEvidenceTest(unittest.TestCase):
             ["stage6_manager_context", "stage5_console_reached"],
         )
 
+    def test_credential_exposure_plugin_inherits_secret_stage_evidence(self) -> None:
+        intake = ScenarioIntake(
+            lab_id="credential-map",
+            title="Support Startup Log Credential Exposure",
+            target_industry="enterprise",
+            summary="The learner correlates a vault secret reference with startup logs that expose a cached synthetic credential.",
+            final_objective="Use the credential to access the next internal service.",
+            learner_entrypoint="Support operations portal.",
+            target_infrastructure=["support-portal", "internal-directory"],
+            stages=[
+                IntakeStage(
+                    stage_id="stage-02",
+                    learner_goal="Find a secret reference in runtime configuration.",
+                    expected_action="Open the configuration diagnostics page and identify the downstream bind profile.",
+                    evidence=["stage2_secret_ref_identified"],
+                    mitre_tactic="Discovery",
+                    mitre_techniques=["T1082"],
+                    infrastructure_touched=["support-portal"],
+                ),
+                IntakeStage(
+                    stage_id="stage-03",
+                    learner_goal="Recover the synthetic credential from startup diagnostics.",
+                    expected_action="Correlate the secret reference with vault-cache restore log lines.",
+                    evidence=["stage3_cached_credential_found"],
+                    mitre_tactic="Credential Access",
+                    mitre_techniques=["T1552 Unsecured Credentials"],
+                    infrastructure_touched=["support-portal"],
+                ),
+            ],
+        )
+
+        plugins = vulnerability_plugins_for_service(intake, "support-portal")
+
+        self.assertCountEqual(
+            plugin_by_id(plugins, "credential-exposure")["emits_evidence"],
+            ["stage2_secret_ref_identified", "stage3_cached_credential_found"],
+        )
+
     def test_automatic_plugins_without_stage_evidence_are_not_generated(self) -> None:
         intake = ScenarioIntake(
             lab_id="unmapped",

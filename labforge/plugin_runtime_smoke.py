@@ -291,6 +291,22 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             response = client.post("/labforge/scaffold/diagnostics/run", json={"command": "id"})
             data = response.get_json(silent=True) or {}
             return assert_condition(service, plugin_id, response.status_code == 200 and data.get("accepted") is True, "/labforge/scaffold/diagnostics/run", response)
+        if plugin_id == "credential-exposure":
+            config = client.get("/labforge/scaffold/config")
+            log = client.get("/labforge/scaffold/config/startup-log")
+            config_data = config.get_json(silent=True) or {}
+            log_body = log.get_data(as_text=True)
+            return assert_condition(
+                service,
+                plugin_id,
+                config.status_code == 200
+                and log.status_code == 200
+                and config_data.get("secret_value") == "redacted"
+                and "vault-cache export" in log_body
+                and "LabForge-Operator-Training-Secret!" in log_body,
+                "/labforge/scaffold/config/startup-log",
+                log,
+            )
         if plugin_id == "build-pipeline-abuse":
             response = client.post(
                 "/labforge/scaffold/build/jobs",
