@@ -5,7 +5,13 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from labforge.qa import critical_playtest_gap_messages, learner_access_plugin_evidence_messages, plugin_evidence_check_count
+from labforge.qa import (
+    critical_playtest_gap_messages,
+    learner_access_plugin_evidence_messages,
+    learner_access_stage_handoff_messages,
+    plugin_evidence_check_count,
+    stage_handoff_count,
+)
 from labforge.io import write_text, dump_yaml
 
 
@@ -79,6 +85,32 @@ class QaReleaseGateTests(unittest.TestCase):
 
             self.assertTrue(any("no plugin_checks" in message for message in messages))
 
+    def test_learner_access_stage_handoff_messages_pass_when_bundle_contains_carried_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_stage_handoff_files(
+                root,
+                stage_handoffs=[
+                    {
+                        "from_stage": "stage-01",
+                        "to_stage": "stage-02",
+                        "carried_evidence": ["template_probe_confirmed"],
+                    }
+                ],
+            )
+
+            self.assertEqual(learner_access_stage_handoff_messages(root), [])
+            self.assertEqual(stage_handoff_count(root), 1)
+
+    def test_learner_access_stage_handoff_messages_fail_when_bundle_has_no_handoffs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_stage_handoff_files(root, stage_handoffs=[])
+
+            messages = learner_access_stage_handoff_messages(root)
+
+            self.assertTrue(any("no stage_handoffs" in message for message in messages))
+
 
 def write_playtest_evidence_files(root: Path, *, plugin_checks: list[dict], access_items: list[dict]) -> None:
     write_text(
@@ -100,6 +132,21 @@ def write_playtest_evidence_files(root: Path, *, plugin_checks: list[dict], acce
     access_dir = root / "access-playtest"
     access_dir.mkdir(parents=True, exist_ok=True)
     write_text(access_dir / "access-playtest.yaml", dump_yaml({"items": access_items}))
+
+
+def write_stage_handoff_files(root: Path, *, stage_handoffs: list[dict]) -> None:
+    write_text(
+        root / "solver-plan.json",
+        dump_yaml(
+            {
+                "steps": [
+                    {"step_id": "chain-01", "action_type": "stage-chain"},
+                    {"step_id": "implementation-01", "action_type": "implementation-coverage"},
+                ]
+            }
+        ),
+    )
+    write_text(root / "lab-access-bundle.json", dump_yaml({"stage_handoffs": stage_handoffs}))
 
 
 if __name__ == "__main__":

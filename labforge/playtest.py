@@ -154,6 +154,7 @@ class LabAccessBundle(PlaytestModel):
     health_commands: list[str] = Field(default_factory=list)
     terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
     plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
+    stage_handoffs: list[dict[str, Any]] = Field(default_factory=list)
     start_commands: list[dict[str, str]] = Field(default_factory=list)
     status_commands: list[dict[str, str]] = Field(default_factory=list)
     stop_commands: list[dict[str, str]] = Field(default_factory=list)
@@ -234,7 +235,7 @@ def run_playtest(
     write_text(out / "learner-access.json", access_manifest.model_dump_json(indent=2))
     write_text(out / "learner-access.md", render_learner_access_markdown(report))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
-    access_bundle = build_lab_access_bundle(report, access_manifest, solver_plan, provider_out, out)
+    access_bundle = build_lab_access_bundle(report, access_manifest, solver_plan, provider_out, out, chain_manifest=chain_manifest)
     write_text(out / "lab-access-bundle.json", access_bundle.model_dump_json(indent=2))
     write_text(out / "lab-access-bundle.md", render_lab_access_bundle_markdown(access_bundle))
     run_access_playtest(out / "learner-access.json", out / "access-playtest", execute=False)
@@ -459,6 +460,8 @@ def build_lab_access_bundle(
     solver_plan: SolverPlan,
     provider_out: Path,
     playtest_out: Path,
+    *,
+    chain_manifest=None,
 ) -> LabAccessBundle:
     generated_files = {
         "provider_quickstart": str((provider_out / "QUICKSTART.md").resolve()),
@@ -494,6 +497,7 @@ def build_lab_access_bundle(
             solver_plan,
             service_base_urls=service_base_urls_from_endpoint_manifest(load_endpoint_manifest(provider_out)),
         ),
+        stage_handoffs=stage_handoffs_from_chain_manifest(chain_manifest),
         start_commands=[command.model_dump() for command in access.start_commands],
         status_commands=[command.model_dump() for command in access.status_commands],
         stop_commands=[command.model_dump() for command in access.stop_commands],
@@ -505,6 +509,30 @@ def build_lab_access_bundle(
             "Run access-playtest and solver-run reports after deployment to prove the lab is playable.",
         ],
     )
+
+
+def stage_handoffs_from_chain_manifest(chain_manifest) -> list[dict[str, Any]]:
+    if not chain_manifest:
+        return []
+    handoffs: list[dict[str, Any]] = []
+    node_by_stage = {str(getattr(node, "stage_id", "")): node for node in getattr(chain_manifest, "nodes", []) or []}
+    for link in getattr(chain_manifest, "links", []) or []:
+        from_stage = str(getattr(link, "from_stage", ""))
+        to_stage = str(getattr(link, "to_stage", ""))
+        source = node_by_stage.get(from_stage)
+        target = node_by_stage.get(to_stage)
+        handoffs.append(
+            {
+                "from_stage": from_stage,
+                "from_title": str(getattr(source, "title", "")) if source else "",
+                "to_stage": to_stage,
+                "to_title": str(getattr(target, "title", "")) if target else "",
+                "carried_evidence": [str(item) for item in getattr(link, "carried_evidence", []) or []],
+                "status": str(getattr(link, "status", "")),
+                "learner_clue": str(getattr(target, "learner_clue", "")) if target else "",
+            }
+        )
+    return handoffs
 
 
 def plugin_checks_from_solver_plan(plan: SolverPlan, *, service_base_urls: dict[str, str] | None = None) -> list[dict[str, Any]]:
@@ -1550,6 +1578,21 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
             lines.append(f"- `{sequence.get('service', '-')}` via `{sequence.get('connect', '-')}`: `{commands}`; expected `{expected}`")
     else:
         lines.append("- No terminal sequences generated.")
+    lines += ["", "## Stage Handoffs", ""]
+    if bundle.stage_handoffs:
+        lines += [
+            "| From | To | Carried Evidence | Learner Clue |",
+            "|---|---|---|---|",
+        ]
+        for handoff in bundle.stage_handoffs:
+            lines.append(
+                f"| `{handoff.get('from_stage', '-')}` {escape_cell(handoff.get('from_title', ''))} | "
+                f"`{handoff.get('to_stage', '-')}` {escape_cell(handoff.get('to_title', ''))} | "
+                f"{escape_cell(', '.join(handoff.get('carried_evidence', []) or ['-']))} | "
+                f"{escape_cell(handoff.get('learner_clue', '-') or '-')} |"
+            )
+    else:
+        lines.append("- No stage handoffs generated.")
     lines += ["", "## Plugin Evidence Checks", ""]
     if bundle.plugin_checks:
         lines += [

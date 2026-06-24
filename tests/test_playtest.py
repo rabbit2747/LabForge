@@ -15,6 +15,7 @@ from labforge.playtest import (
     service_base_urls_from_endpoint_manifest,
     SolverPlan,
     SolverPlanStep,
+    stage_handoffs_from_chain_manifest,
     stage_implementation_coverage_step,
     trusted_update_handoff_step,
 )
@@ -101,12 +102,16 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(access_bundle["terminal_sequences"])
             self.assertTrue(access_bundle["solver_ready"])
             self.assertIn("plugin_checks", access_bundle)
+            self.assertIn("stage_handoffs", access_bundle)
+            self.assertTrue(access_bundle["stage_handoffs"])
+            self.assertTrue(any(handoff.get("carried_evidence") for handoff in access_bundle["stage_handoffs"]))
             self.assertIn("provider_output_dir", access_bundle)
             self.assertIn("solver_plan_json", access_bundle["generated_files"])
             access_bundle_md = (out / "lab-access-bundle.md").read_text(encoding="utf-8")
             self.assertIn("Lab Access Bundle", access_bundle_md)
             self.assertIn("Browser URLs", access_bundle_md)
             self.assertIn("Attacker SSH", access_bundle_md)
+            self.assertIn("Stage Handoffs", access_bundle_md)
             self.assertIn("Plugin Evidence Checks", access_bundle_md)
 
             compose = load_yaml(out / "provider-output" / "docker-compose.yml")
@@ -173,6 +178,30 @@ class PlaytestTests(unittest.TestCase):
         self.assertEqual(urls["portal"], "http://127.0.0.1:18080")
         self.assertEqual(urls["worker"], "http://worker:8080")
         self.assertNotIn("attacker", urls)
+
+    def test_stage_handoffs_from_chain_manifest_preserves_carried_evidence_and_clues(self) -> None:
+        manifest = SimpleNamespace(
+            nodes=[
+                SimpleNamespace(stage_id="stage-01", title="Entry", learner_clue="Start with the public portal."),
+                SimpleNamespace(stage_id="stage-02", title="Internal wiki", learner_clue="Use template evidence to find wiki context."),
+            ],
+            links=[
+                SimpleNamespace(
+                    from_stage="stage-01",
+                    to_stage="stage-02",
+                    carried_evidence=["template_probe_confirmed"],
+                    status="explicit",
+                )
+            ],
+        )
+
+        handoffs = stage_handoffs_from_chain_manifest(manifest)
+
+        self.assertEqual(len(handoffs), 1)
+        self.assertEqual(handoffs[0]["from_stage"], "stage-01")
+        self.assertEqual(handoffs[0]["to_stage"], "stage-02")
+        self.assertEqual(handoffs[0]["carried_evidence"], ["template_probe_confirmed"])
+        self.assertEqual(handoffs[0]["learner_clue"], "Use template evidence to find wiki context.")
 
     def test_trusted_update_handoff_chain_is_detected_across_services(self) -> None:
         spec = SimpleNamespace(

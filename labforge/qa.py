@@ -334,6 +334,9 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
     access_evidence_messages = learner_access_plugin_evidence_messages(out)
     if access_evidence_messages:
         messages.extend(access_evidence_messages)
+    stage_handoff_messages = learner_access_stage_handoff_messages(out)
+    if stage_handoff_messages:
+        messages.extend(stage_handoff_messages)
     if messages:
         return QaCheck(name="learner-playtest-evidence", status="failed", messages=messages)
     advisory = [f"advisory={item}" for item in report.warnings[:5]]
@@ -349,6 +352,7 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             f"report={out / 'playtest-report.yaml'}",
             f"access_bundle={out / 'lab-access-bundle.json'}",
             f"plugin_evidence_checks={plugin_evidence_check_count(out)}",
+            f"stage_handoffs={stage_handoff_count(out)}",
             *advisory,
         ],
     )
@@ -420,6 +424,42 @@ def plugin_evidence_check_count(out: Path) -> int:
     access_manifest = load_yaml(access_manifest_path)
     checks = access_manifest.get("plugin_checks", [])
     return len(checks) if isinstance(checks, list) else 0
+
+
+def learner_access_stage_handoff_messages(out: Path) -> list[str]:
+    solver_plan_path = out / "solver-plan.json"
+    access_bundle_path = out / "lab-access-bundle.json"
+    if not solver_plan_path.exists() or not access_bundle_path.exists():
+        return []
+    solver_plan = load_yaml(solver_plan_path)
+    access_bundle = load_yaml(access_bundle_path)
+    stage_steps = [
+        step
+        for step in solver_plan.get("steps", [])
+        if isinstance(step, dict) and str(step.get("action_type", "")) in {"stage-chain", "implementation-coverage"}
+    ]
+    if not stage_steps:
+        return []
+    handoffs = [item for item in access_bundle.get("stage_handoffs", []) if isinstance(item, dict)]
+    if not handoffs:
+        return ["critical=stage-handoff:access bundle has stage-chain solver steps but no stage_handoffs"]
+    missing_evidence = [
+        f"{item.get('from_stage', '-')}->{item.get('to_stage', '-')}"
+        for item in handoffs
+        if not item.get("carried_evidence")
+    ]
+    if missing_evidence:
+        return [f"critical=stage-handoff:handoffs missing carried_evidence: {', '.join(missing_evidence[:10])}"]
+    return []
+
+
+def stage_handoff_count(out: Path) -> int:
+    access_bundle_path = out / "lab-access-bundle.json"
+    if not access_bundle_path.exists():
+        return 0
+    access_bundle = load_yaml(access_bundle_path)
+    handoffs = access_bundle.get("stage_handoffs", [])
+    return len(handoffs) if isinstance(handoffs, list) else 0
 
 
 def e2e_solver_release_check(
