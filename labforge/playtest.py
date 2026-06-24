@@ -14,6 +14,7 @@ from .model import LabSpec
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
 from .render import build_lab
 from .service_artifacts import declared_service_artifacts, materialize_service_runtimes
+from .solver_runner import run_solver_plan
 from .vulnerability_plugins import declared_vulnerability_plugins
 
 
@@ -184,6 +185,7 @@ def run_playtest(
     write_text(out / "solver-plan.md", render_solver_plan_markdown(solver_plan))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
     run_access_playtest(out / "learner-access.json", out / "access-playtest", execute=False)
+    run_solver_plan(out / "solver-plan.json", out / "solver-run", access_manifest=out / "learner-access.json", execute=False)
     return report
 
 

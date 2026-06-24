@@ -61,6 +61,7 @@ from .realism import check_realism, realism_profiles_to_markdown, realism_report
 from .render import build_lab, render_docs
 from .schema import export_schemas
 from .service_verification import service_verification_to_json, service_verification_to_markdown, verify_services
+from .solver_runner import run_solver_plan
 from .service_blueprints import (
     create_service_blueprints,
     inspect_service_implementation_status,
@@ -1112,6 +1113,7 @@ def command_qa_playtest(args: argparse.Namespace) -> int:
     print(f"- {(Path(args.out) / 'access-playtest' / 'access-playtest.md').resolve()}")
     print(f"- {(Path(args.out) / 'solver-plan.md').resolve()}")
     print(f"- {(Path(args.out) / 'solver-plan.json').resolve()}")
+    print(f"- {(Path(args.out) / 'solver-run' / 'solver-run.md').resolve()}")
     print(f"- {(Path(args.out) / 'playtest-walkthrough.md').resolve()}")
     return 0 if report.status in {"passed", "warning"} else 1
 
@@ -1127,6 +1129,21 @@ def command_qa_access_playtest(args: argparse.Namespace) -> int:
     print(f"- {(Path(args.out) / 'access-playtest.md').resolve()}")
     print(f"- {(Path(args.out) / 'access-playtest.yaml').resolve()}")
     print(f"- {(Path(args.out) / 'access-playtest.json').resolve()}")
+    return 0 if report.status in {"planned", "passed", "warning"} else 1
+
+
+def command_qa_solver_run(args: argparse.Namespace) -> int:
+    report = run_solver_plan(
+        Path(args.solver_plan),
+        Path(args.out),
+        access_manifest=Path(args.access_manifest) if args.access_manifest else None,
+        execute=args.execute,
+        timeout_seconds=args.timeout,
+    )
+    print(f"Solver run status: {report.status}")
+    print(f"- {(Path(args.out) / 'solver-run.md').resolve()}")
+    print(f"- {(Path(args.out) / 'solver-run.yaml').resolve()}")
+    print(f"- {(Path(args.out) / 'solver-run.json').resolve()}")
     return 0 if report.status in {"planned", "passed", "warning"} else 1
 
 
@@ -1608,6 +1625,13 @@ def main(argv: list[str] | None = None) -> int:
     qa_access_playtest_parser.add_argument("--execute", action="store_true", help="Actually run curl/ssh access checks. Default is dry-run.")
     qa_access_playtest_parser.add_argument("--timeout", type=int, default=5, help="Per-check timeout in seconds when --execute is used.")
     qa_access_playtest_parser.set_defaults(func=command_qa_access_playtest)
+    qa_solver_run_parser = qa_sub.add_parser("solver-run", help="Plan or execute solver-agent checks from solver-plan.json")
+    qa_solver_run_parser.add_argument("solver_plan", help="Path to generated playtest/solver-plan.json")
+    qa_solver_run_parser.add_argument("--out", required=True)
+    qa_solver_run_parser.add_argument("--access-manifest", help="Optional path to playtest/learner-access.json")
+    qa_solver_run_parser.add_argument("--execute", action="store_true", help="Probe browser/SSH access where supported. Default is dry-run.")
+    qa_solver_run_parser.add_argument("--timeout", type=int, default=5, help="Per-check timeout in seconds when --execute is used.")
+    qa_solver_run_parser.set_defaults(func=command_qa_solver_run)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)

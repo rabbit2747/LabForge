@@ -511,6 +511,11 @@ the scenario has a multi-stage chain, and writes:
   from learner access, stage-chain checks, plugin runtime evidence, and final
   submission endpoints. It is designed for automated playtest agents and avoids
   hard-coding named-scenario exploit scripts into the framework.
+- `solver-run/solver-run.md`: dry-run or executed solver-agent report generated
+  from `solver-plan.json`. Re-run it with
+  `python -m labforge qa solver-run <playtest/solver-plan.json> --access-manifest <playtest/learner-access.json> --out <out>`,
+  and add `--execute` after provider startup to probe supported browser and SSH
+  access steps.
 - `playtest-report.md`: evidence that the generated lab has a reachable start,
   runnable lab-scoped vulnerability behavior, ordered stages, and a completion
   path.

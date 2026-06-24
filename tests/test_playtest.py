@@ -35,6 +35,8 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue((out / "access-playtest" / "access-playtest.yaml").exists())
             self.assertTrue((out / "solver-plan.md").exists())
             self.assertTrue((out / "solver-plan.json").exists())
+            self.assertTrue((out / "solver-run" / "solver-run.md").exists())
+            self.assertTrue((out / "solver-run" / "solver-run.yaml").exists())
             self.assertTrue((out / "playtest-walkthrough.md").exists())
 
             access = (out / "learner-access.md").read_text(encoding="utf-8")
@@ -56,6 +58,9 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(solver_plan["learner_start"])
             self.assertTrue(solver_plan["attacker_shell"])
             self.assertTrue(solver_plan["steps"])
+            solver_run = load_yaml(out / "solver-run" / "solver-run.json")
+            self.assertEqual(solver_run["lab_id"], report.lab_id)
+            self.assertTrue(solver_run["steps"])
             walkthrough = (out / "playtest-walkthrough.md").read_text(encoding="utf-8")
             self.assertIn("Start the generated provider output", walkthrough)
             self.assertIn("Connect to attacker workstation", walkthrough)

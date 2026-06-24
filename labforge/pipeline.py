@@ -388,6 +388,8 @@ def create_lab_pipeline(
                     str(playtest_dir / "access-playtest" / "access-playtest.yaml"),
                     str(playtest_dir / "solver-plan.md"),
                     str(playtest_dir / "solver-plan.json"),
+                    str(playtest_dir / "solver-run" / "solver-run.md"),
+                    str(playtest_dir / "solver-run" / "solver-run.yaml"),
                     str(playtest_dir / "playtest-report.md"),
                     str(playtest_dir / "playtest-report.yaml"),
                 ],
