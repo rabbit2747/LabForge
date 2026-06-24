@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .access_playtest import AccessPlaytestReport, run_access_playtest
+from .access_playtest import AccessPlaytestReport, BrowserProbeEngine, run_access_playtest
 from .doctor import HostDoctorReport, inspect_host, report_to_markdown
 from .io import dump_yaml, write_text
 from .provider_lifecycle import ProviderLifecycleResult, provider_lifecycle
@@ -44,6 +44,7 @@ def run_e2e_solver(
     cleanup: bool = False,
     timeout_seconds: int = 60,
     host_preflight: HostDoctorReport | None = None,
+    browser_engine: BrowserProbeEngine = "http",
 ) -> E2ESolverReport:
     provider_output = provider_output.resolve()
     solver_plan = solver_plan.resolve()
@@ -68,7 +69,13 @@ def run_e2e_solver(
                 message="Host preflight is not ready for this provider. Review host-preflight.md before executing lifecycle commands.",
             )
         )
-        access_report = run_access_playtest(access_manifest, out / "access-playtest", execute=False, timeout_seconds=min(timeout_seconds, 15))
+        access_report = run_access_playtest(
+            access_manifest,
+            out / "access-playtest",
+            execute=False,
+            timeout_seconds=min(timeout_seconds, 15),
+            browser_engine=browser_engine,
+        )
         solver_report = run_solver_plan(
             solver_plan,
             out / "solver-run",
@@ -105,7 +112,13 @@ def run_e2e_solver(
                 timeout_seconds=timeout_seconds,
             )
         )
-        access_report = run_access_playtest(access_manifest, out / "access-playtest", execute=execute, timeout_seconds=min(timeout_seconds, 15))
+        access_report = run_access_playtest(
+            access_manifest,
+            out / "access-playtest",
+            execute=execute,
+            timeout_seconds=min(timeout_seconds, 15),
+            browser_engine=browser_engine,
+        )
         solver_report = run_solver_plan(
             solver_plan,
             out / "solver-run",

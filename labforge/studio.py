@@ -418,6 +418,7 @@ def run_release_gate_for_scenario(workspace: Path, scenario_id: str, payload: di
     execute_e2e = bool(payload.get("execute_e2e", False))
     cleanup_e2e = bool(payload.get("cleanup_e2e", False))
     e2e_timeout = int(payload.get("e2e_timeout", 60) or 60)
+    browser_engine = str(payload.get("browser_engine", "http")).strip() or "http"
     agent_result_dir = path / "agents" / ".ai" / "outputs"
     report = run_release_gate(
         lab_dir,
@@ -430,6 +431,7 @@ def run_release_gate_for_scenario(workspace: Path, scenario_id: str, payload: di
         execute_e2e=execute_e2e,
         cleanup_e2e=cleanup_e2e,
         e2e_timeout_seconds=e2e_timeout,
+        browser_engine="playwright" if browser_engine == "playwright" else "http",
     )
     detail = read_scenario_detail(workspace, scenario_id)
     detail["last_release_gate"] = release_gate_payload(path, report.model_dump())

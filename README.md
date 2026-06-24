@@ -509,7 +509,11 @@ reviewing the provider output when you want the release gate itself to start the
 lab, probe reachable browser or SSH targets, run supported solver steps, and
 stop the provider output afterward. You can also run
 `python -m labforge qa e2e-solver ... --execute` directly against an existing
-provider output directory.
+provider output directory. Add `--browser-engine playwright` to `qa
+release-gate`, `qa e2e-solver`, or `qa access-playtest` when the supervisor
+wants Chromium-backed page loading and DOM text checks instead of the default
+fast HTTP response probe. The Playwright mode uses `npx --package playwright`
+and therefore requires Node.js/npm on the execution host.
 
 `qa playtest` creates learner-path evidence from the generated lab. It builds
 provider output, reads learner-visible URLs and SSH commands, runs supported

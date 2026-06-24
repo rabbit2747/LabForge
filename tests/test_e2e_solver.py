@@ -113,7 +113,8 @@ class E2ESolverTests(unittest.TestCase):
             (playtest / "solver-plan.json").write_text("{}\n", encoding="utf-8")
             (playtest / "learner-access.json").write_text("{}\n", encoding="utf-8")
 
-            def fake_e2e(*_args, **_kwargs):
+            def fake_e2e(*_args, **kwargs):
+                self.assertEqual(kwargs.get("browser_engine"), "playwright")
                 for relative in (
                     "e2e-solver.md",
                     "e2e-solver.yaml",
@@ -142,11 +143,13 @@ class E2ESolverTests(unittest.TestCase):
                     out,
                     provider="docker-compose",
                     execute=True,
+                    browser_engine="playwright",
                 )
 
             self.assertEqual(check.name, "e2e-solver-evidence")
             self.assertEqual(check.status, "failed")
             self.assertIn("execute=true", check.messages)
+            self.assertIn("browser_engine=playwright", check.messages)
 
 
 if __name__ == "__main__":

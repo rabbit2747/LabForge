@@ -6,6 +6,8 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from labforge.access_playtest import command_to_argv, run_access_playtest
 
@@ -167,6 +169,64 @@ class AccessPlaytestTests(unittest.TestCase):
                 server.shutdown()
                 thread.join(timeout=2)
                 server.server_close()
+
+    def test_access_playtest_can_use_playwright_browser_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "learner-access.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "browser-smoke",
+                        "title": "Browser Smoke",
+                        "learner_entrypoints": [
+                            {
+                                "service": "business-portal",
+                                "role": "learner-entry",
+                                "protocol": "http",
+                                "connect": "http://127.0.0.1:18081/",
+                                "expected_texts": ["Operational Summary"],
+                            }
+                        ],
+                        "attacker_entrypoints": [],
+                        "health_checks": [],
+                        "terminal_checks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            completed = SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "ok": True,
+                        "url": "http://127.0.0.1:18081/",
+                        "title": "Business Portal",
+                        "text": "Operational Summary",
+                        "missing": [],
+                    }
+                ),
+                stderr="",
+            )
+
+            with patch("labforge.access_playtest.shutil.which", return_value="npx"), patch(
+                "labforge.access_playtest.subprocess.run",
+                return_value=completed,
+            ) as run_mock:
+                report = run_access_playtest(
+                    manifest,
+                    root / "access-playtest",
+                    execute=True,
+                    browser_engine="playwright",
+                )
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.items[0].kind, "browser-playwright")
+            self.assertEqual(report.items[0].status, "passed")
+            self.assertIn("browser_loaded=true", report.items[0].message)
+            argv = run_mock.call_args.args[0]
+            self.assertIn("--package", argv)
+            self.assertIn("playwright", argv)
 
     def test_ssh_command_is_converted_to_batch_mode_check(self) -> None:
         argv = command_to_argv("ssh attacker@127.0.0.1 -p 2222", "ssh-connect")

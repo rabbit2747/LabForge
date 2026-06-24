@@ -7,6 +7,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .access_playtest import BrowserProbeEngine
 from .agent_orchestration import AgentResultSpec
 from .e2e_solver import run_e2e_solver
 from .io import dump_yaml, write_text
@@ -175,6 +176,7 @@ def run_release_gate(
     execute_e2e: bool = False,
     cleanup_e2e: bool = False,
     e2e_timeout_seconds: int = 60,
+    browser_engine: BrowserProbeEngine = "http",
 ) -> ReleaseGateReport:
     working_lab = lab_root.resolve()
     if materialize:
@@ -256,6 +258,7 @@ def run_release_gate(
             execute=execute_e2e,
             cleanup=cleanup_e2e,
             timeout_seconds=e2e_timeout_seconds,
+            browser_engine=browser_engine,
         )
     )
 
@@ -350,6 +353,7 @@ def e2e_solver_release_check(
     execute: bool = False,
     cleanup: bool = False,
     timeout_seconds: int = 60,
+    browser_engine: BrowserProbeEngine = "http",
 ) -> QaCheck:
     solver_plan = learner_playtest_out / "solver-plan.json"
     access_manifest = learner_playtest_out / "learner-access.json"
@@ -373,6 +377,7 @@ def e2e_solver_release_check(
             execute=execute,
             cleanup=cleanup,
             timeout_seconds=timeout_seconds,
+            browser_engine=browser_engine,
         )
     except Exception as exc:  # noqa: BLE001 - release gate should preserve E2E planning failures.
         return QaCheck(
@@ -405,6 +410,7 @@ def e2e_solver_release_check(
                 f"status={report.status}",
                 f"mode={report.mode}",
                 f"execute={str(execute).lower()}",
+                f"browser_engine={browser_engine}",
                 f"report={out / 'e2e-solver.md'}",
             ],
         )
@@ -416,6 +422,7 @@ def e2e_solver_release_check(
             f"mode={report.mode}",
             f"execute={str(execute).lower()}",
             f"cleanup={str(cleanup).lower()}",
+            f"browser_engine={browser_engine}",
             f"preflight_ready={str(report.preflight_ready).lower()}",
             f"lifecycle_steps={len(report.lifecycle)}",
             f"access_status={report.access_playtest.status if report.access_playtest else 'missing'}",

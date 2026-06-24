@@ -14,6 +14,7 @@ from .io import dump_yaml, write_text
 
 
 AccessCheckStatus = Literal["planned", "passed", "warning", "failed", "skipped"]
+BrowserProbeEngine = Literal["http", "playwright"]
 
 
 class AccessPlaytestModel(BaseModel):
@@ -50,6 +51,7 @@ def run_access_playtest(
     *,
     execute: bool = False,
     timeout_seconds: int = 5,
+    browser_engine: BrowserProbeEngine = "http",
 ) -> AccessPlaytestReport:
     access_manifest = access_manifest.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -75,6 +77,7 @@ def run_access_playtest(
                     expected="browser landing page returns reachable HTML or API content",
                     execute=execute,
                     timeout_seconds=timeout_seconds,
+                    browser_engine=browser_engine,
                 )
             )
     for index, entrypoint in enumerate(data.get("final_submission_endpoints", []) or [], start=1):
@@ -87,6 +90,7 @@ def run_access_playtest(
                     expected="final submission endpoint returns reachable HTTP content",
                     execute=execute,
                     timeout_seconds=timeout_seconds,
+                    browser_engine=browser_engine,
                 )
             )
     for index, check in enumerate(data.get("health_checks", []) or [], start=1):
@@ -134,6 +138,7 @@ def run_http_entrypoint_check(
     expected: str,
     execute: bool,
     timeout_seconds: int,
+    browser_engine: BrowserProbeEngine = "http",
 ) -> AccessPlaytestItem:
     url = str(entrypoint.get("connect", "")).strip()
     service = str(entrypoint.get("service", ""))
@@ -149,6 +154,15 @@ def run_http_entrypoint_check(
         )
     command = f"GET {url}"
     expected_texts = normalize_expected_texts(entrypoint)
+    if execute and browser_engine == "playwright":
+        return run_playwright_entrypoint_check(
+            check_id,
+            service,
+            url,
+            expected,
+            expected_texts,
+            timeout_seconds=timeout_seconds,
+        )
     if not execute:
         expected_detail = expected
         if expected_texts:
@@ -237,6 +251,136 @@ def run_http_entrypoint_check(
         expected=expected,
         stdout=body_sample,
         message=message,
+    )
+
+
+def run_playwright_entrypoint_check(
+    check_id: str,
+    service: str,
+    url: str,
+    expected: str,
+    expected_texts: list[str],
+    *,
+    timeout_seconds: int,
+) -> AccessPlaytestItem:
+    executable = shutil.which("npx")
+    command = f"playwright chromium GET {url}"
+    if not executable:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-playwright",
+            command=command,
+            status="failed",
+            expected=expected,
+            message="missing executable: npx",
+        )
+    script = """
+const { chromium } = require('playwright');
+const target = process.argv[1];
+const expected = JSON.parse(process.argv[2] || '[]');
+const timeoutMs = Number(process.argv[3] || '5000');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(target, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+  const bodyText = await page.locator('body').innerText({ timeout: timeoutMs }).catch(() => '');
+  const title = await page.title().catch(() => '');
+  const finalUrl = page.url();
+  await browser.close();
+  const missing = expected.filter((value) => !bodyText.includes(value) && !title.includes(value));
+  console.log(JSON.stringify({ ok: missing.length === 0, url: finalUrl, title, text: bodyText.slice(0, 2000), missing }));
+})().catch((error) => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exit(2);
+});
+""".strip()
+    argv = [
+        executable,
+        "--yes",
+        "--package",
+        "playwright",
+        "node",
+        "-e",
+        script,
+        url,
+        json.dumps(expected_texts),
+        str(max(timeout_seconds, 1) * 1000),
+    ]
+    try:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(timeout_seconds + 10, 15),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-playwright",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=stdout.strip(),
+            stderr=stderr.strip(),
+            message=f"Playwright probe timed out after {timeout_seconds}s",
+        )
+    stdout = completed.stdout.strip()
+    stderr = completed.stderr.strip()
+    if completed.returncode != 0:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-playwright",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=stdout[:500],
+            stderr=stderr[:500],
+            message=f"playwright_exit_code={completed.returncode}",
+        )
+    try:
+        data = json.loads(stdout.splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-playwright",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=stdout[:500],
+            stderr=stderr[:500],
+            message=f"could not parse Playwright probe output: {exc}",
+        )
+    missing = [str(item) for item in data.get("missing", [])]
+    text_sample = str(data.get("text", ""))[:500].strip()
+    if missing:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-playwright",
+            command=command,
+            status="warning",
+            expected=expected,
+            stdout=text_sample,
+            message=f"browser_loaded=true; missing_expected_text={','.join(missing)}",
+        )
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="browser-playwright",
+        command=command,
+        status="passed",
+        expected=expected,
+        stdout=text_sample,
+        message=f"browser_loaded=true; matched_expected_text={len(expected_texts)}; title={data.get('title', '')}",
     )
 
 
