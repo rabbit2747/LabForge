@@ -605,6 +605,20 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "path-traversal-download":
+        catalog_status, catalog, _, catalog_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/documents", "/labforge/scaffold/documents"],
+            None,
+            timeout_seconds,
+        )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/documents/policy", "/labforge/scaffold/documents/policy"],
+            None,
+            timeout_seconds,
+        )
         public_status, _, _, public_route = http_json_first(
             "GET",
             base_url,
@@ -619,8 +633,40 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
-        ok = landing_ok and public_status == 200 and traversed_status == 200 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; public_route={public_route}; traversed_route={traversed_route}; public={public_status}; traversed={traversed_status}")
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/documents/audit", "/labforge/scaffold/documents/audit"],
+            None,
+            timeout_seconds,
+        )
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        traversal_recorded = any(isinstance(record, dict) and record.get("traversal") and record.get("status") == 200 for record in audit_records)
+        ok = (
+            landing_ok
+            and catalog_status == 200
+            and policy_status == 200
+            and public_status == 200
+            and traversed_status == 200
+            and audit_status == 200
+            and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed_body
+            and traversal_recorded
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; "
+                f"public_route={public_route}; traversed_route={traversed_route}; audit_route={audit_route}; "
+                f"catalog={catalog_status}; policy={policy_status}; public={public_status}; "
+                f"traversed={traversed_status}; audit={audit_status}; traversal_recorded={traversal_recorded}"
+            ),
+        )
     if plugin == "unsafe-file-upload":
         uploaded_status, uploaded, _ = http_multipart_upload(
             f"{base_url}/attachments",
