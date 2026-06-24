@@ -13,6 +13,7 @@ from .io import load_yaml
 from .linting import lint_lab
 from .model import LabSpec
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
+from .playtest import run_playtest
 from .render import build_lab
 from .service_artifacts import materialize_service_runtimes, service_check
 from .service_verification import verify_services
@@ -233,6 +234,7 @@ def run_release_gate(
         provider_messages.append(str(exc))
     checks.append(QaCheck(name="provider-build", status=provider_status, messages=provider_messages))
     checks.append(learner_experience_check(spec, provider_out, strict=True))
+    checks.append(learner_playtest_release_check(working_lab, out / "learner-playtest", provider=provider, profile=profile))
 
     status: Literal["passed", "failed"] = "failed" if any(check.status != "passed" for check in checks) else "passed"
     report = ReleaseGateReport(
@@ -247,6 +249,52 @@ def run_release_gate(
     write_text(out / "release-gate-report.yaml", dump_yaml(report.model_dump()))
     write_text(out / "release-gate-report.md", render_release_gate_markdown(report))
     return report
+
+
+def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, profile: str) -> QaCheck:
+    messages: list[str] = []
+    try:
+        report = run_playtest(lab_root, out, provider=provider, profile=profile, materialize=False, force=True)
+    except Exception as exc:  # noqa: BLE001 - release gate should preserve playtest failures.
+        return QaCheck(
+            name="learner-playtest-evidence",
+            status="failed",
+            messages=[f"Could not generate learner playtest evidence: {exc}"],
+        )
+    required_files = [
+        out / "learner-access.json",
+        out / "learner-access.md",
+        out / "access-playtest" / "access-playtest.yaml",
+        out / "solver-plan.json",
+        out / "solver-run" / "solver-run.yaml",
+        out / "playtest-walkthrough.md",
+        out / "playtest-report.yaml",
+    ]
+    missing = [str(path) for path in required_files if not path.exists()]
+    if missing:
+        messages.extend(f"missing={path}" for path in missing)
+    if not report.learner_entrypoints:
+        messages.append("No learner entrypoint in playtest report.")
+    if not report.steps:
+        messages.append("No playtest steps generated.")
+    if report.failures:
+        messages.extend(f"failure={item}" for item in report.failures[:10])
+    if messages:
+        return QaCheck(name="learner-playtest-evidence", status="failed", messages=messages)
+    advisory = [f"advisory={item}" for item in report.warnings[:5]]
+    return QaCheck(
+        name="learner-playtest-evidence",
+        status="passed",
+        messages=[
+            f"status={report.status}",
+            f"learner_entrypoints={len(report.learner_entrypoints)}",
+            f"attacker_entrypoints={len(report.attacker_entrypoints)}",
+            f"final_submission_endpoints={len(report.final_submission_endpoints)}",
+            f"steps={len(report.steps)}",
+            f"report={out / 'playtest-report.yaml'}",
+            *advisory,
+        ],
+    )
 
 
 def industry_realism_release_check(agent_result_dir: Path | None) -> QaCheck:

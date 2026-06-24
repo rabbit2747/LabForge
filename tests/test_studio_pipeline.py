@@ -70,8 +70,11 @@ class StudioPipelineTest(unittest.TestCase):
                     "industry-realism-review": "passed",
                     "provider-build": "passed",
                     "learner-experience-strict": "passed",
+                    "learner-playtest-evidence": "passed",
                 },
             )
+            self.assertTrue((workspace / scenario_id / "release-gate" / "learner-playtest" / "solver-run" / "solver-run.yaml").exists())
+            self.assertTrue((workspace / scenario_id / "release-gate" / "learner-playtest" / "access-playtest" / "access-playtest.yaml").exists())
 
             reread = read_scenario_detail(workspace, scenario_id)
             self.assertEqual(reread["release_gate"]["status"], "passed")
