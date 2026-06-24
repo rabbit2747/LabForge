@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Literal
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,9 +42,11 @@ class SolverRunReport(SolverRunnerModel):
     status: Literal["planned", "passed", "warning", "failed"]
     solver_plan: str
     access_manifest: str = ""
+    endpoint_manifest: str = ""
     steps: list[SolverRunStep] = Field(default_factory=list)
     browser_targets: list[str] = Field(default_factory=list)
     terminal_targets: list[str] = Field(default_factory=list)
+    service_targets: dict[str, str] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
 
 
@@ -53,6 +55,7 @@ def run_solver_plan(
     out: Path,
     *,
     access_manifest: Path | None = None,
+    endpoint_manifest: Path | None = None,
     execute: bool = False,
     timeout_seconds: int = 5,
 ) -> SolverRunReport:
@@ -60,12 +63,23 @@ def run_solver_plan(
     out.mkdir(parents=True, exist_ok=True)
     plan = load_json_object(solver_plan)
     access = load_json_object(access_manifest.resolve()) if access_manifest else {}
+    endpoints = load_json_object(endpoint_manifest.resolve()) if endpoint_manifest else {}
     browser_targets = browser_targets_from(plan, access)
     terminal_targets = terminal_targets_from(plan, access)
+    service_targets = service_targets_from(access, endpoints)
     steps: list[SolverRunStep] = []
     for raw_step in plan.get("steps", []) or []:
         if isinstance(raw_step, dict):
-            steps.append(run_solver_step(raw_step, browser_targets, terminal_targets, execute=execute, timeout_seconds=timeout_seconds))
+            steps.append(
+                run_solver_step(
+                    raw_step,
+                    browser_targets,
+                    terminal_targets,
+                    service_targets,
+                    execute=execute,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
     status = aggregate_solver_status(steps, execute=execute)
     report = SolverRunReport(
@@ -75,9 +89,11 @@ def run_solver_plan(
         status=status,
         solver_plan=str(solver_plan),
         access_manifest=str(access_manifest.resolve()) if access_manifest else "",
+        endpoint_manifest=str(endpoint_manifest.resolve()) if endpoint_manifest else "",
         steps=steps,
         browser_targets=browser_targets,
         terminal_targets=terminal_targets,
+        service_targets=service_targets,
         next_actions=solver_next_actions(plan, browser_targets, terminal_targets, execute=execute),
     )
     write_text(out / "solver-run.yaml", dump_yaml(report.model_dump()))
@@ -113,7 +129,38 @@ def terminal_targets_from(plan: dict, access: dict) -> list[str]:
     return targets
 
 
-def run_solver_step(raw_step: dict, browser_targets: list[str], terminal_targets: list[str], *, execute: bool, timeout_seconds: int) -> SolverRunStep:
+def service_targets_from(access: dict, endpoints: dict) -> dict[str, str]:
+    targets: dict[str, str] = {}
+    collections = (
+        access.get("learner_entrypoints", []) or [],
+        access.get("attacker_entrypoints", []) or [],
+        access.get("final_submission", []) or [],
+        endpoints.get("published_endpoints", []) or [],
+    )
+    for collection in collections:
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("protocol", "http")).lower() != "http":
+                continue
+            service = str(item.get("service", "")).strip()
+            url = str(item.get("url") or item.get("connect") or "").strip()
+            if service and url.startswith("http"):
+                targets.setdefault(service, url.rstrip("/"))
+    return targets
+
+
+def run_solver_step(
+    raw_step: dict,
+    browser_targets: list[str],
+    terminal_targets: list[str],
+    service_targets: dict[str, str],
+    *,
+    execute: bool,
+    timeout_seconds: int,
+) -> SolverRunStep:
     action_type = str(raw_step.get("action_type", "verification"))
     order = int(raw_step.get("order") or 0)
     step_id = str(raw_step.get("step_id", ""))
@@ -141,17 +188,7 @@ def run_solver_step(raw_step: dict, browser_targets: list[str], terminal_targets
             target = "http" + target
         return run_http_probe(order, step_id, action_type, target or planned_target(action_type, browser_targets, terminal_targets), service, plugin, evidence, timeout_seconds=timeout_seconds)
     if action_type == "vulnerability-behavior":
-        status: SolverStepStatus = "passed" if evidence else "warning"
-        return SolverRunStep(
-            order=order,
-            step_id=step_id,
-            action_type=action_type,
-            service=service,
-            plugin=plugin,
-            status=status,
-            evidence=evidence,
-            message="runtime evidence present; exploit-specific browser/terminal automation remains plugin-driven",
-        )
+        return run_plugin_http_sequence(order, step_id, service, plugin, service_targets.get(service, ""), evidence, timeout_seconds=timeout_seconds)
     return SolverRunStep(
         order=order,
         step_id=step_id,
@@ -194,6 +231,176 @@ def run_http_probe(order: int, step_id: str, action_type: str, target: str, serv
             )
     except URLError as exc:
         return SolverRunStep(order=order, step_id=step_id, action_type=action_type, service=service, plugin=plugin, status="failed", target=target, evidence=evidence, message=str(exc))
+
+
+def run_plugin_http_sequence(
+    order: int,
+    step_id: str,
+    service: str,
+    plugin: str,
+    base_url: str,
+    evidence: list[str],
+    *,
+    timeout_seconds: int,
+) -> SolverRunStep:
+    if not base_url:
+        return SolverRunStep(
+            order=order,
+            step_id=step_id,
+            action_type="vulnerability-behavior",
+            service=service,
+            plugin=plugin,
+            status="skipped",
+            evidence=evidence,
+            message="service is not published as an HTTP endpoint",
+        )
+    if plugin == "ssti-preview":
+        status, data, body = http_json("POST", f"{base_url}/labforge/scaffold/ssti-preview", {"body": "{{ 7*7 }}"}, timeout_seconds)
+        ok = status == 200 and str(data.get("preview", "")) == "49"
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"http_status={status}; preview={data.get('preview', body[:64])}")
+    if plugin == "stored-xss-review":
+        created_status, created, _ = http_json("POST", f"{base_url}/labforge/scaffold/review-items", {"title": "Solver review", "body": "<b>stored</b>"}, timeout_seconds)
+        item_id = str(created.get("id", ""))
+        opened_status, _, opened_body = http_json("GET", f"{base_url}/labforge/scaffold/reviewer/items/{item_id}", None, timeout_seconds) if item_id else (0, {}, "")
+        ok = created_status == 201 and opened_status == 200 and "stored" in opened_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"created={created_status}; opened={opened_status}; item_id={item_id or '-'}")
+    if plugin == "idor-object-access":
+        status, data, _ = http_json("GET", f"{base_url}/labforge/scaffold/objects/obj-9001?owner=learner", None, timeout_seconds)
+        ok = status == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"http_status={status}")
+    if plugin == "ssrf-internal-fetch":
+        status, data, _ = http_json("GET", f"{base_url}/labforge/scaffold/fetch?url=http://169.254.169.254/latest", None, timeout_seconds)
+        ok = status == 400 and data.get("allowed") is False
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"blocked_fetch_status={status}; allowed={data.get('allowed')}")
+    if plugin == "path-traversal-download":
+        public_status, _, _ = http_json("GET", f"{base_url}/labforge/scaffold/documents/download?name=welcome.txt", None, timeout_seconds)
+        traversed_status, _, traversed_body = http_json("GET", f"{base_url}/labforge/scaffold/documents/download?name=../restricted/audit-export.txt", None, timeout_seconds)
+        ok = public_status == 200 and traversed_status == 200 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"public={public_status}; traversed={traversed_status}")
+    if plugin == "unsafe-file-upload":
+        uploaded_status, uploaded, _ = http_multipart_upload(
+            f"{base_url}/labforge/scaffold/uploads",
+            field_name="file",
+            filename="case-note.txt",
+            content=b"labforge upload smoke",
+            timeout_seconds=timeout_seconds,
+        )
+        filename = str(uploaded.get("filename", ""))
+        retrieved_status, _, retrieved_body = http_json("GET", f"{base_url}/labforge/scaffold/uploads/{filename}", None, timeout_seconds) if filename else (0, {}, "")
+        ok = uploaded_status == 201 and retrieved_status == 200 and "labforge upload smoke" in retrieved_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"uploaded={uploaded_status}; retrieved={retrieved_status}; filename={filename or '-'}")
+    if plugin == "diagnostic-command-injection":
+        status, data, _ = http_json("POST", f"{base_url}/labforge/scaffold/diagnostics/run", {"command": "id"}, timeout_seconds)
+        ok = status == 200 and data.get("accepted") is True
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"http_status={status}; accepted={data.get('accepted')}")
+    if plugin == "build-pipeline-abuse":
+        payload = {"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"}
+        status, data, _ = http_json("POST", f"{base_url}/labforge/scaffold/build/jobs", payload, timeout_seconds)
+        ok = status == 201 and data.get("status") == "built" and "canonical_manifest" in data
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"http_status={status}; job_id={data.get('job_id', '-')}")
+    if plugin == "signed-update-publish":
+        manifest = {
+            "product": "product-agent",
+            "channel": "smoke",
+            "version": "0.0.0",
+            "build_id": "build-smoke",
+            "artifact": {"name": "smoke.tar", "sha256": "0" * 64, "url": "http://build-server/smoke.tar", "size_bytes": 1},
+        }
+        signed_status, signed, _ = http_json("POST", f"{base_url}/labforge/scaffold/sign", {"canonical_manifest": manifest}, timeout_seconds)
+        publish_status, _, _ = http_json("POST", f"{base_url}/labforge/scaffold/publish", {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
+        ok = signed_status == 200 and publish_status == 201
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"signed={signed_status}; published={publish_status}")
+    if plugin == "customer-update-callback":
+        pre_status, _, _ = http_json("GET", f"{base_url}/labforge/scaffold/customer/export", None, timeout_seconds)
+        manifest = {"product": "product-agent", "channel": "smoke", "build_id": "build-smoke", "artifact": {}, "signature": "smoke"}
+        poll_status, _, _ = http_json("POST", f"{base_url}/labforge/scaffold/customer/poll", {"manifest": manifest}, timeout_seconds)
+        export_status, export, _ = http_json("GET", f"{base_url}/labforge/scaffold/customer/export", None, timeout_seconds)
+        ok = pre_status == 403 and poll_status == 202 and export_status == 200 and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"pre={pre_status}; poll={poll_status}; export={export_status}")
+    return SolverRunStep(
+        order=order,
+        step_id=step_id,
+        action_type="vulnerability-behavior",
+        service=service,
+        plugin=plugin,
+        status="warning",
+        target=base_url,
+        evidence=evidence,
+        message="plugin HTTP solver sequence is not implemented",
+    )
+
+
+def plugin_step(order: int, step_id: str, service: str, plugin: str, target: str, evidence: list[str], ok: bool, message: str) -> SolverRunStep:
+    return SolverRunStep(
+        order=order,
+        step_id=step_id,
+        action_type="vulnerability-behavior",
+        service=service,
+        plugin=plugin,
+        status="passed" if ok else "failed",
+        target=target,
+        evidence=evidence,
+        message=message,
+    )
+
+
+def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int) -> tuple[int, dict, str]:
+    data = None
+    headers = {"User-Agent": "LabForge-SolverRunner/1.0"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = Request(url, data=data, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read(8192).decode("utf-8", "replace")
+            return int(response.status), parse_json_body(body), body
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        return int(exc.code), parse_json_body(body), body
+    except URLError as exc:
+        return 0, {}, str(exc)
+
+
+def http_multipart_upload(url: str, *, field_name: str, filename: str, content: bytes, timeout_seconds: int) -> tuple[int, dict, str]:
+    boundary = "----LabForgeSolverBoundary"
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode("ascii"),
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode("utf-8"),
+            b"Content-Type: text/plain\r\n\r\n",
+            content,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("ascii"),
+        ]
+    )
+    request = Request(
+        url,
+        data=body,
+        headers={
+            "User-Agent": "LabForge-SolverRunner/1.0",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            text = response.read(8192).decode("utf-8", "replace")
+            return int(response.status), parse_json_body(text), text
+    except HTTPError as exc:
+        text = exc.read().decode("utf-8", "replace")
+        return int(exc.code), parse_json_body(text), text
+    except URLError as exc:
+        return 0, {}, str(exc)
+
+
+def parse_json_body(body: str) -> dict:
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def run_ssh_probe(order: int, step_id: str, command: str, evidence: list[str], *, timeout_seconds: int) -> SolverRunStep:
@@ -270,6 +477,7 @@ def render_solver_run_markdown(report: SolverRunReport) -> str:
         f"- Status: `{report.status}`",
         f"- Solver plan: `{report.solver_plan}`",
         f"- Access manifest: `{report.access_manifest or '-'}`",
+        f"- Endpoint manifest: `{report.endpoint_manifest or '-'}`",
         "",
         "## Steps",
         "",

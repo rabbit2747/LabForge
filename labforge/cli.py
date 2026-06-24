@@ -1138,6 +1138,7 @@ def command_qa_solver_run(args: argparse.Namespace) -> int:
         Path(args.solver_plan),
         Path(args.out),
         access_manifest=Path(args.access_manifest) if args.access_manifest else None,
+        endpoint_manifest=Path(args.endpoint_manifest) if args.endpoint_manifest else None,
         execute=args.execute,
         timeout_seconds=args.timeout,
     )
@@ -1648,6 +1649,7 @@ def main(argv: list[str] | None = None) -> int:
     qa_solver_run_parser.add_argument("solver_plan", help="Path to generated playtest/solver-plan.json")
     qa_solver_run_parser.add_argument("--out", required=True)
     qa_solver_run_parser.add_argument("--access-manifest", help="Optional path to playtest/learner-access.json")
+    qa_solver_run_parser.add_argument("--endpoint-manifest", help="Optional path to generated provider endpoints.json")
     qa_solver_run_parser.add_argument("--execute", action="store_true", help="Probe browser/SSH access where supported. Default is dry-run.")
     qa_solver_run_parser.add_argument("--timeout", type=int, default=5, help="Per-check timeout in seconds when --execute is used.")
     qa_solver_run_parser.set_defaults(func=command_qa_solver_run)

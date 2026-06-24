@@ -54,6 +54,8 @@ def run_e2e_solver(
     preflight_ready = provider_preflight_ready(host_preflight, provider)
     write_text(out / "host-preflight.md", report_to_markdown(host_preflight))
     write_text(out / "host-preflight.json", json.dumps(host_preflight_data, ensure_ascii=False, indent=2) + "\n")
+    endpoint_manifest = provider_output / "endpoints.json"
+    endpoint_manifest_arg = endpoint_manifest if endpoint_manifest.exists() else None
     lifecycle: list[ProviderLifecycleResult] = []
     if execute and not preflight_ready:
         lifecycle.append(
@@ -71,6 +73,7 @@ def run_e2e_solver(
             solver_plan,
             out / "solver-run",
             access_manifest=access_manifest,
+            endpoint_manifest=endpoint_manifest_arg,
             execute=False,
             timeout_seconds=min(timeout_seconds, 15),
         )
@@ -107,6 +110,7 @@ def run_e2e_solver(
             solver_plan,
             out / "solver-run",
             access_manifest=access_manifest,
+            endpoint_manifest=endpoint_manifest_arg,
             execute=execute,
             timeout_seconds=min(timeout_seconds, 15),
         )

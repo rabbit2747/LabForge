@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from labforge.solver_runner import run_solver_plan, ssh_batch_argv
@@ -79,6 +81,111 @@ class SolverRunnerTests(unittest.TestCase):
         self.assertIn("BatchMode=yes", argv)
         self.assertIn("StrictHostKeyChecking=no", argv)
         self.assertEqual(argv[-1], "true")
+
+    def test_solver_runner_executes_supported_plugin_http_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SolverRunnerSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-execute",
+                            "title": "Solver Execute",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-investor-portal-ssti-preview",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "investor-portal",
+                                    "plugin": "ssti-preview",
+                                    "evidence": ["/labforge/scaffold/ssti-preview"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps(
+                        {
+                            "published_endpoints": [
+                                {
+                                    "service": "investor-portal",
+                                    "protocol": "http",
+                                    "url": f"{base_url}/",
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(
+                    solver_plan,
+                    root / "solver-run",
+                    endpoint_manifest=endpoint_manifest,
+                    execute=True,
+                )
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.service_targets["investor-portal"], base_url)
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("preview=49", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_solver_runner_skips_plugin_without_published_service_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver_plan = root / "solver-plan.json"
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "solver-skip",
+                        "title": "Solver Skip",
+                        "steps": [
+                            {
+                                "order": 1,
+                                "step_id": "plugin-private-ssti-preview",
+                                "action_type": "vulnerability-behavior",
+                                "service": "private-portal",
+                                "plugin": "ssti-preview",
+                                "evidence": ["/labforge/scaffold/ssti-preview"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = run_solver_plan(solver_plan, root / "solver-run", execute=True)
+
+            self.assertEqual(report.status, "warning")
+            self.assertEqual(report.steps[0].status, "skipped")
+            self.assertIn("not published", report.steps[0].message)
+
+
+class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:
+        if self.path == "/labforge/scaffold/ssti-preview":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"preview": "49"}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
 
 
 if __name__ == "__main__":
