@@ -270,6 +270,8 @@ def run_plugin_http_sequence(
         )
     discovery_status, discovery_data, _ = http_json("GET", f"{base_url}/operations/reference", None, timeout_seconds)
     discovery_note = discovery_message(discovery_status, discovery_data)
+    landing_ok, landing_note = plugin_landing_probe(base_url, plugin, timeout_seconds)
+    context_note = f"{discovery_note}; {landing_note}"
     if plugin == "ssti-preview":
         status, data, body, route = http_json_first(
             "POST",
@@ -278,8 +280,8 @@ def run_plugin_http_sequence(
             {"body": "{{ 7*7 }}"},
             timeout_seconds,
         )
-        ok = status == 200 and str(data.get("preview", "")) == "49"
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; route={route}; http_status={status}; preview={data.get('preview', body[:64])}")
+        ok = landing_ok and status == 200 and str(data.get("preview", "")) == "49"
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; preview={data.get('preview', body[:64])}")
     if plugin == "stored-xss-review":
         created_status, created, _, create_route = http_json_first(
             "POST",
@@ -294,8 +296,8 @@ def run_plugin_http_sequence(
             if item_id
             else (0, {}, "", "")
         )
-        ok = created_status == 201 and opened_status == 200 and "stored" in opened_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; create_route={create_route}; open_route={open_route}; created={created_status}; opened={opened_status}; item_id={item_id or '-'}")
+        ok = landing_ok and created_status == 201 and opened_status == 200 and "stored" in opened_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; create_route={create_route}; open_route={open_route}; created={created_status}; opened={opened_status}; item_id={item_id or '-'}")
     if plugin == "idor-object-access":
         status, data, _, route = http_json_first(
             "GET",
@@ -304,8 +306,8 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
-        ok = status == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; route={route}; http_status={status}")
+        ok = landing_ok and status == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}")
     if plugin == "ssrf-internal-fetch":
         status, data, _, route = http_json_first(
             "GET",
@@ -314,8 +316,8 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
-        ok = status == 400 and data.get("allowed") is False
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; route={route}; blocked_fetch_status={status}; allowed={data.get('allowed')}")
+        ok = landing_ok and status == 400 and data.get("allowed") is False
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; blocked_fetch_status={status}; allowed={data.get('allowed')}")
     if plugin == "path-traversal-download":
         public_status, _, _, public_route = http_json_first(
             "GET",
@@ -331,8 +333,8 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
-        ok = public_status == 200 and traversed_status == 200 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; public_route={public_route}; traversed_route={traversed_route}; public={public_status}; traversed={traversed_status}")
+        ok = landing_ok and public_status == 200 and traversed_status == 200 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; public_route={public_route}; traversed_route={traversed_route}; public={public_status}; traversed={traversed_status}")
     if plugin == "unsafe-file-upload":
         uploaded_status, uploaded, _ = http_multipart_upload(
             f"{base_url}/attachments",
@@ -357,8 +359,8 @@ def run_plugin_http_sequence(
             if filename
             else (0, {}, "", "")
         )
-        ok = uploaded_status == 201 and retrieved_status == 200 and "labforge upload smoke" in retrieved_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; upload_route={upload_route}; retrieve_route={retrieve_route}; uploaded={uploaded_status}; retrieved={retrieved_status}; filename={filename or '-'}")
+        ok = landing_ok and uploaded_status == 201 and retrieved_status == 200 and "labforge upload smoke" in retrieved_body
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; upload_route={upload_route}; retrieve_route={retrieve_route}; uploaded={uploaded_status}; retrieved={retrieved_status}; filename={filename or '-'}")
     if plugin == "diagnostic-command-injection":
         status, data, _, route = http_json_first(
             "POST",
@@ -367,8 +369,8 @@ def run_plugin_http_sequence(
             {"command": "id"},
             timeout_seconds,
         )
-        ok = status == 200 and data.get("accepted") is True
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; route={route}; http_status={status}; accepted={data.get('accepted')}")
+        ok = landing_ok and status == 200 and data.get("accepted") is True
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; accepted={data.get('accepted')}")
     if plugin == "build-pipeline-abuse":
         payload = {"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"}
         status, data, _, route = http_json_first(
@@ -378,8 +380,8 @@ def run_plugin_http_sequence(
             payload,
             timeout_seconds,
         )
-        ok = status == 201 and data.get("status") == "built" and "canonical_manifest" in data
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; route={route}; http_status={status}; job_id={data.get('job_id', '-')}")
+        ok = landing_ok and status == 201 and data.get("status") == "built" and "canonical_manifest" in data
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; job_id={data.get('job_id', '-')}")
     if plugin == "signed-update-publish":
         manifest = {
             "product": "product-agent",
@@ -390,15 +392,15 @@ def run_plugin_http_sequence(
         }
         signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {"canonical_manifest": manifest}, timeout_seconds)
         publish_status, _, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
-        ok = signed_status == 200 and publish_status == 201
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; sign_route={sign_route}; publish_route={publish_route}; signed={signed_status}; published={publish_status}")
+        ok = landing_ok and signed_status == 200 and publish_status == 201
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; sign_route={sign_route}; publish_route={publish_route}; signed={signed_status}; published={publish_status}")
     if plugin == "customer-update-callback":
         pre_status, _, _, pre_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
         manifest = {"product": "product-agent", "channel": "smoke", "build_id": "build-smoke", "artifact": {}, "signature": "smoke"}
         poll_status, _, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"manifest": manifest}, timeout_seconds)
         export_status, export, _, export_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
-        ok = pre_status == 403 and poll_status == 202 and export_status == 200 and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{discovery_note}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; pre={pre_status}; poll={poll_status}; export={export_status}")
+        ok = landing_ok and pre_status == 403 and poll_status == 202 and export_status == 200 and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; pre={pre_status}; poll={poll_status}; export={export_status}")
     return SolverRunStep(
         order=order,
         step_id=step_id,
@@ -428,6 +430,33 @@ def plugin_step(order: int, step_id: str, service: str, plugin: str, target: str
         evidence=evidence,
         message=message,
     )
+
+
+def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tuple[bool, str]:
+    specs: dict[str, tuple[list[str], list[str]]] = {
+        "ssti-preview": (["/operations/preview", "/labforge/scaffold/ssti-preview"], ["Response Preview"]),
+        "stored-xss-review": (["/operations/review", "/labforge/scaffold/review"], ["Review Intake"]),
+        "idor-object-access": (["/objects", "/api/business-objects", "/labforge/scaffold/objects"], ["Business Object Catalog"]),
+        "ssrf-internal-fetch": (["/operations/fetch", "/labforge/scaffold/fetch"], ["Upstream Import Console"]),
+        "path-traversal-download": (["/documents", "/labforge/scaffold/documents"], ["Document Library"]),
+        "unsafe-file-upload": (["/attachments", "/labforge/scaffold/uploads"], ["Case Attachment Portal"]),
+        "diagnostic-command-injection": (["/operations/diagnostics", "/labforge/scaffold/diagnostics"], ["Operations Diagnostics Console"]),
+        "build-pipeline-abuse": (["/operations/build", "/api/build/context", "/labforge/scaffold/build/context"], ["Release Build Console"]),
+        "signed-update-publish": (["/operations/update-channel", "/api/channels/smoke", "/labforge/scaffold/channels/smoke"], ["Update Channel Console"]),
+        "customer-update-callback": (["/operations/customer-agent", "/api/customer/status", "/labforge/scaffold/customer/status"], ["Customer Agent Status"]),
+    }
+    routes, expected_texts = specs.get(plugin, ([], []))
+    if not routes:
+        return True, "landing=not-required"
+    status, body, route = http_text_first("GET", base_url, routes, timeout_seconds)
+    if status == 0:
+        return False, "landing=unreachable"
+    if status == 404:
+        return False, f"landing=missing; landing_route={route}"
+    missing = [text for text in expected_texts if text not in body]
+    if missing:
+        return False, f"landing={status}; landing_route={route}; missing_landing_text={','.join(missing)}"
+    return 200 <= status < 400, f"landing={status}; landing_route={route}; landing_texts={len(expected_texts)}"
 
 
 def stage_state_message(base_url: str) -> str:
@@ -474,7 +503,10 @@ def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int)
             body = response.read(8192).decode("utf-8", "replace")
             return int(response.status), parse_json_body(body), body
     except HTTPError as exc:
-        body = exc.read().decode("utf-8", "replace")
+        try:
+            body = exc.read().decode("utf-8", "replace")
+        finally:
+            exc.close()
         return int(exc.code), parse_json_body(body), body
     except URLError as exc:
         return 0, {}, str(exc)
@@ -493,6 +525,35 @@ def http_json_first(method: str, base_url: str, routes: list[str], payload: dict
             return status, data, body, route
         last_status, last_data, last_body, last_route = status, data, body, route
     return last_status, last_data, last_body, last_route
+
+
+def http_text_first(method: str, base_url: str, routes: list[str], timeout_seconds: int) -> tuple[int, str, str]:
+    last_status = 0
+    last_body = ""
+    last_route = ""
+    for route in routes:
+        status, body = http_text(method, f"{base_url}{route}", timeout_seconds)
+        if status != 404 and status != 0:
+            return status, body, route
+        last_status, last_body, last_route = status, body, route
+    return last_status, last_body, last_route
+
+
+def http_text(method: str, url: str, timeout_seconds: int) -> tuple[int, str]:
+    request = Request(url, headers={"User-Agent": "LabForge-SolverRunner/1.0"}, method=method)
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return int(response.status), response.read(8192).decode("utf-8", "replace")
+    except HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", "replace")
+        finally:
+            exc.close()
+        return int(exc.code), body
+    except URLError as exc:
+        return 0, str(exc)
+    except OSError as exc:
+        return 0, str(exc)
 
 
 def http_multipart_upload(url: str, *, field_name: str, filename: str, content: bytes, timeout_seconds: int) -> tuple[int, dict, str]:
@@ -522,7 +583,10 @@ def http_multipart_upload(url: str, *, field_name: str, filename: str, content: 
             text = response.read(8192).decode("utf-8", "replace")
             return int(response.status), parse_json_body(text), text
     except HTTPError as exc:
-        text = exc.read().decode("utf-8", "replace")
+        try:
+            text = exc.read().decode("utf-8", "replace")
+        finally:
+            exc.close()
         return int(exc.code), parse_json_body(text), text
     except URLError as exc:
         return 0, {}, str(exc)

@@ -150,6 +150,8 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.service_targets["investor-portal"], base_url)
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("discovery=200", report.steps[0].message)
+                self.assertIn("landing=200", report.steps[0].message)
+                self.assertIn("landing_route=/operations/preview", report.steps[0].message)
                 self.assertIn("route=/operations/preview", report.steps[0].message)
                 self.assertIn("preview=49", report.steps[0].message)
                 self.assertIn("stage_state=200", report.steps[0].message)
@@ -190,6 +192,51 @@ class SolverRunnerTests(unittest.TestCase):
             self.assertEqual(report.steps[0].status, "skipped")
             self.assertIn("not published", report.steps[0].message)
 
+    def test_solver_runner_fails_when_business_landing_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), MissingLandingSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-missing-landing",
+                            "title": "Solver Missing Landing",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-investor-portal-ssti-preview",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "investor-portal",
+                                    "plugin": "ssti-preview",
+                                    "evidence": ["/operations/preview"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "investor-portal", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "failed")
+                self.assertEqual(report.steps[0].status, "failed")
+                self.assertIn("landing=missing", report.steps[0].message)
+                self.assertIn("preview=49", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
 
 class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
@@ -198,6 +245,12 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"items": [{"plugin": "ssti-preview"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/preview":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Response Preview</h1></body></html>")
             return
         if self.path == "/api/state":
             self.send_response(200)
@@ -229,6 +282,31 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
         if self.path == "/labforge/scaffold/ssti-preview":
             self.send_response(500)
             self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class MissingLandingSmokeHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "ssti-preview"}]}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        if self.path == "/operations/preview":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"preview": "49"}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()
