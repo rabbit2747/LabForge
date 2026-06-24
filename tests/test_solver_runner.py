@@ -464,9 +464,14 @@ class SolverRunnerTests(unittest.TestCase):
 
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("cores=200", report.steps[0].message)
+                self.assertIn("legacy_cores=1", report.steps[0].message)
+                self.assertIn("drift_before=200", report.steps[0].message)
                 self.assertIn("system=200", report.steps[0].message)
                 self.assertIn("config=200", report.steps[0].message)
                 self.assertIn("select=200", report.steps[0].message)
+                self.assertIn("drift_after=200", report.steps[0].message)
+                self.assertIn("velocity_response_writer=True", report.steps[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -895,6 +900,8 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
 
 
 class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
+    velocity_enabled = False
+
     def do_GET(self) -> None:
         if self.path == "/operations/reference":
             self.send_response(200)
@@ -943,6 +950,40 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"<html><body><h1>Search Operations Console</h1></body></html>")
             return
+        if self.path == "/api/search/cores":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "cores": [
+                            {
+                                "name": "ops-core",
+                                "version": "8.3.1",
+                                "legacy": True,
+                                "velocity_enabled": self.velocity_enabled,
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/search/config-drift":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "core": "ops-core",
+                        "observed_version": "8.3.1",
+                        "legacy_track": True,
+                        "velocity_response_writer": self.velocity_enabled,
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/solr/ops-core/admin/info/system":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -960,6 +1001,7 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if self.path == "/solr/ops-core/config":
+            type(self).velocity_enabled = True
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
