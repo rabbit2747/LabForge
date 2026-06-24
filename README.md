@@ -209,6 +209,10 @@ final submission endpoint, reducing the chance that a multi-stage chain exists
 only as documentation. Release gate treats stage implementation coverage gaps
 as critical learner-playtest failures, so a lab is not release-ready when stages
 are merely described but not backed by generated runnable components.
+The solver runner also exercises final controlled-drop behavior by POSTing a
+synthetic proof to `/submit` and verifying that it is recorded through
+`/submissions`, instead of treating a reachable landing page as sufficient
+completion evidence.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR

@@ -201,11 +201,12 @@ def run_solver_step(
     if action_type == "command-sequence":
         return run_command_sequence_solver_step(raw_step, order, step_id, service, plugin, terminal_targets, evidence, timeout_seconds=timeout_seconds)
     if action_type == "final-submission":
-        target = str(raw_step.get("evidence", [""])[0] if raw_step.get("evidence") else "")
-        if "http" in target:
-            target = target.split("http", maxsplit=1)[1]
+        evidence_target = str(raw_step.get("evidence", [""])[0] if raw_step.get("evidence") else "")
+        target = ""
+        if "http" in evidence_target:
+            target = evidence_target.split("http", maxsplit=1)[1]
             target = "http" + target
-        return run_http_probe(order, step_id, action_type, target or planned_target(action_type, browser_targets, terminal_targets, final_targets), service, plugin, evidence, timeout_seconds=timeout_seconds)
+        return run_final_submission_solver_step(order, step_id, target or planned_target(action_type, browser_targets, terminal_targets, final_targets), service, plugin, evidence, timeout_seconds=timeout_seconds)
     if action_type == "vulnerability-behavior":
         return run_plugin_http_sequence(order, step_id, service, plugin, service_targets.get(service, ""), evidence, timeout_seconds=timeout_seconds)
     return SolverRunStep(
@@ -349,6 +350,51 @@ def run_http_probe(order: int, step_id: str, action_type: str, target: str, serv
             )
     except URLError as exc:
         return SolverRunStep(order=order, step_id=step_id, action_type=action_type, service=service, plugin=plugin, status="failed", target=target, evidence=evidence, message=str(exc))
+
+
+def run_final_submission_solver_step(order: int, step_id: str, target: str, service: str, plugin: str, evidence: list[str], *, timeout_seconds: int) -> SolverRunStep:
+    if not target.startswith("http"):
+        return SolverRunStep(order=order, step_id=step_id, action_type="final-submission", service=service, plugin=plugin, status="skipped", target=target, evidence=evidence, message="no HTTP final submission target")
+    base_url = target.rstrip("/")
+    probe_status, probe_data, probe_body = http_json("GET", f"{base_url}/", None, timeout_seconds)
+    submit_payload = {
+        "proof": "LABFORGE_SOLVER_FINAL_PROOF",
+        "source": "labforge-solver-runner",
+        "evidence": evidence,
+    }
+    submit_status, submit_data, submit_body = http_json("POST", f"{base_url}/submit", submit_payload, timeout_seconds)
+    submissions_status, submissions_data, submissions_body = http_json("GET", f"{base_url}/submissions", None, timeout_seconds)
+    items = submissions_data.get("items", []) if isinstance(submissions_data, dict) else []
+    recorded = any(
+        isinstance(item, dict)
+        and isinstance(item.get("payload"), dict)
+        and item["payload"].get("proof") == submit_payload["proof"]
+        for item in items
+    )
+    ok = (
+        200 <= probe_status < 500
+        and submit_status in {200, 201, 202}
+        and submit_data.get("accepted") is True
+        and submissions_status == 200
+        and recorded
+    )
+    message = (
+        f"probe={probe_status}; submit={submit_status}; accepted={submit_data.get('accepted')}; "
+        f"submissions={submissions_status}; recorded={str(recorded).lower()}"
+    )
+    body = "\n".join(part for part in [probe_body[:256], submit_body[:256], submissions_body[:256]] if part)
+    return SolverRunStep(
+        order=order,
+        step_id=step_id,
+        action_type="final-submission",
+        service=service,
+        plugin=plugin,
+        status="passed" if ok else "failed",
+        target=base_url,
+        evidence=evidence,
+        stdout=body,
+        message=message,
+    )
 
 
 def run_plugin_http_sequence(

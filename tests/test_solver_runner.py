@@ -253,6 +253,96 @@ class SolverRunnerTests(unittest.TestCase):
             self.assertEqual(report.steps[0].status, "skipped")
             self.assertIn("not published", report.steps[0].message)
 
+    def test_solver_runner_submits_final_proof_to_controlled_drop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            FinalSubmissionSmokeHandler.submissions = []
+            server = ThreadingHTTPServer(("127.0.0.1", 0), FinalSubmissionSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                access_manifest = root / "learner-access.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-final-submit",
+                            "title": "Solver Final Submit",
+                            "final_submission": f"{base_url}/",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "final-01",
+                                    "action_type": "final-submission",
+                                    "evidence": ["final_object_collected"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                access_manifest.write_text(
+                    json.dumps(
+                        {
+                            "final_submission_endpoints": [
+                                {"service": "controlled-drop", "protocol": "http", "connect": f"{base_url}/"}
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", access_manifest=access_manifest, execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("submit=200", report.steps[0].message)
+                self.assertIn("accepted=True", report.steps[0].message)
+                self.assertIn("recorded=true", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_solver_runner_fails_final_submission_when_submit_api_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), MissingFinalSubmissionHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-final-missing",
+                            "title": "Solver Final Missing",
+                            "final_submission": f"{base_url}/",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "final-01",
+                                    "action_type": "final-submission",
+                                    "evidence": [],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", execute=True)
+
+                self.assertEqual(report.status, "failed")
+                self.assertEqual(report.steps[0].status, "failed")
+                self.assertIn("submit=404", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_solr_velocity_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -539,6 +629,66 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             return
         self.send_response(404)
         self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class FinalSubmissionSmokeHandler(BaseHTTPRequestHandler):
+    submissions: list[dict] = []
+
+    def do_GET(self) -> None:
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"service": "controlled-drop"}).encode("utf-8"))
+            return
+        if self.path == "/submissions":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": self.submissions}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        if self.path == "/submit":
+            size = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(size).decode("utf-8"))
+            self.submissions.append({"payload": payload})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"accepted": True}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class MissingFinalSubmissionHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"service": "not-a-drop"}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        size = int(self.headers.get("Content-Length", "0"))
+        if size:
+            self.rfile.read(size)
+        self.send_response(404)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": "missing"}).encode("utf-8"))
 
     def log_message(self, format: str, *args: object) -> None:
         return
