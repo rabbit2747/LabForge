@@ -258,21 +258,35 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "idor-object-access":
             catalog = client.get("/labforge/scaffold/objects?owner=learner")
             visible = catalog.get_json(silent=True) or {}
+            policy = client.get("/labforge/scaffold/objects/access-policy")
             entitlement = client.get("/labforge/scaffold/objects/obj-9001/entitlement?owner=learner")
             entitlement_data = entitlement.get_json(silent=True) or {}
             response = client.get("/labforge/scaffold/objects/obj-9001?owner=learner")
             data = response.get_json(silent=True) or {}
+            audit = client.get("/labforge/scaffold/objects/audit")
+            audit_data = audit.get_json(silent=True) or {}
+            audit_records = audit_data.get("records", [])
             visible_ids = {str(item.get("id")) for item in visible.get("items", []) if isinstance(item, dict)}
+            direct_read_audited = any(
+                record.get("object_id") == "obj-9001"
+                and record.get("action") == "direct-read"
+                and record.get("allowed_by_entitlement") is False
+                and record.get("visible_in_catalog") is False
+                for record in audit_records
+            )
             return assert_condition(
                 service,
                 plugin_id,
                 catalog.status_code == 200
                 and "obj-9001" not in visible_ids
+                and policy.status_code == 200
                 and entitlement.status_code == 200
                 and entitlement_data.get("allowed") is False
                 and response.status_code == 200
-                and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", "")),
-                "/labforge/scaffold/objects catalog + entitlement + direct object read",
+                and audit.status_code == 200
+                and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
+                and direct_read_audited,
+                "/labforge/scaffold/objects catalog + policy + entitlement + direct read + audit",
                 response,
             )
         if plugin_id == "ssrf-internal-fetch":

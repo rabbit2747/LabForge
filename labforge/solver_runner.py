@@ -550,6 +550,13 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/business-objects/access-policy", "/labforge/scaffold/objects/access-policy"],
+            None,
+            timeout_seconds,
+        )
         entitlement_status, entitlement, _, entitlement_route = http_json_first(
             "GET",
             base_url,
@@ -567,15 +574,34 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/business-objects/audit", "/labforge/scaffold/objects/audit"],
+            None,
+            timeout_seconds,
+        )
         visible_ids = {str(item.get("id")) for item in catalog.get("items", []) if isinstance(item, dict)}
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        direct_read_audited = any(
+            isinstance(record, dict)
+            and record.get("object_id") == "obj-9001"
+            and record.get("action") == "direct-read"
+            and record.get("allowed_by_entitlement") is False
+            and record.get("visible_in_catalog") is False
+            for record in audit_records
+        )
         ok = (
             landing_ok
             and catalog_status == 200
             and "obj-9001" not in visible_ids
+            and policy_status == 200
             and entitlement_status == 200
             and entitlement.get("allowed") is False
             and status == 200
+            and audit_status == 200
             and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
+            and direct_read_audited
         )
         return plugin_step(
             order,
@@ -586,9 +612,10 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; catalog_route={catalog_route}; entitlement_route={entitlement_route}; "
-                f"route={route}; catalog={catalog_status}; entitlement={entitlement_status}; "
-                f"entitlement_allowed={entitlement.get('allowed')}; direct_read={status}"
+                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; entitlement_route={entitlement_route}; "
+                f"route={route}; audit_route={audit_route}; catalog={catalog_status}; policy={policy_status}; "
+                f"entitlement={entitlement_status}; entitlement_allowed={entitlement.get('allowed')}; "
+                f"direct_read={status}; audit={audit_status}; direct_read_audited={direct_read_audited}"
             ),
         )
     if plugin == "ssrf-internal-fetch":
