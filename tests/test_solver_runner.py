@@ -672,11 +672,15 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("info=200", report.steps[0].message)
+                self.assertIn("policy=200", report.steps[0].message)
                 self.assertIn("presets=1", report.steps[0].message)
                 self.assertIn("targets=1", report.steps[0].message)
                 self.assertIn("accepted=True", report.steps[0].message)
+                self.assertIn("blocked=400", report.steps[0].message)
+                self.assertIn("blocked_accepted=False", report.steps[0].message)
                 self.assertIn("audit=200", report.steps[0].message)
-                self.assertIn("audit_records=1", report.steps[0].message)
+                self.assertIn("accepted_recorded=True", report.steps[0].message)
+                self.assertIn("blocked_recorded=True", report.steps[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -1020,6 +1024,22 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
             )
             return
+        if self.path == "/api/diagnostics/policy":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "blocked_tokens": ["docker", "kubectl"],
+                        "allowed_presets": ["runtime-identity"],
+                        "approved_targets": ["localhost"],
+                        "run_api": "POST /operations/diagnostics/run",
+                        "audit_api": "/api/diagnostics/audit",
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/api/diagnostics/audit":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1033,6 +1053,13 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
         size = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
         if self.path == "/operations/diagnostics/run":
+            if payload.get("command") == "docker ps":
+                self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": False, "blocked_token_matched": True})
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"accepted": False, "reason": "blocked by lab boundary"}).encode("utf-8"))
+                return
             self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": True, "returncode": 0})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

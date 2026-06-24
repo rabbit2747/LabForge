@@ -837,11 +837,25 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/diagnostics/policy", "/labforge/scaffold/diagnostics/policy"],
+            None,
+            timeout_seconds,
+        )
         status, data, _, route = http_json_first(
             "POST",
             base_url,
             ["/operations/diagnostics/run", "/labforge/scaffold/diagnostics/run"],
             {"preset": "runtime-identity", "target": "localhost"},
+            timeout_seconds,
+        )
+        blocked_status, blocked_data, _, blocked_route = http_json_first(
+            "POST",
+            base_url,
+            ["/operations/diagnostics/run", "/labforge/scaffold/diagnostics/run"],
+            {"command": "docker ps", "target": "localhost"},
             timeout_seconds,
         )
         audit_status, audit, _, audit_route = http_json_first(
@@ -852,15 +866,22 @@ def run_plugin_http_sequence(
             timeout_seconds,
         )
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        accepted_recorded = any(isinstance(record, dict) and record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in audit_records)
+        blocked_recorded = any(isinstance(record, dict) and record.get("accepted") is False and record.get("blocked_token_matched") is True for record in audit_records)
         ok = (
             landing_ok
             and info_status == 200
             and isinstance(info.get("presets"), list)
             and isinstance(info.get("targets"), list)
+            and policy_status == 200
+            and "docker" in policy.get("blocked_tokens", [])
             and status == 200
             and data.get("accepted") is True
+            and blocked_status == 400
+            and blocked_data.get("accepted") is False
             and audit_status == 200
-            and any(isinstance(record, dict) and record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in audit_records)
+            and accepted_recorded
+            and blocked_recorded
         )
         return plugin_step(
             order,
@@ -871,10 +892,13 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; info_route={info_route}; route={route}; audit_route={audit_route}; "
-                f"info={info_status}; presets={len(info.get('presets', [])) if isinstance(info, dict) else 0}; "
+                f"{context_note}; info_route={info_route}; policy_route={policy_route}; route={route}; "
+                f"blocked_route={blocked_route}; audit_route={audit_route}; info={info_status}; policy={policy_status}; "
+                f"presets={len(info.get('presets', [])) if isinstance(info, dict) else 0}; "
                 f"targets={len(info.get('targets', [])) if isinstance(info, dict) else 0}; "
-                f"http_status={status}; accepted={data.get('accepted')}; audit={audit_status}; audit_records={len(audit_records)}"
+                f"http_status={status}; accepted={data.get('accepted')}; blocked={blocked_status}; "
+                f"blocked_accepted={blocked_data.get('accepted')}; audit={audit_status}; audit_records={len(audit_records)}; "
+                f"accepted_recorded={accepted_recorded}; blocked_recorded={blocked_recorded}"
             ),
         )
     if plugin == "solr-velocity-rce":

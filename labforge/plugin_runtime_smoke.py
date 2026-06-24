@@ -395,21 +395,31 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "diagnostic-command-injection":
             info = client.get("/api/diagnostics")
             info_data = info.get_json(silent=True) or {}
+            policy = client.get("/labforge/scaffold/diagnostics/policy")
+            policy_data = policy.get_json(silent=True) or {}
             response = client.post("/labforge/scaffold/diagnostics/run", json={"preset": "runtime-identity", "target": "localhost"})
             data = response.get_json(silent=True) or {}
+            blocked = client.post("/labforge/scaffold/diagnostics/run", json={"command": "docker ps", "target": "localhost"})
+            blocked_data = blocked.get_json(silent=True) or {}
             audit = client.get("/labforge/scaffold/diagnostics/audit")
             audit_data = audit.get_json(silent=True) or {}
+            records = audit_data.get("records", [])
             return assert_condition(
                 service,
                 plugin_id,
                 info.status_code == 200
                 and isinstance(info_data.get("presets"), list)
                 and isinstance(info_data.get("targets"), list)
+                and policy.status_code == 200
+                and "docker" in policy_data.get("blocked_tokens", [])
                 and response.status_code == 200
                 and data.get("accepted") is True
+                and blocked.status_code == 400
+                and blocked_data.get("accepted") is False
                 and audit.status_code == 200
-                and any(record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in audit_data.get("records", [])),
-                "/api/diagnostics + run preset + audit",
+                and any(record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in records)
+                and any(record.get("accepted") is False and record.get("blocked_token_matched") is True for record in records),
+                "/api/diagnostics + policy + run preset + blocked audit",
                 audit,
             )
         if plugin_id == "credential-exposure":
