@@ -534,7 +534,9 @@ the scenario has a multi-stage chain, and writes:
 - `solver-plan.md/json`: ordered, supervisor-facing solver-agent plan derived
   from learner access, stage-chain checks, plugin runtime evidence, and final
   submission endpoints. It is designed for automated playtest agents and avoids
-  hard-coding named-scenario exploit scripts into the framework.
+  hard-coding named-scenario exploit scripts into the framework. When the lab
+  exposes an SSH learner or attacker workstation, the plan also includes safe
+  `command-sequence` readiness steps that solver-runner can execute over SSH.
 - `solver-run/solver-run.md`: dry-run or executed solver-agent report generated
   from `solver-plan.json`. Re-run it with
   `python -m labforge qa solver-run <playtest/solver-plan.json> --access-manifest <playtest/learner-access.json> --out <out>`,

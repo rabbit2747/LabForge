@@ -65,6 +65,10 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(solver_plan["learner_start"])
             self.assertTrue(solver_plan["attacker_shell"])
             self.assertTrue(solver_plan["steps"])
+            terminal_steps = [step for step in solver_plan["steps"] if step["action_type"] == "command-sequence"]
+            self.assertTrue(terminal_steps)
+            self.assertEqual(terminal_steps[0]["commands"], ["echo labforge-terminal-ready", "pwd"])
+            self.assertEqual(terminal_steps[0]["expected_texts"], ["labforge-terminal-ready"])
             solver_run = load_yaml(out / "solver-run" / "solver-run.json")
             self.assertEqual(solver_run["lab_id"], report.lab_id)
             self.assertTrue(solver_run["steps"])

@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -182,6 +183,7 @@ def run_solver_step(
     plugin = str(raw_step.get("plugin", ""))
     evidence = [str(item) for item in raw_step.get("evidence", []) or []]
     if not execute:
+        command_sequence = [str(item).strip() for item in raw_step.get("commands", []) or [] if str(item).strip()]
         return SolverRunStep(
             order=order,
             step_id=step_id,
@@ -190,11 +192,14 @@ def run_solver_step(
             plugin=plugin,
             status="planned",
             target=planned_target(action_type, browser_targets, terminal_targets, final_targets),
+            command=" && ".join(command_sequence),
             evidence=evidence,
             message="dry-run",
         )
     if action_type == "access":
         return run_access_solver_step(order, step_id, browser_targets, terminal_targets, evidence, timeout_seconds=timeout_seconds)
+    if action_type == "command-sequence":
+        return run_command_sequence_solver_step(raw_step, order, step_id, service, plugin, terminal_targets, evidence, timeout_seconds=timeout_seconds)
     if action_type == "final-submission":
         target = str(raw_step.get("evidence", [""])[0] if raw_step.get("evidence") else "")
         if "http" in target:
@@ -221,6 +226,105 @@ def run_access_solver_step(order: int, step_id: str, browser_targets: list[str],
     if terminal_targets:
         return run_ssh_probe(order, step_id, terminal_targets[0], evidence, timeout_seconds=timeout_seconds)
     return SolverRunStep(order=order, step_id=step_id, action_type="access", status="failed", evidence=evidence, message="no browser or terminal target")
+
+
+def run_command_sequence_solver_step(
+    raw_step: dict,
+    order: int,
+    step_id: str,
+    service: str,
+    plugin: str,
+    terminal_targets: list[str],
+    evidence: list[str],
+    *,
+    timeout_seconds: int,
+) -> SolverRunStep:
+    commands = [str(item).strip() for item in raw_step.get("commands", []) or [] if str(item).strip()]
+    expected_texts = [str(item).strip() for item in raw_step.get("expected_texts", []) or [] if str(item).strip()]
+    connect = str(raw_step.get("terminal") or raw_step.get("connect") or "").strip()
+    if not connect and terminal_targets:
+        connect = terminal_targets[0]
+    if not connect:
+        return SolverRunStep(order=order, step_id=step_id, action_type="command-sequence", service=service, plugin=plugin, status="failed", evidence=evidence, message="no terminal target")
+    if not commands:
+        return SolverRunStep(order=order, step_id=step_id, action_type="command-sequence", service=service, plugin=plugin, status="failed", command=connect, evidence=evidence, message="no commands")
+    remote_script = " && ".join(commands)
+    display_command = f"{connect} {shlex.quote(remote_script)}"
+    argv = ssh_command_sequence_argv(connect, remote_script)
+    if not argv:
+        return SolverRunStep(order=order, step_id=step_id, action_type="command-sequence", service=service, plugin=plugin, status="skipped", command=display_command, evidence=evidence, message="unsupported SSH command sequence")
+    if not shutil.which(argv[0]):
+        return SolverRunStep(order=order, step_id=step_id, action_type="command-sequence", service=service, plugin=plugin, status="skipped", command=display_command, evidence=evidence, message="ssh executable missing")
+    try:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return SolverRunStep(
+            order=order,
+            step_id=step_id,
+            action_type="command-sequence",
+            service=service,
+            plugin=plugin,
+            status="failed",
+            command=display_command,
+            evidence=evidence,
+            stdout=stdout.strip(),
+            stderr=stderr.strip(),
+            message=f"command sequence timed out after {timeout_seconds}s",
+        )
+    stdout = completed.stdout.strip()
+    stderr = completed.stderr.strip()
+    if completed.returncode != 0:
+        return SolverRunStep(
+            order=order,
+            step_id=step_id,
+            action_type="command-sequence",
+            service=service,
+            plugin=plugin,
+            status="failed",
+            command=display_command,
+            evidence=evidence,
+            stdout=stdout,
+            stderr=stderr,
+            message=f"exit_code={completed.returncode}",
+        )
+    missing = [text for text in expected_texts if text not in stdout and text not in stderr]
+    if missing:
+        return SolverRunStep(
+            order=order,
+            step_id=step_id,
+            action_type="command-sequence",
+            service=service,
+            plugin=plugin,
+            status="warning",
+            command=display_command,
+            evidence=evidence,
+            stdout=stdout,
+            stderr=stderr,
+            message=f"exit_code=0; missing_expected_text={','.join(missing)}",
+        )
+    return SolverRunStep(
+        order=order,
+        step_id=step_id,
+        action_type="command-sequence",
+        service=service,
+        plugin=plugin,
+        status="passed",
+        command=display_command,
+        evidence=evidence,
+        stdout=stdout,
+        stderr=stderr,
+        message=f"exit_code=0; commands={len(commands)}; matched_expected_text={len(expected_texts)}",
+    )
 
 
 def run_http_probe(order: int, step_id: str, action_type: str, target: str, service: str, plugin: str, evidence: list[str], *, timeout_seconds: int) -> SolverRunStep:
@@ -694,12 +798,23 @@ def ssh_batch_argv(command: str) -> list[str]:
     return parts
 
 
+def ssh_command_sequence_argv(connect: str, remote_script: str) -> list[str]:
+    if not connect.startswith("ssh "):
+        return []
+    parts = connect.split()
+    if "-o" not in parts:
+        parts[1:1] = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5"]
+    return [*parts, remote_script]
+
+
 def planned_target(action_type: str, browser_targets: list[str], terminal_targets: list[str], final_targets: list[str] | None = None) -> str:
     if action_type == "final-submission" and final_targets:
         return final_targets[0]
     if action_type == "access" and browser_targets:
         return browser_targets[0]
     if action_type == "access" and terminal_targets:
+        return terminal_targets[0]
+    if action_type == "command-sequence" and terminal_targets:
         return terminal_targets[0]
     return ""
 

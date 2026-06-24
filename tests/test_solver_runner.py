@@ -6,8 +6,10 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from labforge.solver_runner import run_solver_plan, ssh_batch_argv
+from labforge.solver_runner import run_solver_plan, ssh_batch_argv, ssh_command_sequence_argv
 
 
 class SolverRunnerTests(unittest.TestCase):
@@ -94,6 +96,65 @@ class SolverRunnerTests(unittest.TestCase):
         self.assertIn("BatchMode=yes", argv)
         self.assertIn("StrictHostKeyChecking=no", argv)
         self.assertEqual(argv[-1], "true")
+
+    def test_solver_runner_executes_command_sequence_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "solver-command-sequence",
+                        "title": "Solver Command Sequence",
+                        "steps": [
+                            {
+                                "order": 1,
+                                "step_id": "terminal-attacker-workstation-readiness",
+                                "action_type": "command-sequence",
+                                "service": "attacker-workstation",
+                                "commands": ["echo labforge-terminal-ready", "pwd"],
+                                "expected_texts": ["labforge-terminal-ready"],
+                                "evidence": ["labforge-terminal-ready"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "attacker_entrypoints": [
+                            {"service": "attacker-workstation", "protocol": "ssh", "connect": "ssh attacker@127.0.0.1 -p 2222"}
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            completed = SimpleNamespace(returncode=0, stdout="labforge-terminal-ready\n/home/attacker\n", stderr="")
+
+            with patch("labforge.solver_runner.shutil.which", return_value="ssh"), patch(
+                "labforge.solver_runner.subprocess.run",
+                return_value=completed,
+            ) as run_mock:
+                report = run_solver_plan(solver_plan, root / "solver-run", access_manifest=access_manifest, execute=True)
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.steps[0].status, "passed")
+            self.assertEqual(report.steps[0].action_type, "command-sequence")
+            self.assertIn("commands=2", report.steps[0].message)
+            argv = run_mock.call_args.args[0]
+            self.assertEqual(argv[0], "ssh")
+            self.assertIn("BatchMode=yes", argv)
+            self.assertEqual(argv[-1], "echo labforge-terminal-ready && pwd")
+
+    def test_ssh_command_sequence_argv_adds_remote_script(self) -> None:
+        argv = ssh_command_sequence_argv("ssh attacker@127.0.0.1 -p 2222", "echo ready && pwd")
+
+        self.assertEqual(argv[0], "ssh")
+        self.assertIn("BatchMode=yes", argv)
+        self.assertEqual(argv[-1], "echo ready && pwd")
 
     def test_solver_runner_executes_supported_plugin_http_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

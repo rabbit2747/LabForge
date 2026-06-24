@@ -115,6 +115,9 @@ class SolverPlanStep(PlaytestModel):
     automation_hint: str = ""
     discovery_cues: list[str] = Field(default_factory=list)
     next_step_condition: str = ""
+    terminal: str = ""
+    commands: list[str] = Field(default_factory=list)
+    expected_texts: list[str] = Field(default_factory=list)
 
 
 class SolverPlan(PlaytestModel):
@@ -369,6 +372,26 @@ def build_solver_plan(report: PlaytestReport) -> SolverPlan:
                 next_step_condition=step.next_step_condition,
             )
         )
+    for endpoint in report.attacker_entrypoints + report.learner_entrypoints:
+        if endpoint.protocol == "ssh" and endpoint.connect:
+            steps.append(
+                SolverPlanStep(
+                    order=len(steps) + 1,
+                    step_id=f"terminal-{slugify(endpoint.service)}-readiness",
+                    title=f"{endpoint.service} terminal readiness",
+                    service=endpoint.service,
+                    action_type="command-sequence",
+                    learner_action="Run a short non-interactive command sequence on the learner SSH target.",
+                    expected_result="The SSH target accepts commands and returns the readiness marker.",
+                    evidence=["labforge-terminal-ready"],
+                    automation_hint="Run the commands over the generated SSH connection in batch mode.",
+                    discovery_cues=["Generated attacker or learner workstation SSH endpoint is listed in learner-access.json."],
+                    next_step_condition="Proceed when the terminal readiness marker is visible in stdout.",
+                    terminal=endpoint.connect,
+                    commands=["echo labforge-terminal-ready", "pwd"],
+                    expected_texts=["labforge-terminal-ready"],
+                )
+            )
     warnings = list(report.failures or report.warnings or [])
     status: Literal["planned", "warning", "failed"] = "failed" if report.failures else ("warning" if report.warnings else "planned")
     return SolverPlan(
@@ -1074,6 +1097,13 @@ def endpoint_table(endpoints: list[PlaytestEndpoint]) -> str:
             f"`{endpoint.connect or '-'}` | `{endpoint.health_url or '-'}` |"
         )
     return "\n".join(lines)
+
+
+def slugify(value: str) -> str:
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "terminal"
 
 
 def escape_cell(value: str) -> str:
