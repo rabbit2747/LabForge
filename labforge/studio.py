@@ -667,6 +667,7 @@ def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     summary["endpoints"] = read_endpoint_manifest(path)
     summary["pipeline_gate"] = read_pipeline_gate_summary(path)
     summary["release_gate"] = read_release_gate_summary(path)
+    summary["playtest"] = read_playtest_summary(path)
     return summary
 
 
@@ -704,6 +705,10 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Service Status", "service-status/service-status.md"),
         ("Service Result Review", "service-result-review/service-result-review.md"),
         ("Plugin Runtime Smoke", "plugin-runtime-smoke/plugin-runtime-smoke.md"),
+        ("Learner Access", "playtest/learner-access.md"),
+        ("Learner Playtest", "playtest/playtest-report.md"),
+        ("Playtest Walkthrough", "playtest/playtest-walkthrough.md"),
+        ("Learner Playtest YAML", "playtest/playtest-report.yaml"),
         ("Supervisor Package", "supervisor-package/package-report.md"),
         ("Quickstart", "supervisor-package/generated/QUICKSTART.md"),
         ("Endpoint Manifest", "supervisor-package/generated/endpoints.json"),
@@ -765,6 +770,29 @@ def read_release_gate_summary(path: Path) -> dict:
         return release_gate_payload(path, load_yaml(report_path))
     except Exception as exc:  # noqa: BLE001 - optional Studio metadata must not hide the scenario.
         return {"status": "error", "release_ready": False, "error": str(exc)}
+
+
+def read_playtest_summary(path: Path) -> dict:
+    report_path = path / "playtest" / "playtest-report.yaml"
+    if not report_path.exists():
+        return {}
+    try:
+        report = load_yaml(report_path)
+    except Exception as exc:  # noqa: BLE001 - optional Studio metadata must not hide the scenario.
+        return {"status": "error", "error": str(exc)}
+    if not isinstance(report, dict):
+        return {}
+    return {
+        "status": str(report.get("status", "unknown")),
+        "learner_entrypoints": report.get("learner_entrypoints", []),
+        "attacker_entrypoints": report.get("attacker_entrypoints", []),
+        "final_submission_endpoints": report.get("final_submission_endpoints", []),
+        "steps": report.get("steps", []),
+        "warnings": report.get("warnings", []),
+        "failures": report.get("failures", []),
+        "report": "playtest/playtest-report.md",
+        "access": "playtest/learner-access.md",
+    }
 
 
 def release_gate_payload(path: Path, report: dict) -> dict:

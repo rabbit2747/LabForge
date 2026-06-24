@@ -35,6 +35,7 @@ from .intake import create_intake_from_prompt, create_intake_template, normalize
 from .mvp_matrix import run_mvp_matrix
 from .packaging import create_supervisor_package
 from .pipeline import create_lab_pipeline, evaluate_pipeline_gate, pipeline_gate_to_markdown, pipeline_result_to_markdown
+from .playtest import run_playtest
 from .agent_orchestration import (
     append_agent_decision,
     create_agent_execution_packages,
@@ -1093,6 +1094,23 @@ def command_qa_mvp_matrix(args: argparse.Namespace) -> int:
     return 0 if report.status == "passed" else 1
 
 
+def command_qa_playtest(args: argparse.Namespace) -> int:
+    report = run_playtest(
+        Path(args.lab),
+        Path(args.out),
+        provider=args.provider,
+        profile=args.profile,
+        materialize=args.materialize,
+        force=args.force,
+    )
+    print(f"Playtest status: {report.status}")
+    print(f"- {(Path(args.out) / 'playtest-report.md').resolve()}")
+    print(f"- {(Path(args.out) / 'playtest-report.yaml').resolve()}")
+    print(f"- {(Path(args.out) / 'learner-access.md').resolve()}")
+    print(f"- {(Path(args.out) / 'playtest-walkthrough.md').resolve()}")
+    return 0 if report.status in {"passed", "warning"} else 1
+
+
 def command_provider_lifecycle(args: argparse.Namespace) -> int:
     result = provider_lifecycle(
         Path(args.output),
@@ -1557,6 +1575,14 @@ def main(argv: list[str] | None = None) -> int:
     qa_mvp_matrix_parser.add_argument("--adapter", default="manual")
     qa_mvp_matrix_parser.add_argument("--force", action="store_true", help="Replace the matrix output directory")
     qa_mvp_matrix_parser.set_defaults(func=command_qa_mvp_matrix)
+    qa_playtest_parser = qa_sub.add_parser("playtest", help="Generate learner access and playtest evidence from generated lab output")
+    qa_playtest_parser.add_argument("lab")
+    qa_playtest_parser.add_argument("--out", required=True)
+    qa_playtest_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    qa_playtest_parser.add_argument("--profile", default="protected", choices=["unprotected", "protected"])
+    qa_playtest_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize MVP runtimes before playtesting")
+    qa_playtest_parser.add_argument("--force", action="store_true", help="Overwrite generated playtest working files")
+    qa_playtest_parser.set_defaults(func=command_qa_playtest)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)

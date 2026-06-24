@@ -13,6 +13,7 @@ from .intake import normalize_prompt_text
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .packaging import create_supervisor_package
+from .playtest import run_playtest
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
 from .service_artifacts import materialize_service_runtimes, review_service_results, scaffold_service_artifacts, service_result_batch_review_to_markdown
 from .service_blueprints import create_service_blueprints, inspect_service_implementation_status
@@ -350,6 +351,42 @@ def create_lab_pipeline(
             )
         )
 
+    playtest_dir = out / "playtest"
+    try:
+        playtest = run_playtest(
+            lab_dir,
+            playtest_dir,
+            provider=provider if provider != "auto" else "docker-compose",
+            profile=profile,
+            materialize=False,
+            force=force,
+        )
+        steps.append(
+            PipelineStepResult(
+                id="learner-playtest",
+                title="Generate learner access and playtest evidence",
+                status="done" if playtest.status == "passed" else ("failed" if playtest.status == "failed" else "warning"),
+                summary=f"Playtest status: {playtest.status}; steps={len(playtest.steps)}; entrypoints={len(playtest.learner_entrypoints)}.",
+                artifacts=[
+                    str(playtest_dir / "learner-access.md"),
+                    str(playtest_dir / "playtest-report.md"),
+                    str(playtest_dir / "playtest-report.yaml"),
+                ],
+                warnings=[*playtest.failures[:10], *playtest.warnings[:10]],
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - pipeline should preserve playtest failures.
+        steps.append(
+            PipelineStepResult(
+                id="learner-playtest",
+                title="Generate learner access and playtest evidence",
+                status="failed",
+                summary="Playtest generation failed.",
+                artifacts=[str(playtest_dir)],
+                warnings=[str(exc)],
+            )
+        )
+
     workflow_dir = out / "workflow"
     workflow_dir.mkdir(parents=True, exist_ok=True)
     workflow = create_workflow_report(
@@ -619,6 +656,38 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                 status="missing",
                 evidence=[str(package_report_path)],
                 required_action="Run `python -m labforge package <lab> --out <workspace>/supervisor-package --provider docker-compose --profile protected --materialize --force`.",
+            )
+        )
+
+    playtest_report_path = workspace / "playtest" / "playtest-report.yaml"
+    learner_access_path = workspace / "playtest" / "learner-access.md"
+    if playtest_report_path.exists():
+        playtest_report = load_yaml(playtest_report_path)
+        playtest_status = str(playtest_report.get("status", "failed"))
+        learner_entrypoints = playtest_report.get("learner_entrypoints", [])
+        attacker_entrypoints = playtest_report.get("attacker_entrypoints", [])
+        final_endpoints = playtest_report.get("final_submission_endpoints", [])
+        items.append(
+            PipelineGateItem(
+                name="learner-playtest",
+                status="passed" if playtest_status == "passed" else ("failed" if playtest_status == "failed" else "warning"),
+                evidence=[
+                    f"status={playtest_status}",
+                    f"learner_entrypoints={len(learner_entrypoints) if isinstance(learner_entrypoints, list) else 'unknown'}",
+                    f"attacker_entrypoints={len(attacker_entrypoints) if isinstance(attacker_entrypoints, list) else 'unknown'}",
+                    f"final_submission_endpoints={len(final_endpoints) if isinstance(final_endpoints, list) else 'unknown'}",
+                    f"learner_access={'present' if learner_access_path.exists() else 'missing'}",
+                ],
+                required_action="Fix playtest warnings/failures before learner release." if playtest_status != "passed" else "",
+            )
+        )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="learner-playtest",
+                status="missing",
+                evidence=[str(playtest_report_path)],
+                required_action="Run `python -m labforge qa playtest <lab> --out <workspace>/playtest --provider docker-compose --profile protected --materialize --force`.",
             )
         )
 

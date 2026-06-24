@@ -94,6 +94,7 @@ python -m labforge services apply-result examples/scenario-02-ad-domain-compromi
 python -m labforge services healthcheck examples/scenario-02-ad-domain-compromise
 python -m labforge services reset examples/scenario-02-ad-domain-compromise --service hr-portal
 python -m labforge qa release-gate examples/scenario-02-ad-domain-compromise --out output/scenario-02-release-gate --provider docker-compose --profile protected --agent-results output/scenario-02-agents/.ai/outputs --materialize --force
+python -m labforge qa playtest examples/scenario-02-ad-domain-compromise --out output/scenario-02-playtest --provider docker-compose --profile protected --materialize --force
 python -m labforge qa mvp-matrix --out output/mvp-matrix --provider docker-compose --profile protected --force
 python -m labforge build examples/scenario-02-ad-domain-compromise --out output/scenario-02 --provider docker-compose --profile unprotected --force
 python -m labforge docs examples/scenario-02-ad-domain-compromise --out output/scenario-02-docs --profile protected
@@ -482,6 +483,23 @@ Release gates also include a learner-experience check. It reads generated
 provider output such as `endpoints.json` and fails release when no learner
 entrypoint, learner-visible URL or SSH command, endpoint health URL, attacker
 workstation, or controlled-drop path is available.
+
+`qa playtest` creates learner-path evidence from the generated lab. It builds
+provider output, reads learner-visible URLs and SSH commands, runs supported
+plugin runtime checks, verifies that the scenario has a multi-stage chain, and
+writes:
+
+- `learner-access.md`: supervisor-facing access sheet with URLs, SSH commands,
+  attacker workstation access, final submission endpoint, and high-level
+  learner path.
+- `playtest-report.md`: evidence that the generated lab has a reachable start,
+  runnable lab-scoped vulnerability behavior, ordered stages, and a completion
+  path.
+- `playtest-walkthrough.md`: supervisor-facing copy/paste walkthrough for
+  starting provider output, opening access points, checking generated behavior,
+  and stopping the lab.
+- `playtest-report.yaml/json`: machine-readable playtest status for Studio,
+  verified MVP manifests, and later browser/terminal automation.
 
 The MVP matrix checks the natural-language product path across multiple built-in
 industry profiles. It creates pipeline workspaces for supply-chain, securities,
