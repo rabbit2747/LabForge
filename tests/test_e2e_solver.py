@@ -7,9 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from labforge.access_playtest import AccessPlaytestReport
 from labforge.doctor import HostDoctorReport
 from labforge.e2e_solver import run_e2e_solver
+from labforge.provider_lifecycle import ProviderLifecycleResult
 from labforge.qa import e2e_solver_release_check
+from labforge.solver_runner import SolverRunReport
 
 
 class E2ESolverTests(unittest.TestCase):
@@ -150,6 +153,107 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(check.status, "failed")
             self.assertIn("execute=true", check.messages)
             self.assertIn("browser_engine=playwright", check.messages)
+
+    def test_e2e_solver_execute_runs_lifecycle_access_solver_and_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            playtest = root / "playtest"
+            out = root / "e2e"
+            provider_output.mkdir()
+            playtest.mkdir()
+            solver_plan = playtest / "solver-plan.json"
+            access_manifest = playtest / "learner-access.json"
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "execute-smoke",
+                        "title": "Execute Smoke",
+                        "steps": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "execute-smoke",
+                        "title": "Execute Smoke",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "health_checks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            calls: list[tuple[str, bool]] = []
+
+            def fake_lifecycle(*_args, **kwargs):
+                calls.append((kwargs["action"], kwargs["execute"]))
+                return ProviderLifecycleResult(
+                    provider=kwargs["provider"],
+                    action=kwargs["action"],
+                    mode="execute",
+                    status="completed",
+                    output_dir=str(provider_output),
+                    commands=[],
+                    stdout="",
+                    stderr="",
+                    message="",
+                )
+
+            def fake_access(*_args, **kwargs):
+                self.assertTrue(kwargs["execute"])
+                return AccessPlaytestReport(
+                    lab_id="execute-smoke",
+                    title="Execute Smoke",
+                    mode="execute",
+                    status="passed",
+                    access_manifest=str(access_manifest),
+                    browser_targets=[],
+                    terminal_targets=[],
+                    items=[],
+                )
+
+            def fake_solver(*_args, **kwargs):
+                self.assertTrue(kwargs["execute"])
+                return SolverRunReport(
+                    lab_id="execute-smoke",
+                    title="Execute Smoke",
+                    mode="execute",
+                    status="passed",
+                    solver_plan=str(solver_plan),
+                    steps=[],
+                )
+
+            with patch("labforge.e2e_solver.provider_lifecycle", side_effect=fake_lifecycle), patch(
+                "labforge.e2e_solver.run_access_playtest",
+                side_effect=fake_access,
+            ), patch("labforge.e2e_solver.run_solver_plan", side_effect=fake_solver):
+                report = run_e2e_solver(
+                    provider_output,
+                    solver_plan,
+                    access_manifest,
+                    out,
+                    execute=True,
+                    cleanup=True,
+                    host_preflight=HostDoctorReport(
+                        host_os="linux",
+                        platform="test",
+                        architecture="x86_64",
+                        shell_hint="sh",
+                        cwd=str(root),
+                        wsl_available=False,
+                        host_docker_cli=True,
+                        host_docker_server=True,
+                        recommended_execution="host",
+                    ),
+                )
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(calls, [("validate", True), ("deploy", True), ("status", True), ("destroy", True)])
+            self.assertTrue((out / "e2e-solver.md").exists())
 
 
 if __name__ == "__main__":
