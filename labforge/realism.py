@@ -521,6 +521,8 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
                     remediation=capability_remediation(capability),
                 )
             )
+        if capability.required and evidence and keyword_matches >= capability.min_keyword_matches:
+            findings.extend(capability_support_findings(capability, evidence, strict=strict))
 
     zone_text = " ".join(str(zone.get("name", zone.get("id", ""))).lower() for zone in spec.environment.get("zones", []))
     network_text = " ".join(str(network.get("name", "")).lower() for network in spec.networks)
@@ -903,6 +905,71 @@ def capability_security_evidence(capability: IndustryCapability, security_contro
     return matches[:4]
 
 
+def capability_support_findings(
+    capability: IndustryCapability,
+    evidence: IndustryCapabilityEvidence,
+    *,
+    strict: bool,
+) -> list[RealismFinding]:
+    findings: list[RealismFinding] = []
+    severity: Literal["warning", "error"] = "error" if strict else "warning"
+    if not evidence.service_evidence:
+        findings.append(
+            RealismFinding(
+                severity=severity,
+                category="capability-service",
+                message=f"Industry capability `{capability.id}` is mentioned but no concrete service supports it.",
+                expected=", ".join(capability.recommended_services or capability.keywords),
+                code=f"capability-service.{capability.id}.missing",
+                remediation=capability_remediation(capability),
+            )
+        )
+    operational_evidence = [
+        *evidence.stage_evidence,
+        *evidence.data_evidence,
+        *evidence.workflow_evidence,
+    ]
+    if (capability.recommended_data or capability.recommended_workflows) and not operational_evidence:
+        findings.append(
+            RealismFinding(
+                severity=severity,
+                category="capability-operational-depth",
+                message=f"Industry capability `{capability.id}` has no business data, workflow, or stage evidence.",
+                expected=", ".join([*capability.recommended_data, *capability.recommended_workflows] or capability.keywords),
+                code=f"capability-operational-depth.{capability.id}.missing",
+                remediation=capability_remediation(capability),
+            )
+        )
+    if capability.recommended_zones and evidence.service_evidence and not evidence.zone_evidence:
+        findings.append(
+            RealismFinding(
+                severity=severity,
+                category="capability-zone-depth",
+                message=f"Industry capability `{capability.id}` is not placed in an expected network or infrastructure zone.",
+                expected=", ".join(capability.recommended_zones),
+                code=f"capability-zone-depth.{capability.id}.missing",
+                remediation=capability_remediation(capability),
+            )
+        )
+    if is_security_capability(capability) and not evidence.security_evidence:
+        findings.append(
+            RealismFinding(
+                severity=severity,
+                category="capability-security-depth",
+                message=f"Security capability `{capability.id}` lacks explicit security-control or telemetry evidence.",
+                expected="SIEM, IDS, EDR, SOC, audit, monitoring, segmentation, or logging control evidence.",
+                code=f"capability-security-depth.{capability.id}.missing",
+                remediation="Add explicit security controls and telemetry sources that support this security capability.",
+            )
+        )
+    return findings
+
+
+def is_security_capability(capability: IndustryCapability) -> bool:
+    text = f"{capability.id} {capability.description} {' '.join(capability.keywords)}".lower()
+    return any(term in text for term in ("security", "siem", "ids", "edr", "soc", "monitoring", "fraud", "audit"))
+
+
 def context_values(value: Any) -> list[str]:
     if value is None:
         return []
@@ -982,6 +1049,10 @@ def calculate_realism_scores(
     data_gaps = sum(1 for finding in findings if finding.category == "data-domain")
     security_gaps = sum(1 for finding in findings if finding.category == "security-control")
     provider_gaps = sum(1 for finding in findings if finding.category == "provider-realism")
+    service_support_gaps = sum(1 for finding in findings if finding.category == "capability-service")
+    operational_depth_gaps = sum(1 for finding in findings if finding.category == "capability-operational-depth")
+    zone_depth_gaps = sum(1 for finding in findings if finding.category == "capability-zone-depth")
+    security_depth_gaps = sum(1 for finding in findings if finding.category == "capability-security-depth")
     if ui_gaps:
         workflow_score = max(0, workflow_score - min(35, ui_gaps * 5))
     if data_gaps:
@@ -991,6 +1062,15 @@ def calculate_realism_scores(
     if provider_gaps:
         infrastructure_penalty = min(30, provider_gaps * 15)
         zone_score = max(0, zone_score - infrastructure_penalty)
+    if service_support_gaps:
+        service_depth_score = max(0, service_depth_score - min(40, service_support_gaps * 6))
+    if operational_depth_gaps:
+        workflow_score = max(0, workflow_score - min(35, operational_depth_gaps * 5))
+        data_score = max(0, data_score - min(35, operational_depth_gaps * 5))
+    if zone_depth_gaps:
+        zone_score = max(0, zone_score - min(30, zone_depth_gaps * 5))
+    if security_depth_gaps:
+        security_score = max(0, security_score - min(35, security_depth_gaps * 8))
     if missing_capabilities:
         service_depth_score = max(0, service_depth_score - min(30, len(missing_capabilities) * 5))
     return RealismScoreBreakdown(

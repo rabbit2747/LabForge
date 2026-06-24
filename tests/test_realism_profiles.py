@@ -305,6 +305,9 @@ class RealismProfileTests(unittest.TestCase):
             self.assertIn("capability-depth.trading-channel.too-shallow", codes)
             self.assertIn("capability-depth.market-data.too-shallow", codes)
             self.assertIn("capability-depth.backoffice-settlement.too-shallow", codes)
+            self.assertIn("capability-service.trading-channel.missing", codes)
+            self.assertIn("capability-operational-depth.market-data.missing", codes)
+            self.assertIn("capability-operational-depth.backoffice-settlement.missing", codes)
 
     def test_realism_accepts_capability_when_service_stage_and_data_support_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -390,6 +393,10 @@ class RealismProfileTests(unittest.TestCase):
 
             self.assertNotIn("capability-depth.trading-channel.too-shallow", codes)
             self.assertNotIn("capability-depth.risk-compliance.too-shallow", codes)
+            self.assertNotIn("capability-service.trading-channel.missing", codes)
+            self.assertNotIn("capability-operational-depth.trading-channel.missing", codes)
+            self.assertNotIn("capability-service.risk-compliance.missing", codes)
+            self.assertNotIn("capability-operational-depth.risk-compliance.missing", codes)
 
 
 def write_lab_files(

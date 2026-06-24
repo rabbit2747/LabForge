@@ -517,12 +517,23 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
         design_review = load_yaml(design_review_path)
         review_status = str(design_review.get("status", "failed"))
         realism_score = design_review.get("realism_score", "unknown")
+        review_warnings = [str(item) for item in design_review.get("warnings", []) or []]
+        blocking_review_warnings = [item for item in review_warnings if not is_advisory_design_warning(item)]
+        design_gate_status: PipelineGateStatus
+        if review_status == "passed" or (review_status == "warning" and not blocking_review_warnings):
+            design_gate_status = "passed"
+        else:
+            design_gate_status = "warning"
         items.append(
             PipelineGateItem(
                 name="design-review",
-                status="passed" if review_status == "passed" else "warning",
-                evidence=[f"status={review_status}", f"realism_score={realism_score}"],
-                required_action="Run design fix tasks and specialist-agent review before release work." if review_status != "passed" else "",
+                status=design_gate_status,
+                evidence=[
+                    f"status={review_status}",
+                    f"realism_score={realism_score}",
+                    *[f"advisory={warning}" for warning in review_warnings if is_advisory_design_warning(warning)][:5],
+                ],
+                required_action="Run design fix tasks and specialist-agent review before release work." if design_gate_status != "passed" else "",
             )
         )
     else:
@@ -832,6 +843,17 @@ def is_advisory_playtest_warning(message: str) -> bool:
         "No supported vulnerability plugin runtime smoke items were found for evidence verification.",
         "No published controlled-drop or submission endpoint was found.",
         "emitted no evidence",
+    )
+    return any(marker in message for marker in advisory_markers)
+
+
+def is_advisory_design_warning(message: str) -> bool:
+    advisory_markers = (
+        "capability-depth:",
+        "capability-service:",
+        "capability-operational-depth:",
+        "capability-zone-depth:",
+        "capability-security-depth:",
     )
     return any(marker in message for marker in advisory_markers)
 

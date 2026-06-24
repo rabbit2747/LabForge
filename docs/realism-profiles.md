@@ -15,6 +15,14 @@ realism decision. A lab can contain enough keywords to pass a static check and
 still feel fake when the UI, business workflows, data model, service behavior,
 or security operations do not match the target industry.
 
+Capability coverage is intentionally multi-dimensional. A capability is not
+healthy merely because the scenario summary contains the right industry words.
+Required capabilities should normally have a concrete service, business
+workflow or stage evidence, realistic seed/noise data, expected network-zone
+placement, and security/telemetry evidence when the capability is security
+related. This prevents a securities, banking, healthcare, or manufacturing lab
+from becoming the same generic exercise with different labels.
+
 Final realism review belongs to the `industry-realism-reviewer` specialist
 agent. That agent must inspect the declared industry, infrastructure, services,
 UI/source, seed data, noise data, security controls, and generated diagrams
