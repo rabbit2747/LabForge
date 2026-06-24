@@ -721,10 +721,14 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("registry=200", report.steps[0].message)
+                self.assertIn("policy=200", report.steps[0].message)
                 self.assertIn("approved_source=http://metadata-service:8080/metadata", report.steps[0].message)
                 self.assertIn("blocked_fetch_status=400", report.steps[0].message)
                 self.assertIn("allowed_fetch_status=200", report.steps[0].message)
                 self.assertIn("allowed=True", report.steps[0].message)
+                self.assertIn("audit=200", report.steps[0].message)
+                self.assertIn("blocked_recorded=True", report.steps[0].message)
+                self.assertIn("allowed_recorded=True", report.steps[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -1577,6 +1581,36 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                             }
                         ],
                         "blocked_examples": ["http://169.254.169.254/latest"],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/fetch/policy":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "approved_sources": ["http://metadata-service:8080/metadata"],
+                        "blocked_examples": ["http://169.254.169.254/latest"],
+                        "audit_api": "/api/fetch/audit",
+                        "registry_api": "/api/source-registry",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/fetch/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "records": [
+                            {"url": "http://169.254.169.254/latest", "allowed": False, "status": 400},
+                            {"url": "http://metadata-service:8080/metadata", "allowed": True, "status": 200},
+                        ]
                     }
                 ).encode("utf-8")
             )

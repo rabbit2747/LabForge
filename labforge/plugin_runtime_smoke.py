@@ -291,6 +291,7 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             )
         if plugin_id == "ssrf-internal-fetch":
             registry = client.get("/labforge/scaffold/source-registry")
+            policy = client.get("/labforge/scaffold/fetch/policy")
             registry_data = registry.get_json(silent=True) or {}
             sources = registry_data.get("sources", [])
             first_source = sources[0].get("url") if sources and isinstance(sources[0], dict) else "http://metadata-service:8080/metadata"
@@ -321,17 +322,26 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 urllib.request.urlopen = original_urlopen
             blocked_data = blocked.get_json(silent=True) or {}
             allowed_data = allowed.get_json(silent=True) or {}
+            audit = client.get("/labforge/scaffold/fetch/audit")
+            audit_data = audit.get_json(silent=True) or {}
+            records = audit_data.get("records", [])
+            blocked_recorded = any(record.get("url") == "http://169.254.169.254/latest" and record.get("allowed") is False for record in records)
+            allowed_recorded = any(record.get("url") == first_source and record.get("allowed") is True for record in records)
             return assert_condition(
                 service,
                 plugin_id,
                 registry.status_code == 200
+                and policy.status_code == 200
                 and isinstance(sources, list)
                 and len(sources) >= 1
                 and blocked.status_code == 400
                 and blocked_data.get("allowed") is False
                 and allowed.status_code == 200
-                and allowed_data.get("allowed") is True,
-                "/labforge/scaffold/source-registry + fetch policy comparison",
+                and allowed_data.get("allowed") is True
+                and audit.status_code == 200
+                and blocked_recorded
+                and allowed_recorded,
+                "/labforge/scaffold/source-registry + fetch policy/audit comparison",
                 allowed,
             )
         if plugin_id == "path-traversal-download":

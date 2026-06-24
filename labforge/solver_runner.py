@@ -634,6 +634,13 @@ def run_plugin_http_sequence(
                 break
         if not approved_source:
             approved_source = "http://metadata-service:8080/metadata"
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/fetch/policy", "/labforge/scaffold/fetch/policy"],
+            None,
+            timeout_seconds,
+        )
         blocked_status, blocked_data, _, blocked_route = http_json_first(
             "GET",
             base_url,
@@ -651,15 +658,29 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/fetch/audit", "/labforge/scaffold/fetch/audit"],
+            None,
+            timeout_seconds,
+        )
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        blocked_recorded = any(isinstance(record, dict) and record.get("url") == "http://169.254.169.254/latest" and record.get("allowed") is False for record in audit_records)
+        allowed_recorded = any(isinstance(record, dict) and record.get("url") == approved_source and record.get("allowed") is True for record in audit_records)
         ok = (
             landing_ok
             and registry_status == 200
+            and policy_status == 200
             and isinstance(sources, list)
             and len(sources) >= 1
             and blocked_status == 400
             and blocked_data.get("allowed") is False
             and allowed_status == 200
             and allowed_data.get("allowed") is True
+            and audit_status == 200
+            and blocked_recorded
+            and allowed_recorded
             and approved_source.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0] in (json.dumps(allowed_data) + allowed_body)
         )
         return plugin_step(
@@ -671,10 +692,12 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; registry_route={registry_route}; blocked_route={blocked_route}; allowed_route={allowed_route}; "
-                f"registry={registry_status}; approved_source={approved_source}; "
+                f"{context_note}; registry_route={registry_route}; policy_route={policy_route}; blocked_route={blocked_route}; "
+                f"allowed_route={allowed_route}; audit_route={audit_route}; registry={registry_status}; policy={policy_status}; "
+                f"approved_source={approved_source}; "
                 f"blocked_fetch_status={blocked_status}; blocked_allowed={blocked_data.get('allowed')}; "
-                f"allowed_fetch_status={allowed_status}; allowed={allowed_data.get('allowed')}"
+                f"allowed_fetch_status={allowed_status}; allowed={allowed_data.get('allowed')}; audit={audit_status}; "
+                f"blocked_recorded={blocked_recorded}; allowed_recorded={allowed_recorded}"
             ),
         )
     if plugin == "path-traversal-download":
