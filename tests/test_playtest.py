@@ -28,6 +28,7 @@ class PlaytestTests(unittest.TestCase):
             self.assertFalse(any("drop" in endpoint.service for endpoint in report.learner_entrypoints))
             self.assertTrue(any(step.step_id == "realism-01" for step in report.steps))
             self.assertTrue(any(step.step_id == "industry-01" for step in report.steps))
+            self.assertTrue(any(step.step_id == "implementation-01" for step in report.steps))
             self.assertTrue(any(step.step_id == "runtime-02" for step in report.steps))
             self.assertTrue(any(step.step_id == "chain-runtime-01" for step in report.steps))
             self.assertTrue((out / "playtest-report.md").exists())
@@ -68,6 +69,7 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(solver_plan["steps"])
             terminal_steps = [step for step in solver_plan["steps"] if step["action_type"] == "command-sequence"]
             self.assertTrue(terminal_steps)
+            self.assertTrue(any(step["action_type"] == "implementation-coverage" for step in solver_plan["steps"]))
             self.assertEqual(terminal_steps[0]["commands"], ["echo labforge-terminal-ready", "pwd"])
             self.assertEqual(terminal_steps[0]["expected_texts"], ["labforge-terminal-ready"])
             solver_run = load_yaml(out / "solver-run" / "solver-run.json")

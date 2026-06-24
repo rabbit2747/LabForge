@@ -203,6 +203,10 @@ workflow-shaped records. Playtest now includes an industry-context check that
 looks at learner-facing stage text and service context, not only global keyword
 coverage, so a generic vulnerable web/API lab renamed as a bank, brokerage,
 hospital, factory, AD domain, or supply-chain vendor is flagged before release.
+It also reports whether each scenario stage maps to a generated service runtime,
+vulnerability plugin evidence path, discovery/collection runtime context, or
+final submission endpoint, reducing the chance that a multi-stage chain exists
+only as documentation.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR

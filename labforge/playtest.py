@@ -170,6 +170,7 @@ def run_playtest(
         evidence_unlock_step(runtime_smoke),
         service_realism_step(spec, working_lab),
         industry_context_step(spec),
+        stage_implementation_coverage_step(spec, chain_manifest),
         service_chain_runtime_step(spec, working_lab, chain_manifest),
         scenario_stage_step(spec, chain_manifest),
         final_submission_step(final_submission_endpoints),
@@ -356,6 +357,8 @@ def build_solver_plan(report: PlaytestReport) -> SolverPlan:
             action_type = "final-submission"
         elif step.step_id.startswith("chain-") or step.step_id.startswith("runtime-"):
             action_type = "stage-chain"
+        elif step.step_id.startswith("implementation-"):
+            action_type = "implementation-coverage"
         elif step.step_id.startswith("realism-"):
             action_type = "realism-review"
         elif step.step_id.startswith("industry-"):
@@ -444,6 +447,8 @@ def automation_hint_for_step(action_type: str, service: str, plugin: str) -> str
         return "Submit the controlled final proof only to the generated final submission endpoint."
     if action_type == "stage-chain":
         return "Read /api/chain and /api/state from generated services when available to confirm stage evidence progression."
+    if action_type == "implementation-coverage":
+        return "Confirm that every scenario stage maps to a generated service runtime, plugin behavior, or final submission endpoint."
     if action_type == "realism-review":
         return "Inspect generated seed records, clues, and noise before automated browser solving."
     if action_type == "industry-realism-review":
@@ -662,6 +667,81 @@ def industry_context_step(spec: LabSpec) -> PlaytestStep:
         evidence=evidence,
         learner_action="Use industry-specific service names, records, and operational clues as the normal discovery path.",
         expected_result="The learner path is embedded in realistic business context for the declared industry.",
+    )
+
+
+def stage_implementation_coverage_step(spec: LabSpec, chain_manifest) -> PlaytestStep:
+    artifact_by_service = {str(artifact.service): artifact for artifact in declared_service_artifacts(spec)}
+    plugin_evidence_by_service: dict[str, set[str]] = {}
+    plugin_ids_by_service: dict[str, list[str]] = {}
+    for service, artifact in artifact_by_service.items():
+        for plugin in declared_vulnerability_plugins(artifact):
+            plugin_id = str(plugin.get("id", "")).strip()
+            if plugin_id:
+                plugin_ids_by_service.setdefault(service, []).append(plugin_id)
+            evidence_values = plugin.get("emits_evidence") or plugin.get("evidence") or plugin.get("produces") or []
+            if isinstance(evidence_values, str):
+                values = [evidence_values]
+            else:
+                values = [str(item) for item in evidence_values if str(item).strip()]
+            if values:
+                plugin_evidence_by_service.setdefault(service, set()).update(values)
+
+    covered: list[str] = []
+    gaps: list[str] = []
+    for node in chain_manifest.nodes:
+        stage_services = [service for service in node.services if service]
+        artifact_services = [service for service in stage_services if service in artifact_by_service]
+        final_services = [service for service in stage_services if any(token in service.lower() for token in ("drop", "submit", "controlled"))]
+        if final_services:
+            covered.append(f"{node.stage_id}: final submission via {', '.join(final_services)}")
+            continue
+        if not artifact_services:
+            gaps.append(f"{node.stage_id}: no generated service artifact is mapped to services {stage_services or ['-']}")
+            continue
+        produced = set(node.produces)
+        emitted = set().union(*(plugin_evidence_by_service.get(service, set()) for service in artifact_services))
+        if produced and produced.intersection(emitted):
+            matched = sorted(produced.intersection(emitted))
+            covered.append(f"{node.stage_id}: plugin evidence {', '.join(matched[:3])}")
+            continue
+        tactic = node.tactic.lower()
+        if produced and any(term in tactic for term in ("discovery", "collection")):
+            covered.append(f"{node.stage_id}: service runtime context on {', '.join(artifact_services)}")
+            continue
+        if plugin_ids_by_service.get(artifact_services[0]):
+            gaps.append(
+                f"{node.stage_id}: service {artifact_services[0]} has plugins "
+                f"{', '.join(plugin_ids_by_service[artifact_services[0]])}, but none emit this stage evidence {sorted(produced) or ['-']}"
+            )
+        else:
+            gaps.append(f"{node.stage_id}: mapped service {artifact_services[0]} has no vulnerability plugin or explicit runtime evidence path")
+
+    if not chain_manifest.nodes:
+        return PlaytestStep(
+            step_id="implementation-01",
+            title="Scenario stages map to generated implementation paths",
+            status="failed",
+            evidence=["No stage-chain nodes were generated."],
+            learner_action="Define scenario stages before implementation.",
+            expected_result="Every stage has a concrete generated service, vulnerability behavior, or final endpoint.",
+        )
+    if gaps:
+        return PlaytestStep(
+            step_id="implementation-01",
+            title="Scenario stages map to generated implementation paths",
+            status="warning",
+            evidence=gaps,
+            learner_action="Review unimplemented stage gaps before claiming the lab is end-to-end playable.",
+            expected_result="Every stage should be backed by generated service context, emitted evidence, or final submission behavior.",
+        )
+    return PlaytestStep(
+        step_id="implementation-01",
+        title="Scenario stages map to generated implementation paths",
+        status="passed",
+        evidence=covered or ["All stages have implementation coverage."],
+        learner_action="Proceed through the generated service runtimes and plugin behaviors in stage order.",
+        expected_result="The scenario path is not merely documented; it is mapped to runnable generated components.",
     )
 
 
