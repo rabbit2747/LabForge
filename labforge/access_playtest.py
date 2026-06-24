@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Literal
 
@@ -63,6 +65,9 @@ def run_access_playtest(
         for item in [*data.get("attacker_entrypoints", []), *data.get("learner_entrypoints", [])]
         if str(item.get("protocol", "")) == "ssh" and item.get("connect")
     ]
+    for index, entrypoint in enumerate(data.get("learner_entrypoints", []) or [], start=1):
+        if isinstance(entrypoint, dict) and str(entrypoint.get("protocol", "")) == "http" and entrypoint.get("connect"):
+            items.append(run_browser_check(f"browser-{index:02d}", entrypoint, execute=execute, timeout_seconds=timeout_seconds))
     for index, check in enumerate(data.get("health_checks", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_check(f"health-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
@@ -98,6 +103,100 @@ def load_access_manifest(path: Path) -> dict:
     for key in ("learner_entrypoints", "attacker_entrypoints", "final_submission_endpoints", "health_checks", "terminal_checks"):
         data.setdefault(key, [])
     return data
+
+
+def run_browser_check(check_id: str, entrypoint: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:
+    url = str(entrypoint.get("connect", "")).strip()
+    service = str(entrypoint.get("service", ""))
+    expected = "browser landing page returns reachable HTML or API content"
+    if not url:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-http",
+            command="GET",
+            status="failed",
+            expected=expected,
+            message="missing browser URL",
+        )
+    command = f"GET {url}"
+    if not execute:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-http",
+            command=command,
+            status="planned",
+            expected=expected,
+            message="dry-run",
+        )
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "LabForgeAccessPlaytest/1.0 (+browser-entrypoint-probe)",
+            "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310 - lab-contained generated target.
+            status_code = int(response.status)
+            content_type = str(response.headers.get("Content-Type", ""))
+            body = response.read(16384).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        content_type = str(exc.headers.get("Content-Type", ""))
+        body = exc.read(4096).decode("utf-8", "replace")
+    except urllib.error.URLError as exc:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-http",
+            command=command,
+            status="failed",
+            expected=expected,
+            stderr=str(exc.reason),
+            message=f"browser target unreachable: {exc.reason}",
+        )
+    except TimeoutError:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-http",
+            command=command,
+            status="failed",
+            expected=expected,
+            message=f"browser target timed out after {timeout_seconds}s",
+        )
+
+    body_sample = body[:500].strip()
+    looks_like_browser_content = bool(body_sample) and (
+        "<html" in body_sample.lower()
+        or "application/json" in content_type.lower()
+        or "text/plain" in content_type.lower()
+        or "text/html" in content_type.lower()
+    )
+    if 200 <= status_code < 400 and looks_like_browser_content:
+        status: AccessCheckStatus = "passed"
+        message = f"http_status={status_code}; content_type={content_type or 'unknown'}; body_bytes={len(body)}"
+    elif 400 <= status_code < 500 and body_sample:
+        status = "warning"
+        message = f"http_status={status_code}; target responded with client error page"
+    else:
+        status = "failed"
+        message = f"http_status={status_code}; browser landing content missing or unusable"
+
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="browser-http",
+        command=command,
+        status=status,
+        expected=expected,
+        stdout=body_sample,
+        message=message,
+    )
 
 
 def run_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:
