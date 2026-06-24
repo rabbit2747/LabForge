@@ -4,7 +4,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from labforge.io import load_yaml
-from labforge.playtest import endpoint_group, guidance_for_plugin, plugin_handoff_context, plugin_walkthrough_steps, run_playtest, trusted_update_handoff_step
+from labforge.chain import build_chain_manifest
+from labforge.playtest import (
+    endpoint_group,
+    guidance_for_plugin,
+    plugin_handoff_context,
+    plugin_walkthrough_steps,
+    run_playtest,
+    stage_implementation_coverage_step,
+    trusted_update_handoff_step,
+)
 from labforge.providers.docker_compose.provider import endpoint_expected_texts
 
 
@@ -162,6 +171,48 @@ class PlaytestTests(unittest.TestCase):
 
         self.assertEqual(step.status, "warning")
         self.assertTrue(any("missing=" in item for item in step.evidence))
+
+    def test_stage_implementation_fails_when_required_plugin_evidence_is_unmapped(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="unmapped-evidence",
+            title="Unmapped Evidence",
+            services=[{"name": "support-portal"}, {"name": "wiki"}],
+            stage_list=[
+                {
+                    "id": "stage-01",
+                    "title": "Support preview",
+                    "procedure": "Use support-portal preview records to identify the template rendering issue.",
+                    "evidence": ["template_probe_confirmed"],
+                },
+                {
+                    "id": "stage-02",
+                    "title": "Internal wiki",
+                    "procedure": "Use template_probe_confirmed to pivot to wiki and read internal operating notes.",
+                    "required_findings": ["template_probe_confirmed"],
+                    "evidence": ["wiki_notes_collected"],
+                },
+            ],
+            artifacts_model=SimpleNamespace(
+                service_artifacts=[
+                    SimpleNamespace(
+                        service="support-portal",
+                        model_extra={
+                            "vulnerability_plugins": [
+                                {"id": "ssti-preview", "emits_evidence": ["unrelated_preview_event"]}
+                            ]
+                        },
+                    ),
+                    SimpleNamespace(service="wiki", model_extra={}),
+                ]
+            ),
+        )
+        manifest = build_chain_manifest(spec)
+
+        step = stage_implementation_coverage_step(spec, manifest)
+
+        self.assertEqual(step.status, "failed")
+        self.assertTrue(any("template_probe_confirmed" in item for item in step.evidence))
+        self.assertTrue(any("evidence_runtime_sources=" in item for item in step.evidence))
 
     def test_plugin_walkthrough_steps_include_trusted_update_handoff_cues(self) -> None:
         spec = SimpleNamespace(

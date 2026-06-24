@@ -754,8 +754,10 @@ def stage_implementation_coverage_step(spec: LabSpec, chain_manifest) -> Playtes
     artifact_by_service = {str(artifact.service): artifact for artifact in declared_service_artifacts(spec)}
     plugin_evidence_by_service: dict[str, set[str]] = {}
     plugin_ids_by_service: dict[str, list[str]] = {}
+    has_declared_plugins = False
     for service, artifact in artifact_by_service.items():
         for plugin in declared_vulnerability_plugins(artifact):
+            has_declared_plugins = True
             plugin_id = str(plugin.get("id", "")).strip()
             if plugin_id:
                 plugin_ids_by_service.setdefault(service, []).append(plugin_id)
@@ -767,8 +769,25 @@ def stage_implementation_coverage_step(spec: LabSpec, chain_manifest) -> Playtes
             if values:
                 plugin_evidence_by_service.setdefault(service, set()).update(values)
 
+    evidence_sources = list(getattr(chain_manifest, "evidence_runtime_sources", []) or [])
+    required_unmapped_sources = [
+        source
+        for source in evidence_sources
+        if getattr(source, "status", "") == "unmapped" and getattr(source, "required_by_stages", [])
+    ]
+    source_counts: dict[str, int] = {}
+    for source in evidence_sources:
+        source_counts[str(getattr(source, "status", "unknown"))] = source_counts.get(str(getattr(source, "status", "unknown")), 0) + 1
+
     covered: list[str] = []
     gaps: list[str] = []
+    hard_gaps: list[str] = []
+    if has_declared_plugins:
+        for source in required_unmapped_sources:
+            hard_gaps.append(
+                f"{source.producer_stage}: evidence `{source.evidence}` is required by "
+                f"{', '.join(source.required_by_stages)}, but has no plugin emitter or runtime evidence path"
+            )
     for node in chain_manifest.nodes:
         stage_services = [service for service in node.services if service]
         artifact_services = [service for service in stage_services if service in artifact_by_service]
@@ -806,6 +825,18 @@ def stage_implementation_coverage_step(spec: LabSpec, chain_manifest) -> Playtes
             learner_action="Define scenario stages before implementation.",
             expected_result="Every stage has a concrete generated service, vulnerability behavior, or final endpoint.",
         )
+    if hard_gaps:
+        return PlaytestStep(
+            step_id="implementation-01",
+            title="Scenario stages map to generated implementation paths",
+            status="failed",
+            evidence=[
+                *hard_gaps,
+                f"evidence_runtime_sources={format_evidence_source_counts(source_counts)}",
+            ],
+            learner_action="Do not release the lab until every carried stage evidence is emitted by a generated vulnerability behavior, runtime evidence path, or final endpoint.",
+            expected_result="A learner should never reach a later stage that waits for evidence no runtime can produce.",
+        )
     if gaps:
         return PlaytestStep(
             step_id="implementation-01",
@@ -819,10 +850,22 @@ def stage_implementation_coverage_step(spec: LabSpec, chain_manifest) -> Playtes
         step_id="implementation-01",
         title="Scenario stages map to generated implementation paths",
         status="passed",
-        evidence=covered or ["All stages have implementation coverage."],
+        evidence=[
+            *(covered or ["All stages have implementation coverage."]),
+            f"evidence_runtime_sources={format_evidence_source_counts(source_counts)}",
+        ],
         learner_action="Proceed through the generated service runtimes and plugin behaviors in stage order.",
         expected_result="The scenario path is not merely documented; it is mapped to runnable generated components.",
     )
+
+
+def format_evidence_source_counts(counts: dict[str, int]) -> str:
+    if not counts:
+        return "-"
+    ordered = ["plugin-backed", "runtime-backed", "final-only", "unmapped"]
+    parts = [f"{key}:{counts[key]}" for key in ordered if key in counts]
+    parts.extend(f"{key}:{value}" for key, value in sorted(counts.items()) if key not in ordered)
+    return ", ".join(parts)
 
 
 def service_chain_runtime_step(spec: LabSpec, working_lab: Path, chain_manifest) -> PlaytestStep:
