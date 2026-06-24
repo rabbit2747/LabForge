@@ -434,6 +434,20 @@ def run_plugin_http_sequence(
     landing_ok = landing_ok and routes_ok and context_ok
     context_note = f"{discovery_note}; {runbook_note}; {routes_note}; {operations_context_note}; {landing_note}"
     if plugin == "ssti-preview":
+        context_status, preview_context, _, context_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/preview/context", "/labforge/scaffold/ssti-preview/context"],
+            None,
+            timeout_seconds,
+        )
+        normal_status, normal_data, _, normal_route = http_json_first(
+            "POST",
+            base_url,
+            ["/operations/preview", "/labforge/scaffold/ssti-preview"],
+            {"body": "Hello {{ customer.name }} from {{ service.name }}"},
+            timeout_seconds,
+        )
         status, data, body, route = http_json_first(
             "POST",
             base_url,
@@ -441,8 +455,40 @@ def run_plugin_http_sequence(
             {"body": "{{ 7*7 }}"},
             timeout_seconds,
         )
-        ok = landing_ok and status == 200 and str(data.get("preview", "")) == "49"
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; preview={data.get('preview', body[:64])}")
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/preview/audit", "/labforge/scaffold/ssti-preview/audit"],
+            None,
+            timeout_seconds,
+        )
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        unexpected_recorded = any(isinstance(record, dict) and record.get("classification") == "unexpected-expression" for record in audit_records)
+        ok = (
+            landing_ok
+            and context_status == 200
+            and normal_status == 200
+            and status == 200
+            and audit_status == 200
+            and "Avery Stone" in str(normal_data.get("preview", ""))
+            and str(data.get("preview", "")) == "49"
+            and unexpected_recorded
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; context_route={context_route}; normal_route={normal_route}; "
+                f"route={route}; audit_route={audit_route}; context={context_status}; normal={normal_status}; "
+                f"http_status={status}; audit={audit_status}; preview={data.get('preview', body[:64])}; "
+                f"unexpected_recorded={unexpected_recorded}"
+            ),
+        )
     if plugin == "stored-xss-review":
         created_status, created, _, create_route = http_json_first(
             "POST",

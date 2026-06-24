@@ -248,8 +248,12 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertIn("context_records=1", report.steps[0].message)
                 self.assertIn("landing=200", report.steps[0].message)
                 self.assertIn("landing_route=/operations/preview", report.steps[0].message)
+                self.assertIn("context_route=/api/preview/context", report.steps[0].message)
+                self.assertIn("normal_route=/operations/preview", report.steps[0].message)
                 self.assertIn("route=/operations/preview", report.steps[0].message)
+                self.assertIn("audit_route=/api/preview/audit", report.steps[0].message)
                 self.assertIn("preview=49", report.steps[0].message)
+                self.assertIn("unexpected_recorded=True", report.steps[0].message)
                 self.assertIn("stage_state=200", report.steps[0].message)
                 self.assertIn("acquired_evidence=1", report.steps[0].message)
                 self.assertIn("unlocked_stages=2", report.steps[0].message)
@@ -827,6 +831,36 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"<html><body><h1>Response Preview</h1></body></html>")
             return
+        if self.path == "/api/preview/context":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "render_api": "POST /operations/preview",
+                        "audit_api": "/api/preview/audit",
+                        "context": {"customer": {"name": "Avery Stone"}, "service": {"name": "investor-portal"}},
+                        "merge_fields": [{"field": "customer.name"}, {"field": "service.name"}],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/preview/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "records": [
+                            {"request_id": "preview-1003", "classification": "routine-merge-field", "status": "rendered"},
+                            {"request_id": "preview-1004", "classification": "unexpected-expression", "status": "rendered"},
+                        ]
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/api/state":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -849,10 +883,17 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if self.path == "/operations/preview":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8", errors="replace")
+            preview = "49"
+            classification = "unexpected-expression"
+            if "customer.name" in body:
+                preview = "Hello Avery Stone from investor-portal"
+                classification = "routine-merge-field"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"preview": "49"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"preview": preview, "classification": classification}).encode("utf-8"))
             return
         if self.path == "/labforge/scaffold/ssti-preview":
             self.send_response(500)

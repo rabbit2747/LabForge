@@ -211,9 +211,27 @@ def enrich_smoke_item_with_stage_state(item: PluginRuntimeSmokeItem, module: Any
 def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> PluginRuntimeSmokeItem:
     try:
         if plugin_id == "ssti-preview":
+            context = client.get("/labforge/scaffold/ssti-preview/context")
+            normal = client.post("/labforge/scaffold/ssti-preview", json={"body": "Hello {{ customer.name }} from {{ service.name }}"})
             response = client.post("/labforge/scaffold/ssti-preview", json={"body": "{{ 7*7 }}"})
+            audit = client.get("/labforge/scaffold/ssti-preview/audit")
             data = response.get_json(silent=True) or {}
-            return assert_condition(service, plugin_id, response.status_code == 200 and data.get("preview") == "49", "/labforge/scaffold/ssti-preview", response)
+            context_data = context.get_json(silent=True) or {}
+            audit_data = audit.get_json(silent=True) or {}
+            audit_records = audit_data.get("records", [])
+            return assert_condition(
+                service,
+                plugin_id,
+                context.status_code == 200
+                and normal.status_code == 200
+                and response.status_code == 200
+                and audit.status_code == 200
+                and data.get("preview") == "49"
+                and context_data.get("render_api") == "POST /operations/preview"
+                and any(record.get("classification") == "unexpected-expression" for record in audit_records),
+                "/labforge/scaffold/ssti-preview + context + audit",
+                response,
+            )
         if plugin_id == "stored-xss-review":
             created = client.post("/labforge/scaffold/review-items", json={"title": "Smoke", "body": "<b>stored</b>"})
             data = created.get_json(silent=True) or {}
