@@ -10,7 +10,7 @@ from labforge.intake import (
     scenario_profile_for_request,
 )
 from labforge.model import LabSpec
-from labforge.realism import check_realism
+from labforge.realism import check_industry_context, check_realism
 from labforge.realism import get_realism_profile, normalize_industry
 
 
@@ -134,6 +134,123 @@ class RealismProfileTests(unittest.TestCase):
             codes = {finding.code for finding in report.findings}
 
             self.assertIn("provider.docker-only.realism-gap", codes)
+
+    def test_industry_context_passes_when_services_and_stages_use_business_language(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "securities-context",
+                    "title": "Securities Context",
+                    "summary": "Brokerage lab across investor support, market data, order review, settlement, and compliance export.",
+                    "final_objective": "Collect synthetic compliance export evidence.",
+                    "target_industry": "securities",
+                },
+                topology={
+                    "networks": [
+                        {"name": "public or internet edge"},
+                        {"name": "dmz"},
+                        {"name": "application"},
+                        {"name": "core trading"},
+                        {"name": "data"},
+                        {"name": "security monitoring"},
+                    ],
+                    "services": [
+                        {"name": "investor-portal", "role": "public brokerage support portal", "networks": ["dmz"], "purpose": "Investor notice and support workflow."},
+                        {"name": "market-data-gateway", "role": "quote feed and ticker cache", "networks": ["core trading"], "purpose": "Market data subscription and quote refresh."},
+                        {"name": "order-management-system", "role": "trading order review console", "networks": ["application"], "purpose": "Broker order status and execution reports."},
+                        {"name": "compliance-export-service", "role": "regulatory reporting and surveillance export", "networks": ["data"], "purpose": "Compliance audit evidence export."},
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Review investor portal workflow.",
+                            "procedure": "Inspect investor notice records and brokerage support requests before testing the preview path.",
+                            "evidence": ["investor-portal-context"],
+                            "mitre": {"tactic": "Initial Access", "techniques": [{"id": "T1190", "name": "Exploit Public-Facing Application"}]},
+                        },
+                        {
+                            "id": "stage-02",
+                            "title": "Correlate quote and order context.",
+                            "procedure": "Use market data gateway notes and order management records to locate the ANRC trading channel workflow.",
+                            "required_findings": ["investor-portal-context"],
+                            "evidence": ["market-data-order-context"],
+                            "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1083", "name": "File and Directory Discovery"}]},
+                        },
+                        {
+                            "id": "stage-03",
+                            "title": "Locate compliance export.",
+                            "procedure": "Follow surveillance and regulatory reporting notes to the compliance export service.",
+                            "required_findings": ["market-data-order-context"],
+                            "evidence": ["compliance-export-context"],
+                            "mitre": {"tactic": "Collection", "techniques": [{"id": "T1005", "name": "Data from Local System"}]},
+                        },
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation"]},
+            )
+
+            coverage = check_industry_context(LabSpec.load(root), industry="securities")
+
+            self.assertEqual(coverage.status, "passed")
+            self.assertIn("public-investor-web", coverage.covered_capabilities)
+            self.assertIn("market-data", coverage.covered_capabilities)
+            self.assertIn("trading-channel", coverage.covered_capabilities)
+            self.assertIn("risk-compliance", coverage.covered_capabilities)
+
+    def test_industry_context_flags_generic_services_and_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "generic-bank",
+                    "title": "Generic Bank",
+                    "summary": "Banking lab.",
+                    "final_objective": "Collect synthetic evidence.",
+                    "target_industry": "banking",
+                },
+                topology={
+                    "networks": [{"name": "dmz"}, {"name": "data"}],
+                    "services": [
+                        {"name": "web-one", "role": "generic vulnerable web", "networks": ["dmz"]},
+                        {"name": "api-one", "role": "generic internal api", "networks": ["data"]},
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Find vulnerability.",
+                            "procedure": "Open the web app and continue.",
+                            "evidence": ["one"],
+                            "mitre": {"tactic": "Initial Access", "techniques": [{"id": "T1190", "name": "Exploit Public-Facing Application"}]},
+                        },
+                        {
+                            "id": "stage-02",
+                            "title": "Read data.",
+                            "procedure": "Use the next service.",
+                            "required_findings": ["one"],
+                            "evidence": ["two"],
+                            "mitre": {"tactic": "Collection", "techniques": [{"id": "T1005", "name": "Data from Local System"}]},
+                        },
+                    ]
+                },
+                security_controls={"recommended": []},
+            )
+
+            coverage = check_industry_context(LabSpec.load(root), industry="banking")
+            codes = {finding.code for finding in coverage.findings}
+
+            self.assertEqual(coverage.status, "warning")
+            self.assertIn("industry-context.coverage.too-thin", codes)
+            self.assertIn("industry-context.stage-language.missing", codes)
+            self.assertIn("industry-context.service-language.missing", codes)
 
 
 def write_lab_files(root: Path, *, scenario: dict, topology: dict, stages: dict, security_controls: dict | None = None) -> None:

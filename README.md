@@ -199,10 +199,14 @@ data is synthetic and scenario-derived, but it is shaped around the target
 business domain when possible: banking labs get loan, payment, AML, and
 fraud-like records; securities labs get trade, market-data, settlement, and
 compliance records; healthcare and manufacturing labs get their own
-workflow-shaped records. LabForge does not yet generate full
-scenario-specific vulnerable service source code, production VM infrastructure,
-complete Ansible roles, complete Terraform modules, or production-grade
-enforcement logic for WAF, IDS, SIEM, or EDR controls.
+workflow-shaped records. Playtest now includes an industry-context check that
+looks at learner-facing stage text and service context, not only global keyword
+coverage, so a generic vulnerable web/API lab renamed as a bank, brokerage,
+hospital, factory, AD domain, or supply-chain vendor is flagged before release.
+LabForge does not yet generate full scenario-specific vulnerable service source
+code, production VM infrastructure, complete Ansible roles, complete Terraform
+modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR
+controls.
 
 The `doctor` command now detects whether the current machine should run lab
 work directly from the host shell, from WSL, or through a VM/hybrid provider.

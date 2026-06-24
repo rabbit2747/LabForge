@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -73,6 +73,16 @@ class RealismReport(RealismModel):
     matched_capabilities: list[str] = Field(default_factory=list)
     missing_capabilities: list[str] = Field(default_factory=list)
     anti_ctf_signals: list[AntiCtfSignal] = Field(default_factory=list)
+    findings: list[RealismFinding] = Field(default_factory=list)
+
+
+class IndustryContextCoverage(RealismModel):
+    industry: str
+    status: Literal["passed", "warning", "failed"]
+    covered_capabilities: list[str] = Field(default_factory=list)
+    missing_capabilities: list[str] = Field(default_factory=list)
+    stage_evidence: dict[str, list[str]] = Field(default_factory=dict)
+    service_evidence: dict[str, list[str]] = Field(default_factory=dict)
     findings: list[RealismFinding] = Field(default_factory=list)
 
 
@@ -449,6 +459,8 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
         profile = get_realism_profile(str(selected_industry))
 
     haystack = lab_text_haystack(spec)
+    context_coverage = check_industry_context(spec, industry=profile.industry, strict=strict)
+    findings.extend(context_coverage.findings)
     matched: list[str] = []
     missing: list[str] = []
     for capability in profile.capabilities:
@@ -621,6 +633,86 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
     )
 
 
+def check_industry_context(spec: LabSpec, *, industry: str | None = None, strict: bool = False) -> IndustryContextCoverage:
+    selected_industry = industry or spec.scenario.get("target_industry") or spec.scenario.get("industry") or "enterprise"
+    profile = get_realism_profile(str(selected_industry))
+    service_text = service_context_haystack(spec)
+    stage_text = stage_context_haystack(spec)
+    stage_evidence = capability_context_evidence(profile, spec.stage_list)
+    service_evidence = capability_context_evidence(profile, spec.services)
+
+    covered: list[str] = []
+    missing: list[str] = []
+    findings: list[RealismFinding] = []
+    for capability in profile.capabilities:
+        stage_hits = stage_evidence.get(capability.id, [])
+        service_hits = service_evidence.get(capability.id, [])
+        if stage_hits or service_hits:
+            covered.append(capability.id)
+        elif capability.required:
+            missing.append(capability.id)
+
+    min_required = min(3, max(2, len(profile.capabilities) // 3))
+    if len(covered) < min_required:
+        findings.append(
+            RealismFinding(
+                severity="error" if strict else "warning",
+                category="industry-context",
+                message=(
+                    f"Only {len(covered)} industry capability group(s) are visible in learner-facing stage or service context; "
+                    f"expected at least {min_required}."
+                ),
+                expected=", ".join(capability.id for capability in profile.capabilities[: min_required + 2]),
+                code="industry-context.coverage.too-thin",
+                remediation=(
+                    "Add normal industry services, stage procedures, learner clues, records, and noise that reflect the declared "
+                    "business environment instead of relying on generic vulnerable services."
+                ),
+            )
+        )
+
+    if not any_capability_keyword_present(profile, stage_text):
+        findings.append(
+            RealismFinding(
+                severity="error" if strict else "warning",
+                category="industry-context",
+                message="Stage procedures and learner-facing clues do not contain recognizable target-industry workflow language.",
+                expected=", ".join(profile.required_ui_surfaces[:6] or [capability.description for capability in profile.capabilities[:4]]),
+                code="industry-context.stage-language.missing",
+                remediation="Rewrite stages so the learner sees realistic business workflows, records, operator notes, and service names for the declared industry.",
+            )
+        )
+
+    if not any_capability_keyword_present(profile, service_text):
+        findings.append(
+            RealismFinding(
+                severity="error" if strict else "warning",
+                category="industry-context",
+                message="Service names, roles, and purposes do not expose recognizable target-industry systems.",
+                expected=", ".join(service for capability in profile.capabilities for service in capability.recommended_services[:1]) or profile.display_name,
+                code="industry-context.service-language.missing",
+                remediation="Add industry-shaped services such as portals, consoles, data stores, batch processors, monitoring, and non-target business systems.",
+            )
+        )
+
+    status: Literal["passed", "warning", "failed"]
+    if any(finding.severity == "error" for finding in findings):
+        status = "failed"
+    elif findings:
+        status = "warning"
+    else:
+        status = "passed"
+    return IndustryContextCoverage(
+        industry=profile.industry,
+        status=status,
+        covered_capabilities=covered,
+        missing_capabilities=missing,
+        stage_evidence={key: value for key, value in stage_evidence.items() if value},
+        service_evidence={key: value for key, value in service_evidence.items() if value},
+        findings=findings,
+    )
+
+
 def lab_text_haystack(spec: LabSpec) -> str:
     parts: list[str] = [
         json.dumps(spec.scenario, ensure_ascii=False),
@@ -630,6 +722,88 @@ def lab_text_haystack(spec: LabSpec) -> str:
         json.dumps(spec.artifacts, ensure_ascii=False),
     ]
     return " ".join(parts).lower()
+
+
+def service_context_haystack(spec: LabSpec) -> str:
+    service_parts: list[Any] = []
+    for service in spec.services:
+        service_parts.append(
+            {
+                "name": service.get("name"),
+                "role": service.get("role"),
+                "purpose": service.get("purpose"),
+                "description": service.get("description"),
+                "networks": service.get("networks"),
+                "labels": service.get("labels"),
+            }
+        )
+    if spec.artifacts_model:
+        for artifact in spec.artifacts_model.service_artifacts:
+            service_parts.append(
+                {
+                    "service": artifact.service,
+                    "runtime": artifact.runtime,
+                    "source_path": artifact.source_path,
+                    "seed_inputs": artifact.seed_inputs,
+                    "noise_inputs": artifact.noise_inputs,
+                }
+            )
+    return " ".join(context_values(service_parts)).lower()
+
+
+def stage_context_haystack(spec: LabSpec) -> str:
+    stage_parts: list[Any] = []
+    for stage in spec.stage_list:
+        stage_parts.append(
+            {
+                "id": stage.get("id"),
+                "title": stage.get("title"),
+                "procedure": stage.get("procedure"),
+                "learner_clue": stage.get("learner_clue") or stage.get("clue"),
+                "required_findings": stage.get("required_findings"),
+                "evidence": stage.get("evidence"),
+                "infrastructure_touched": stage.get("infrastructure_touched"),
+            }
+        )
+    return " ".join(context_values(stage_parts)).lower()
+
+
+def capability_context_evidence(profile: IndustryRealismProfile, items: list[dict[str, Any]]) -> dict[str, list[str]]:
+    evidence: dict[str, list[str]] = {}
+    for capability in profile.capabilities:
+        matches: list[str] = []
+        for item in items:
+            blob = " ".join(context_values(item)).lower()
+            hit_terms = [keyword for keyword in capability.keywords if keyword.lower() in blob]
+            if hit_terms:
+                name = str(item.get("id") or item.get("name") or item.get("title") or "context-item")
+                matches.append(f"{name}: {', '.join(hit_terms[:3])}")
+        evidence[capability.id] = matches
+    return evidence
+
+
+def context_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (int, float, bool)):
+        return [str(value)]
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            parts.extend(context_values(item))
+        return parts
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for item in value.values():
+            parts.extend(context_values(item))
+        return parts
+    return [str(value)]
+
+
+def any_capability_keyword_present(profile: IndustryRealismProfile, haystack: str) -> bool:
+    return any(keyword.lower() in haystack for capability in profile.capabilities for keyword in capability.keywords)
 
 
 def capability_remediation(capability: IndustryCapability) -> str:
@@ -923,4 +1097,5 @@ def realism_report_to_markdown(report: RealismReport) -> str:
 REALISM_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "realism-profile.schema.json": IndustryRealismProfile,
     "realism-report.schema.json": RealismReport,
+    "industry-context-coverage.schema.json": IndustryContextCoverage,
 }

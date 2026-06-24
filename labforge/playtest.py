@@ -12,6 +12,7 @@ from .chain import build_chain_manifest, write_chain_manifest
 from .io import dump_yaml, write_text
 from .model import LabSpec
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
+from .realism import check_industry_context
 from .render import build_lab
 from .service_artifacts import declared_service_artifacts, materialize_service_runtimes
 from .solver_runner import run_solver_plan
@@ -168,6 +169,7 @@ def run_playtest(
         vulnerability_runtime_step(runtime_smoke),
         evidence_unlock_step(runtime_smoke),
         service_realism_step(spec, working_lab),
+        industry_context_step(spec),
         service_chain_runtime_step(spec, working_lab, chain_manifest),
         scenario_stage_step(spec, chain_manifest),
         final_submission_step(final_submission_endpoints),
@@ -356,6 +358,8 @@ def build_solver_plan(report: PlaytestReport) -> SolverPlan:
             action_type = "stage-chain"
         elif step.step_id.startswith("realism-"):
             action_type = "realism-review"
+        elif step.step_id.startswith("industry-"):
+            action_type = "industry-realism-review"
         steps.append(
             SolverPlanStep(
                 order=len(steps) + 1,
@@ -442,6 +446,8 @@ def automation_hint_for_step(action_type: str, service: str, plugin: str) -> str
         return "Read /api/chain and /api/state from generated services when available to confirm stage evidence progression."
     if action_type == "realism-review":
         return "Inspect generated seed records, clues, and noise before automated browser solving."
+    if action_type == "industry-realism-review":
+        return "Verify that service names, records, UI surfaces, and stage clues read like the declared industry rather than generic lab infrastructure."
     return "Use playtest evidence to decide the next safe lab-contained action."
 
 
@@ -621,6 +627,41 @@ def service_realism_step(spec: LabSpec, working_lab: Path) -> PlaytestStep:
         evidence=[f"{checked} business services include records, clues, and noise."],
         learner_action="Use visible business records and operational notes to distinguish signal from ordinary company context.",
         expected_result="Generated services feel like business systems rather than empty CTF endpoints.",
+    )
+
+
+def industry_context_step(spec: LabSpec) -> PlaytestStep:
+    coverage = check_industry_context(spec)
+    if coverage.status == "failed":
+        return PlaytestStep(
+            step_id="industry-01",
+            title="Stages and services reflect the declared industry",
+            status="failed",
+            evidence=[finding.message for finding in coverage.findings] or ["Industry context coverage failed."],
+            learner_action="Do not release the lab until industry-specific services, records, and stage clues are present.",
+            expected_result="A learner should feel they are operating inside the declared business environment.",
+        )
+    if coverage.status == "warning":
+        return PlaytestStep(
+            step_id="industry-01",
+            title="Stages and services reflect the declared industry",
+            status="warning",
+            evidence=[finding.message for finding in coverage.findings],
+            learner_action="Review stage text, service names, seed records, and noise for industry-specific realism gaps.",
+            expected_result="The lab should not feel like generic vulnerable services renamed after the target industry.",
+        )
+    evidence = [f"covered={', '.join(coverage.covered_capabilities) or '-'}"]
+    if coverage.service_evidence:
+        evidence.append(f"service_context={len(coverage.service_evidence)} capability group(s)")
+    if coverage.stage_evidence:
+        evidence.append(f"stage_context={len(coverage.stage_evidence)} capability group(s)")
+    return PlaytestStep(
+        step_id="industry-01",
+        title="Stages and services reflect the declared industry",
+        status="passed",
+        evidence=evidence,
+        learner_action="Use industry-specific service names, records, and operational clues as the normal discovery path.",
+        expected_result="The learner path is embedded in realistic business context for the declared industry.",
     )
 
 

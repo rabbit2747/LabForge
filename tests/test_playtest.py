@@ -27,6 +27,7 @@ class PlaytestTests(unittest.TestCase):
             self.assertFalse(any("attacker" in endpoint.service for endpoint in report.learner_entrypoints))
             self.assertFalse(any("drop" in endpoint.service for endpoint in report.learner_entrypoints))
             self.assertTrue(any(step.step_id == "realism-01" for step in report.steps))
+            self.assertTrue(any(step.step_id == "industry-01" for step in report.steps))
             self.assertTrue(any(step.step_id == "runtime-02" for step in report.steps))
             self.assertTrue(any(step.step_id == "chain-runtime-01" for step in report.steps))
             self.assertTrue((out / "playtest-report.md").exists())
