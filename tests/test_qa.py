@@ -10,6 +10,7 @@ from labforge.qa import (
     learner_access_plugin_evidence_messages,
     learner_access_stage_handoff_messages,
     plugin_evidence_check_count,
+    stage_handoff_clue_messages,
     stage_handoff_count,
 )
 from labforge.io import write_text, dump_yaml
@@ -95,6 +96,7 @@ class QaReleaseGateTests(unittest.TestCase):
                         "from_stage": "stage-01",
                         "to_stage": "stage-02",
                         "carried_evidence": ["template_probe_confirmed"],
+                        "learner_clue": "Use the template evidence collected from stage-01 to review the internal wiki operating notes.",
                     }
                 ],
             )
@@ -110,6 +112,30 @@ class QaReleaseGateTests(unittest.TestCase):
             messages = learner_access_stage_handoff_messages(root)
 
             self.assertTrue(any("no stage_handoffs" in message for message in messages))
+
+    def test_stage_handoff_clue_messages_fail_on_thin_or_answer_key_clues(self) -> None:
+        self.assertEqual(
+            stage_handoff_clue_messages(
+                {
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "next",
+                }
+            ),
+            ["critical=stage-handoff:stage-01->stage-02:learner_clue is too thin"],
+        )
+        self.assertEqual(
+            stage_handoff_clue_messages(
+                {
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Copy paste this answer key to get the flag.",
+                }
+            ),
+            ["critical=stage-handoff:stage-01->stage-02:learner_clue contains answer-key wording"],
+        )
 
 
 def write_playtest_evidence_files(root: Path, *, plugin_checks: list[dict], access_items: list[dict]) -> None:

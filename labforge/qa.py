@@ -450,6 +450,26 @@ def learner_access_stage_handoff_messages(out: Path) -> list[str]:
     ]
     if missing_evidence:
         return [f"critical=stage-handoff:handoffs missing carried_evidence: {', '.join(missing_evidence[:10])}"]
+    clue_messages: list[str] = []
+    for item in handoffs:
+        clue_messages.extend(stage_handoff_clue_messages(item))
+    return clue_messages
+
+
+def stage_handoff_clue_messages(handoff: dict) -> list[str]:
+    from_stage = str(handoff.get("from_stage", "-"))
+    to_stage = str(handoff.get("to_stage", "-"))
+    clue = " ".join(str(handoff.get("learner_clue", "")).split())
+    normalized = clue.lower()
+    if not clue:
+        return [f"critical=stage-handoff:{from_stage}->{to_stage}:missing learner_clue"]
+    direct_answer_terms = ("flag", "ctf", "answer key", "copy paste", "copy/paste", "정답", "플래그")
+    if any(term in normalized for term in direct_answer_terms):
+        return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue contains answer-key wording"]
+    if normalized.startswith("review normal business behavior related to"):
+        return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue is generic fallback text"]
+    if len(clue) < 24:
+        return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue is too thin"]
     return []
 
 
