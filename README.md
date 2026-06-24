@@ -222,6 +222,10 @@ Generated vulnerability services now expose a learner-readable
 machine-readable `/operations/reference` endpoint. Solver checks include this
 runbook so generated labs are pushed toward natural business clues instead of
 JSON-only puzzle hints.
+The SSRF scaffold now models registered internal upstream sources with
+lab-contained synthetic responses, so learners can compare blocked metadata
+targets with approved business fetches without depending on external network
+services.
 Learner playtest now also emits `lab-access-bundle.md` and
 `lab-access-bundle.json`, a compact handoff that collects provider start
 commands, browser URLs, SSH commands, final submission URLs, health checks,
