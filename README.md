@@ -225,7 +225,8 @@ JSON-only puzzle hints.
 The SSRF scaffold now models registered internal upstream sources with
 lab-contained synthetic responses, so learners can compare blocked metadata
 targets with approved business fetches without depending on external network
-services.
+services. Solver sequences verify both sides of that workflow: blocked metadata
+targets and approved internal upstream responses.
 Learner playtest now also emits `lab-access-bundle.md` and
 `lab-access-bundle.json`, a compact handoff that collects provider start
 commands, browser URLs, SSH commands, final submission URLs, health checks,

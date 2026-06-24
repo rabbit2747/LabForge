@@ -462,15 +462,42 @@ def run_plugin_http_sequence(
         ok = landing_ok and status == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
         return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}")
     if plugin == "ssrf-internal-fetch":
-        status, data, _, route = http_json_first(
+        blocked_status, blocked_data, _, blocked_route = http_json_first(
             "GET",
             base_url,
             ["/operations/fetch?url=http://169.254.169.254/latest", "/labforge/scaffold/fetch?url=http://169.254.169.254/latest"],
             None,
             timeout_seconds,
         )
-        ok = landing_ok and status == 400 and data.get("allowed") is False
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; blocked_fetch_status={status}; allowed={data.get('allowed')}")
+        allowed_status, allowed_data, allowed_body, allowed_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/fetch?url=http://metadata-service:8080/metadata", "/labforge/scaffold/fetch?url=http://metadata-service:8080/metadata"],
+            None,
+            timeout_seconds,
+        )
+        ok = (
+            landing_ok
+            and blocked_status == 400
+            and blocked_data.get("allowed") is False
+            and allowed_status == 200
+            and allowed_data.get("allowed") is True
+            and "metadata-service" in (json.dumps(allowed_data) + allowed_body)
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; blocked_route={blocked_route}; allowed_route={allowed_route}; "
+                f"blocked_fetch_status={blocked_status}; blocked_allowed={blocked_data.get('allowed')}; "
+                f"allowed_fetch_status={allowed_status}; allowed={allowed_data.get('allowed')}"
+            ),
+        )
     if plugin == "path-traversal-download":
         public_status, _, _, public_route = http_json_first(
             "GET",

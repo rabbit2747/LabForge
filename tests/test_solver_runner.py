@@ -466,6 +466,52 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_ssrf_blocked_and_allowed_fetch_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SsrfSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-ssrf",
+                            "title": "Solver SSRF",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-import-console-ssrf-internal-fetch",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "import-console",
+                                    "plugin": "ssrf-internal-fetch",
+                                    "evidence": ["/operations/fetch"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "import-console", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("blocked_fetch_status=400", report.steps[0].message)
+                self.assertIn("allowed_fetch_status=200", report.steps[0].message)
+                self.assertIn("allowed=True", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_fails_when_business_landing_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -663,6 +709,54 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(b"vault-cache export OPERATOR_BIND_CURRENT=LabForge-Operator-Training-Secret!\n")
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class SsrfSmokeHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "ssrf-internal-fetch"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/runbook":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Operations Runbook</h1><p>Upstream import workflow</p></body></html>")
+            return
+        if self.path == "/operations/fetch":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Upstream Import Console</h1></body></html>")
+            return
+        if self.path.startswith("/operations/fetch?url=http://169.254.169.254/latest"):
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"allowed": False, "reason": "blocked local or metadata target"}).encode("utf-8"))
+            return
+        if self.path.startswith("/operations/fetch?url=http://metadata-service:8080/metadata"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "allowed": True,
+                        "status": 200,
+                        "upstream": {"service": "metadata-service", "scope": "lab-internal"},
+                        "body": '{"service": "metadata-service"}',
+                    }
+                ).encode("utf-8")
+            )
             return
         self.send_response(404)
         self.end_headers()
