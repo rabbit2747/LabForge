@@ -18,6 +18,11 @@ from .render import build_lab
 from .service_artifacts import materialize_service_runtimes, service_check
 from .service_verification import verify_services
 from .validate import validate_lab
+from .vulnerability_coverage import (
+    build_vulnerability_coverage_report,
+    vulnerability_coverage_to_json,
+    vulnerability_coverage_to_markdown,
+)
 
 
 class QaModel(BaseModel):
@@ -222,6 +227,8 @@ def run_release_gate(
         )
     )
 
+    checks.append(vulnerability_coverage_release_check(out / "vulnerability-coverage"))
+
     checks.append(industry_realism_release_check(agent_result_dir))
 
     provider_out = out / "provider-output"
@@ -249,6 +256,27 @@ def run_release_gate(
     write_text(out / "release-gate-report.yaml", dump_yaml(report.model_dump()))
     write_text(out / "release-gate-report.md", render_release_gate_markdown(report))
     return report
+
+
+def vulnerability_coverage_release_check(out: Path) -> QaCheck:
+    report = build_vulnerability_coverage_report()
+    write_text(out / "vulnerability-coverage.json", vulnerability_coverage_to_json(report))
+    write_text(out / "vulnerability-coverage.md", vulnerability_coverage_to_markdown(report))
+    failed_or_warning = [item for item in report.items if item.status != "passed"]
+    messages = [
+        f"status={report.status}",
+        f"total_plugins={report.total_plugins}",
+        f"runnable_plugins={report.runnable_plugins}",
+        f"complete_plugins={report.complete_plugins}",
+        f"report={out / 'vulnerability-coverage.md'}",
+    ]
+    for item in failed_or_warning[:10]:
+        messages.append(f"{item.plugin_id}:{item.status}:{'; '.join(item.gaps) or 'coverage incomplete'}")
+    return QaCheck(
+        name="vulnerability-coverage-strict",
+        status="passed" if report.status == "passed" else "failed",
+        messages=messages,
+    )
 
 
 def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, profile: str) -> QaCheck:

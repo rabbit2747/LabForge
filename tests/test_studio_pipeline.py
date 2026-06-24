@@ -67,6 +67,7 @@ class StudioPipelineTest(unittest.TestCase):
                     "quality-lint-strict": "passed",
                     "service-verification-strict": "passed",
                     "plugin-runtime-smoke-strict": "passed",
+                    "vulnerability-coverage-strict": "passed",
                     "industry-realism-review": "passed",
                     "provider-build": "passed",
                     "learner-experience-strict": "passed",
@@ -75,6 +76,8 @@ class StudioPipelineTest(unittest.TestCase):
             )
             self.assertTrue((workspace / scenario_id / "release-gate" / "learner-playtest" / "solver-run" / "solver-run.yaml").exists())
             self.assertTrue((workspace / scenario_id / "release-gate" / "learner-playtest" / "access-playtest" / "access-playtest.yaml").exists())
+            self.assertTrue((workspace / scenario_id / "release-gate" / "vulnerability-coverage" / "vulnerability-coverage.md").exists())
+            self.assertTrue((workspace / scenario_id / "release-gate" / "vulnerability-coverage" / "vulnerability-coverage.json").exists())
 
             reread = read_scenario_detail(workspace, scenario_id)
             self.assertEqual(reread["release_gate"]["status"], "passed")

@@ -486,6 +486,14 @@ scenario detail page. Studio writes `release-gate/release-gate-report.md` and
 `release-gate/release-gate-report.yaml`, then shows each check result in the
 Release Gate panel.
 
+Release gates also run `vulnerability-coverage-strict`. This framework-level
+gate fails if a runnable vulnerability plugin lacks a registered scaffold,
+runtime smoke sequence, solver-runner sequence, learner guidance, or browser
+expected-text contract. The gate writes
+`release-gate/vulnerability-coverage/vulnerability-coverage.md` and `.json` so
+supervisors can see exactly which attack-technique scaffolds are not ready for
+learner delivery.
+
 Release gates also include a learner-experience check. It reads generated
 provider output such as `endpoints.json` and fails release when no learner
 entrypoint, learner-visible URL or SSH command, endpoint health URL, attacker
