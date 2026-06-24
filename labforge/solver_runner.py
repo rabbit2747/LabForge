@@ -456,8 +456,45 @@ def run_plugin_http_sequence(
             if item_id
             else (0, {}, "", "")
         )
-        ok = landing_ok and created_status == 201 and opened_status == 200 and "stored" in opened_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; create_route={create_route}; open_route={open_route}; created={created_status}; opened={opened_status}; item_id={item_id or '-'}")
+        context_status, reviewer_context, _, context_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/reviewer/context", "/labforge/scaffold/reviewer/context"],
+            None,
+            timeout_seconds,
+        )
+        callback_status, callback, _, callback_route = http_json_first(
+            "POST",
+            base_url,
+            ["/operations/reviewer/callback", "/labforge/scaffold/reviewer/callback"],
+            {"source": "solver-runner", "item_id": item_id},
+            timeout_seconds,
+        )
+        ok = (
+            landing_ok
+            and created_status == 201
+            and opened_status == 200
+            and "stored" in opened_body
+            and "reviewer/context" in opened_body
+            and context_status == 200
+            and isinstance(reviewer_context.get("session_context"), dict)
+            and callback_status == 202
+            and callback.get("accepted") is True
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; create_route={create_route}; open_route={open_route}; context_route={context_route}; "
+                f"callback_route={callback_route}; created={created_status}; opened={opened_status}; "
+                f"context={context_status}; callback={callback_status}; item_id={item_id or '-'}"
+            ),
+        )
     if plugin == "idor-object-access":
         status, data, _, route = http_json_first(
             "GET",

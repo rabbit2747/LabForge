@@ -217,7 +217,24 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             data = created.get_json(silent=True) or {}
             item_id = data.get("id", "")
             opened = client.get(f"/labforge/scaffold/reviewer/items/{item_id}") if item_id else created
-            return assert_condition(service, plugin_id, created.status_code == 201 and opened.status_code == 200 and "stored" in opened.get_data(as_text=True), "/labforge/scaffold/review-items", opened)
+            context = client.get("/labforge/scaffold/reviewer/context")
+            callback = client.post("/labforge/scaffold/reviewer/callback", json={"source": "runtime-smoke", "item_id": item_id})
+            context_data = context.get_json(silent=True) or {}
+            callback_data = callback.get_json(silent=True) or {}
+            return assert_condition(
+                service,
+                plugin_id,
+                created.status_code == 201
+                and opened.status_code == 200
+                and "stored" in opened.get_data(as_text=True)
+                and "reviewer/context" in opened.get_data(as_text=True)
+                and context.status_code == 200
+                and isinstance(context_data.get("session_context"), dict)
+                and callback.status_code == 202
+                and callback_data.get("accepted") is True,
+                "/labforge/scaffold/review-items + reviewer context/callback",
+                callback,
+            )
         if plugin_id == "idor-object-access":
             response = client.get("/labforge/scaffold/objects/obj-9001?owner=learner")
             data = response.get_json(silent=True) or {}
