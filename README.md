@@ -507,6 +507,10 @@ the scenario has a multi-stage chain, and writes:
   `python -m labforge qa access-playtest <playtest/learner-access.json> --out <out>`
   for dry-run planning, or add `--execute` after the provider is running to run
   supported `curl` and SSH batch checks.
+- `solver-plan.md/json`: ordered, supervisor-facing solver-agent plan derived
+  from learner access, stage-chain checks, plugin runtime evidence, and final
+  submission endpoints. It is designed for automated playtest agents and avoids
+  hard-coding named-scenario exploit scripts into the framework.
 - `playtest-report.md`: evidence that the generated lab has a reachable start,
   runnable lab-scoped vulnerability behavior, ordered stages, and a completion
   path.

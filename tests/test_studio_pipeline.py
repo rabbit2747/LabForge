@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,6 +42,7 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(any(report["name"] == "Endpoint Manifest" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Access" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Access JSON" for report in detail["reports"]))
+            self.assertTrue(any(report["name"] == "Solver Plan" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Playtest" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Playtest Walkthrough" for report in detail["reports"]))
             self.assertIn(detail["playtest"]["status"], {"passed", "warning"})
@@ -49,6 +51,10 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(detail["pipeline_gate"]["ready_for_supervisor"])
             self.assertTrue(detail["pipeline_gate"]["ready_for_release_gate"])
             self.assertTrue(detail["pipeline_gate"]["next_commands"])
+            solver_plan_path = workspace / scenario_id / "playtest" / "solver-plan.json"
+            self.assertTrue(solver_plan_path.exists())
+            solver_data = json.loads(solver_plan_path.read_text(encoding="utf-8"))
+            self.assertTrue(any(step["action_type"] == "vulnerability-behavior" for step in solver_data["steps"]))
 
             release_detail = run_release_gate_for_scenario(workspace, scenario_id, {})
             gate = release_detail["last_release_gate"]

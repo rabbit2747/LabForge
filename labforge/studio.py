@@ -711,6 +711,8 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Learner Access JSON", "playtest/learner-access.json"),
         ("Access Playtest", "playtest/access-playtest/access-playtest.md"),
         ("Access Playtest YAML", "playtest/access-playtest/access-playtest.yaml"),
+        ("Solver Plan", "playtest/solver-plan.md"),
+        ("Solver Plan JSON", "playtest/solver-plan.json"),
         ("Learner Playtest", "playtest/playtest-report.md"),
         ("Playtest Walkthrough", "playtest/playtest-walkthrough.md"),
         ("Learner Playtest YAML", "playtest/playtest-report.yaml"),

@@ -88,6 +88,32 @@ class LearnerAccessManifest(PlaytestModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class SolverPlanStep(PlaytestModel):
+    order: int
+    step_id: str
+    title: str
+    service: str = ""
+    plugin: str = ""
+    action_type: str
+    learner_action: str
+    expected_result: str
+    evidence: list[str] = Field(default_factory=list)
+    automation_hint: str = ""
+
+
+class SolverPlan(PlaytestModel):
+    lab_id: str
+    title: str
+    provider: str
+    profile: str
+    status: Literal["planned", "warning", "failed"]
+    learner_start: str = ""
+    attacker_shell: str = ""
+    final_submission: str = ""
+    steps: list[SolverPlanStep] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 def run_playtest(
     lab_root: Path,
     out: Path,
@@ -153,6 +179,9 @@ def run_playtest(
     access_manifest = build_learner_access_manifest(report, provider_out)
     write_text(out / "learner-access.json", access_manifest.model_dump_json(indent=2))
     write_text(out / "learner-access.md", render_learner_access_markdown(report))
+    solver_plan = build_solver_plan(report)
+    write_text(out / "solver-plan.json", solver_plan.model_dump_json(indent=2))
+    write_text(out / "solver-plan.md", render_solver_plan_markdown(solver_plan))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
     run_access_playtest(out / "learner-access.json", out / "access-playtest", execute=False)
     return report
@@ -261,6 +290,91 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path) ->
             "Use terminal checks for attacker workstation or SSH-based learner hosts.",
         ],
     )
+
+
+def build_solver_plan(report: PlaytestReport) -> SolverPlan:
+    steps: list[SolverPlanStep] = []
+    learner_start = report.learner_entrypoints[0].connect if report.learner_entrypoints else ""
+    attacker_shell = report.attacker_entrypoints[0].connect if report.attacker_entrypoints else ""
+    final_submission = report.final_submission_endpoints[0].connect if report.final_submission_endpoints else ""
+    for step in report.steps:
+        action_type = "verification"
+        service = ""
+        plugin = ""
+        if step.step_id.startswith("plugin-"):
+            action_type = "vulnerability-behavior"
+            service, plugin = parse_plugin_step_id(step.step_id)
+        elif step.step_id.startswith("access-"):
+            action_type = "access"
+        elif step.step_id.startswith("final-"):
+            action_type = "final-submission"
+        elif step.step_id.startswith("chain-") or step.step_id.startswith("runtime-"):
+            action_type = "stage-chain"
+        elif step.step_id.startswith("realism-"):
+            action_type = "realism-review"
+        steps.append(
+            SolverPlanStep(
+                order=len(steps) + 1,
+                step_id=step.step_id,
+                title=step.title,
+                service=service,
+                plugin=plugin,
+                action_type=action_type,
+                learner_action=step.learner_action,
+                expected_result=step.expected_result,
+                evidence=step.evidence,
+                automation_hint=automation_hint_for_step(action_type, service, plugin),
+            )
+        )
+    warnings = list(report.failures or report.warnings or [])
+    status: Literal["planned", "warning", "failed"] = "failed" if report.failures else ("warning" if report.warnings else "planned")
+    return SolverPlan(
+        lab_id=report.lab_id,
+        title=report.title,
+        provider=report.provider,
+        profile=report.profile,
+        status=status,
+        learner_start=learner_start,
+        attacker_shell=attacker_shell,
+        final_submission=final_submission,
+        steps=steps,
+        warnings=warnings,
+    )
+
+
+def parse_plugin_step_id(step_id: str) -> tuple[str, str]:
+    raw = step_id.removeprefix("plugin-")
+    plugin_ids = [
+        "customer-update-callback",
+        "diagnostic-command-injection",
+        "path-traversal-download",
+        "build-pipeline-abuse",
+        "signed-update-publish",
+        "ssrf-internal-fetch",
+        "idor-object-access",
+        "stored-xss-review",
+        "unsafe-file-upload",
+        "ssti-preview",
+    ]
+    for plugin_id in plugin_ids:
+        suffix = f"-{plugin_id}"
+        if raw.endswith(suffix):
+            return raw[: -len(suffix)], plugin_id
+    return raw, ""
+
+
+def automation_hint_for_step(action_type: str, service: str, plugin: str) -> str:
+    if action_type == "access":
+        return "Use learner-access.json to open the learner URL and optional SSH terminal target."
+    if action_type == "vulnerability-behavior":
+        return f"Exercise the generated `{plugin}` scaffold or corresponding normal UI workflow on `{service}`; then verify emitted evidence in playtest/plugin-runtime-smoke output."
+    if action_type == "final-submission":
+        return "Submit the controlled final proof only to the generated final submission endpoint."
+    if action_type == "stage-chain":
+        return "Read /api/chain and /api/state from generated services when available to confirm stage evidence progression."
+    if action_type == "realism-review":
+        return "Inspect generated seed records, clues, and noise before automated browser solving."
+    return "Use playtest evidence to decide the next safe lab-contained action."
 
 
 def entrypoint_step(entrypoints: list[PlaytestEndpoint]) -> PlaytestStep:
@@ -669,6 +783,39 @@ def render_learner_access_markdown(report: PlaytestReport) -> str:
     lines += ["", "## High-Level Learner Path", ""]
     for step in report.steps:
         lines.append(f"- `{step.step_id}` {step.title}: {step.learner_action}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_solver_plan_markdown(plan: SolverPlan) -> str:
+    lines = [
+        f"# Solver Plan - {plan.title}",
+        "",
+        "This supervisor-facing plan is machine-readable in `solver-plan.json` and is intended for automated playtest agents.",
+        "It describes the ordered learner path without hard-coding a scenario-specific exploit script into the framework.",
+        "",
+        f"- Lab ID: `{plan.lab_id}`",
+        f"- Provider: `{plan.provider}`",
+        f"- Profile: `{plan.profile}`",
+        f"- Status: `{plan.status}`",
+        f"- Learner start: `{plan.learner_start or '-'}`",
+        f"- Attacker shell: `{plan.attacker_shell or '-'}`",
+        f"- Final submission: `{plan.final_submission or '-'}`",
+        "",
+        "## Ordered Steps",
+        "",
+        "| # | Type | Step | Service | Plugin | Learner Action | Expected Result | Automation Hint |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for step in plan.steps:
+        lines.append(
+            f"| {step.order} | `{step.action_type}` | `{step.step_id}` {escape_cell(step.title)} | "
+            f"`{step.service or '-'}` | `{step.plugin or '-'}` | {escape_cell(step.learner_action)} | "
+            f"{escape_cell(step.expected_result)} | {escape_cell(step.automation_hint)} |"
+        )
+    if plan.warnings:
+        lines += ["", "## Warnings", ""]
+        lines.extend(f"- {warning}" for warning in plan.warnings)
     lines.append("")
     return "\n".join(lines)
 
