@@ -89,6 +89,7 @@ def run_playtest(
         entrypoint_step(learner_entrypoints),
         attacker_step(attacker_entrypoints),
         vulnerability_runtime_step(runtime_smoke),
+        evidence_unlock_step(runtime_smoke),
         service_realism_step(spec, working_lab),
         service_chain_runtime_step(spec, working_lab, chain_manifest),
         scenario_stage_step(spec, chain_manifest),
@@ -222,6 +223,43 @@ def vulnerability_runtime_step(runtime_smoke) -> PlaytestStep:
         evidence=[f"{item.service}:{item.plugin}:{item.endpoint}" for item in runtime_smoke.items],
         learner_action="Use the service's normal UI/API to discover the lab-scoped weakness, then validate the behavior.",
         expected_result="Supported vulnerability plugins are runnable without reading source code.",
+    )
+
+
+def evidence_unlock_step(runtime_smoke) -> PlaytestStep:
+    plugin_items = [item for item in runtime_smoke.items if item.plugin != "service-contract"]
+    if not plugin_items:
+        return PlaytestStep(
+            step_id="runtime-02",
+            title="Vulnerability behavior emits stage evidence",
+            status="warning",
+            evidence=["No supported vulnerability plugin runtime smoke items were found for evidence verification."],
+            learner_action="Add supported vulnerability plugins or service-builder implementations for evidence-driven stages.",
+            expected_result="At least one exploited behavior should emit lab-wide evidence and unlock a later stage.",
+        )
+    failing = [item for item in plugin_items if item.status == "passed" and not item.emitted_evidence]
+    if failing:
+        return PlaytestStep(
+            step_id="runtime-02",
+            title="Vulnerability behavior emits stage evidence",
+            status="warning",
+            evidence=[f"{item.service}:{item.plugin} emitted no evidence" for item in failing],
+            learner_action="Connect the vulnerable route success path to stage evidence emission.",
+            expected_result="Successful vulnerability scaffolds should update shared stage-state evidence.",
+        )
+    unlocked = [item for item in plugin_items if item.unlocked_stages]
+    status: PlaytestStatus = "passed" if unlocked else "warning"
+    evidence = [
+        f"{item.service}:{item.plugin} evidence={','.join(item.emitted_evidence) or '-'} unlocked={','.join(item.unlocked_stages) or '-'}"
+        for item in plugin_items
+    ]
+    return PlaytestStep(
+        step_id="runtime-02",
+        title="Vulnerability behavior emits stage evidence",
+        status=status,
+        evidence=evidence,
+        learner_action="Exercise vulnerable routes and confirm `/api/state` changes as evidence is collected.",
+        expected_result="At least one vulnerable route emits evidence, and complete evidence sets unlock dependent stages.",
     )
 
 

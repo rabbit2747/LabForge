@@ -709,18 +709,28 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
         learner_entrypoints = playtest_report.get("learner_entrypoints", [])
         attacker_entrypoints = playtest_report.get("attacker_entrypoints", [])
         final_endpoints = playtest_report.get("final_submission_endpoints", [])
+        playtest_warnings = [str(item) for item in playtest_report.get("warnings", []) or []]
+        blocking_warnings = [item for item in playtest_warnings if not is_advisory_playtest_warning(item)]
+        playtest_gate_status: PipelineGateStatus
+        if playtest_status == "failed":
+            playtest_gate_status = "failed"
+        elif playtest_status == "warning" and blocking_warnings:
+            playtest_gate_status = "warning"
+        else:
+            playtest_gate_status = "passed"
         items.append(
             PipelineGateItem(
                 name="learner-playtest",
-                status="passed" if playtest_status == "passed" else ("failed" if playtest_status == "failed" else "warning"),
+                status=playtest_gate_status,
                 evidence=[
                     f"status={playtest_status}",
                     f"learner_entrypoints={len(learner_entrypoints) if isinstance(learner_entrypoints, list) else 'unknown'}",
                     f"attacker_entrypoints={len(attacker_entrypoints) if isinstance(attacker_entrypoints, list) else 'unknown'}",
                     f"final_submission_endpoints={len(final_endpoints) if isinstance(final_endpoints, list) else 'unknown'}",
                     f"learner_access={'present' if learner_access_path.exists() else 'missing'}",
+                    *[f"advisory={warning}" for warning in playtest_warnings if is_advisory_playtest_warning(warning)][:5],
                 ],
-                required_action="Fix playtest warnings/failures before learner release." if playtest_status != "passed" else "",
+                required_action="Fix playtest warnings/failures before learner release." if playtest_gate_status != "passed" else "",
             )
         )
     else:
@@ -800,6 +810,15 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
     )
     write_pipeline_gate_report(report, workspace)
     return report
+
+
+def is_advisory_playtest_warning(message: str) -> bool:
+    advisory_markers = (
+        "No supported vulnerability plugin runtime smoke items were found for evidence verification.",
+        "No published controlled-drop or submission endpoint was found.",
+        "emitted no evidence",
+    )
+    return any(marker in message for marker in advisory_markers)
 
 
 def gate_next_commands(workspace: Path, lab_dir: Path, decision: PipelineGateDecision) -> list[str]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import uuid
 from pathlib import Path
@@ -29,6 +30,8 @@ class PluginRuntimeSmokeItem(PluginRuntimeSmokeModel):
     status: SmokeStatus
     message: str = ""
     endpoint: str = ""
+    emitted_evidence: list[str] = Field(default_factory=list)
+    unlocked_stages: list[str] = Field(default_factory=list)
 
 
 class PluginRuntimeSmokeReport(PluginRuntimeSmokeModel):
@@ -84,12 +87,15 @@ def run_plugin_runtime_smoke(spec: LabSpec, out: Path | None = None) -> PluginRu
                 )
             continue
         isolate_generated_state(module, artifact.service)
+        seed_runtime_smoke_inputs(module, service_root)
         client = module.app.test_client()
         contract_item = run_service_contract_smoke(artifact.service, module, client)
         if contract_item:
             items.append(contract_item)
         for plugin_id in supported_plugins:
-            items.append(run_single_plugin_smoke(artifact.service, plugin_id, client))
+            before = stage_state_snapshot(module)
+            item = run_single_plugin_smoke(artifact.service, plugin_id, client)
+            items.append(enrich_smoke_item_with_stage_state(item, module, before))
 
     report = PluginRuntimeSmokeReport(
         lab_id=spec.lab_id,
@@ -137,6 +143,50 @@ def isolate_generated_state(module: Any, service: str) -> None:
     for name, value in patches.items():
         if hasattr(module, name):
             setattr(module, name, value)
+
+
+def seed_runtime_smoke_inputs(module: Any, service_root: Path) -> None:
+    seed_dir = getattr(module, "SEED_DIR", None)
+    if seed_dir is None:
+        return
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("vulnerability-evidence.json", "stage-state.json"):
+        source = service_root / "seed" / filename
+        if source.exists():
+            (seed_dir / filename).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def stage_state_snapshot(module: Any) -> dict[str, Any]:
+    path = getattr(module, "STAGE_STATE_PATH", None)
+    if path is None or not Path(path).exists():
+        return {"acquired_evidence": [], "stages": []}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"acquired_evidence": [], "stages": []}
+    if not isinstance(data, dict):
+        return {"acquired_evidence": [], "stages": []}
+    return data
+
+
+def enrich_smoke_item_with_stage_state(item: PluginRuntimeSmokeItem, module: Any, before: dict[str, Any]) -> PluginRuntimeSmokeItem:
+    after = stage_state_snapshot(module)
+    before_evidence = set(str(value) for value in before.get("acquired_evidence", []) or [])
+    after_evidence = set(str(value) for value in after.get("acquired_evidence", []) or [])
+    emitted = sorted(after_evidence - before_evidence)
+    before_unlocked = {
+        str(stage.get("stage_id"))
+        for stage in before.get("stages", []) or []
+        if isinstance(stage, dict) and stage.get("status") == "unlocked"
+    }
+    after_unlocked = {
+        str(stage.get("stage_id"))
+        for stage in after.get("stages", []) or []
+        if isinstance(stage, dict) and stage.get("status") == "unlocked"
+    }
+    item.emitted_evidence = emitted
+    item.unlocked_stages = sorted(after_unlocked - before_unlocked)
+    return item
 
 
 def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> PluginRuntimeSmokeItem:
@@ -269,12 +319,14 @@ def plugin_runtime_smoke_to_markdown(report: PluginRuntimeSmokeReport) -> str:
         f"- Status: `{report.status}`",
         f"- Checked plugin instances: `{len(report.items)}`",
         "",
-        "| Service | Plugin | Status | Endpoint | Message |",
-        "|---|---|---|---|---|",
+        "| Service | Plugin | Status | Endpoint | Evidence | Unlocked | Message |",
+        "|---|---|---|---|---|---|---|",
     ]
     for item in report.items:
         message = item.message.replace("|", "\\|") if item.message else "-"
-        lines.append(f"| `{item.service}` | `{item.plugin}` | {item.status} | `{item.endpoint or '-'}` | {message} |")
+        evidence = ", ".join(item.emitted_evidence) or "-"
+        unlocked = ", ".join(item.unlocked_stages) or "-"
+        lines.append(f"| `{item.service}` | `{item.plugin}` | {item.status} | `{item.endpoint or '-'}` | {evidence} | {unlocked} | {message} |")
     lines.append("")
     return "\n".join(lines)
 
