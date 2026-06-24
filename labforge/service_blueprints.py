@@ -226,6 +226,12 @@ def infer_template_from_artifact(artifact: Any) -> str:
         return "controlled-drop"
     if "attacker" in text or "workstation" in text:
         return "attacker-workstation-ssh"
+    if "portal" in text or "public" in text or "support" in text or "wiki" in text or "docs" in text:
+        return "business-portal"
+    if "admin" in text or "console" in text or "jump-host" in text or "jumpbox" in text:
+        return "internal-admin-console"
+    if "review" in text or "approval" in text or "ops" in text:
+        return "internal-admin-console"
     if "identity" in text or "auth" in text or "sso" in text:
         return "identity-gateway"
     if "siem" in text or "audit" in text or "log" in text:
@@ -234,9 +240,7 @@ def infer_template_from_artifact(artifact: Any) -> str:
         return "object-store"
     if "data" in text or "api" in text:
         return "data-api"
-    if "admin" in text or "console" in text:
-        return "internal-admin-console"
-    if "broker" in text or "message" in text or "queue" in text:
+    if "message broker" in text or "event bus" in text or " queue" in text or "-queue" in text:
         return "message-broker-stub"
     return "business-portal" if "portal" in text else "python-flask-web"
 
@@ -258,6 +262,12 @@ def infer_service_role(service: str, purpose: str, template: str) -> str:
         return "attacker-workstation"
     if "drop" in text or "submit" in text:
         return "controlled-drop"
+    if "portal" in text or "public" in text or "support" in text or "wiki" in text or "docs" in text:
+        return "business-portal"
+    if "admin" in text or "console" in text or "ops" in text or "jump-host" in text or "jumpbox" in text:
+        return "internal-admin-console"
+    if "review" in text or "approval" in text:
+        return "internal-admin-console"
     if "identity" in text or "auth" in text or "sso" in text or "mfa" in text:
         return "identity-gateway"
     if "siem" in text or "audit" in text or "log" in text or "security" in text:
@@ -266,12 +276,8 @@ def infer_service_role(service: str, purpose: str, template: str) -> str:
         return "object-store"
     if "data" in text or "api" in text or "warehouse" in text:
         return "data-api"
-    if "admin" in text or "console" in text or "ops" in text:
-        return "internal-admin-console"
-    if "broker" in text or "queue" in text or "message" in text or "event" in text:
+    if "message broker" in text or "event bus" in text or " queue" in text or "-queue" in text:
         return "message-broker-stub"
-    if "portal" in text or "public" in text or "support" in text:
-        return "business-portal"
     return "generic-service"
 
 

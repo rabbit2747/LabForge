@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from .io import dump_yaml, load_yaml, write_text
+from .realism import IndustryRealismProfile, get_realism_profile
 from .starter import starter_security_controls, starter_supervisor_selection
 
 
@@ -233,6 +234,98 @@ def intake_from_natural_language_request(request: NaturalLanguageScenarioRequest
     )
 
 
+def realism_profile_for_industry(industry: str) -> IndustryRealismProfile:
+    try:
+        return get_realism_profile(normalize_industry(industry))
+    except ValueError:
+        return get_realism_profile("enterprise")
+
+
+def scenario_realism_notes(intake: ScenarioIntake, profile: IndustryRealismProfile) -> list[str]:
+    notes = [
+        f"Model this as a {profile.display_name} environment, not as a generic challenge network.",
+        f"Required learner-visible or internal UI/workflow surfaces: {', '.join(profile.required_ui_surfaces)}.",
+        f"Required synthetic business data domains: {', '.join(profile.required_data_domains)}.",
+        f"Required security control coverage: {', '.join(profile.required_security_controls)}.",
+    ]
+    notes.extend(profile.provider_realism_expectations)
+    for capability in profile.capabilities:
+        if capability.recommended_services or capability.recommended_workflows or capability.recommended_data:
+            parts = [f"{capability.id}: {capability.description}"]
+            if capability.recommended_services:
+                parts.append(f"services={', '.join(capability.recommended_services)}")
+            if capability.recommended_workflows:
+                parts.append(f"workflows={', '.join(capability.recommended_workflows)}")
+            if capability.recommended_data:
+                parts.append(f"data={', '.join(capability.recommended_data)}")
+            notes.append("; ".join(parts))
+    return unique_strings(notes)
+
+
+def security_controls_from_intake(intake: ScenarioIntake, profile: IndustryRealismProfile) -> dict:
+    controls = starter_security_controls()
+    recommended = unique_strings(
+        [
+            *controls.get("recommended", []),
+            *intake.security_controls,
+            *profile.required_security_controls,
+        ]
+    )
+    controls["recommended"] = recommended
+    controls.setdefault("controls", {})
+    for control in profile.required_security_controls:
+        key = slugify(control)
+        controls["controls"].setdefault(
+            key,
+            [
+                {
+                    "id": f"{key}-industry-baseline",
+                    "name": f"{control.title()} industry baseline",
+                    "mode": "selectable",
+                    "description": f"Industry realism baseline for {profile.display_name}: {control}.",
+                }
+            ],
+        )
+    controls["industry_profile"] = {
+        "industry": profile.industry,
+        "display_name": profile.display_name,
+        "required_controls": profile.required_security_controls,
+    }
+    return controls
+
+
+def service_purpose_with_realism(service_name: str, intake: ScenarioIntake, profile: IndustryRealismProfile) -> str:
+    name = service_name.lower()
+    matched_capabilities = []
+    for capability in profile.capabilities:
+        candidate_terms = [
+            *capability.keywords,
+            *capability.recommended_services,
+            *capability.recommended_workflows,
+            *capability.recommended_data,
+        ]
+        if any(slugify(term) in name or term.lower() in name.replace("-", " ") for term in candidate_terms):
+            matched_capabilities.append(capability.id)
+    capability_text = ", ".join(matched_capabilities[:3]) if matched_capabilities else "supporting enterprise workflow"
+    return (
+        f"Implement the `{service_name}` behavior described in the scenario intake. "
+        f"Represent {profile.display_name} capability coverage for {capability_text}. "
+        "Use the artifact seed and noise contracts for industry-specific records."
+    )
+
+
+def unique_strings(values: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = str(value).strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            seen.add(key)
+            unique.append(cleaned)
+    return unique
+
+
 def apply_prompt_analysis_to_profile(profile: dict, analysis: PromptAnalysis) -> dict:
     merged = {**profile}
     inspiration = list(merged.get("inspiration", []))
@@ -310,6 +403,7 @@ def has_overlapping_service_name(asset: str, existing_names: set[str]) -> bool:
 
 
 def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
+    profile = realism_profile_for_industry(intake.target_industry)
     return {
         "lab.yaml": dump_yaml(
             {
@@ -330,7 +424,9 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
                 "summary": intake.summary,
                 "final_objective": intake.final_objective,
                 "learner_entrypoint": intake.learner_entrypoint,
+                "target_organization_type": profile.display_name,
                 "motivation": intake.inspiration,
+                "realism_notes": scenario_realism_notes(intake, profile),
                 "safety": {"boundaries": intake.safety_boundaries},
             }
         ),
@@ -338,7 +434,7 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
         "stages.yaml": dump_yaml(stages_from_intake(intake)),
         "environment.yaml": dump_yaml(environment_from_intake(intake)),
         "artifacts.yaml": dump_yaml(artifacts_from_intake(intake)),
-        "security-controls.yaml": dump_yaml(starter_security_controls()),
+        "security-controls.yaml": dump_yaml(security_controls_from_intake(intake, profile)),
         "supervisor-selection.yaml": dump_yaml(starter_supervisor_selection()),
         "providers/docker-compose.yaml": dump_yaml(
             {
@@ -374,6 +470,7 @@ def lab_files_from_intake(intake: ScenarioIntake) -> dict[str, str]:
 def topology_from_intake(intake: ScenarioIntake) -> dict:
     service_names = service_names_from_intake(intake)
     industry = normalize_industry(intake.target_industry)
+    profile = realism_profile_for_industry(industry)
     zone_names = industry_zone_names(industry)
     network_names = [network_name_for_zone(zone) for zone in zone_names if zone != "attacker"]
     if "public_edge_net" not in network_names:
@@ -417,11 +514,20 @@ def topology_from_intake(intake: ScenarioIntake) -> dict:
         )
     return {
         "networks": [{"name": name, **({"internal": True} if name != "public_edge_net" else {})} for name in network_names],
-        "security_controls": {"recommended": intake.security_controls or ["Firewall / Segmentation", "Central Log Collection"]},
+        "security_controls": {
+            "recommended": unique_strings(
+                [
+                    *(intake.security_controls or ["Firewall / Segmentation", "Central Log Collection"]),
+                    *profile.required_security_controls,
+                ]
+            ),
+            "industry_required": profile.required_security_controls,
+        },
         "deployment": {
             "recommended_model": "docker-compose",
             "docker_only_supported": True,
             "docker_only_notes": "Review this generated assumption. Switch to hybrid when the scenario requires Windows, AD, endpoint, cloud, ICS, or hypervisor realism.",
+            "provider_realism_expectations": profile.provider_realism_expectations,
             "minimum_environment": {
                 "description": "Single training PC for generated prototype mode.",
                 "hosts": [
@@ -592,6 +698,7 @@ def service_zone_for_name(service_name: str, industry: str) -> str:
 
 
 def artifacts_from_intake(intake: ScenarioIntake) -> dict:
+    profile = realism_profile_for_industry(intake.target_industry)
     service_artifacts = []
     for name in service_names_from_intake(intake):
         vulnerability_plugins = vulnerability_plugins_for_service(intake, name)
@@ -600,10 +707,19 @@ def artifacts_from_intake(intake: ScenarioIntake) -> dict:
                 "service": name,
                 "source_path": f"services/{name}",
                 "runtime": "scenario-derived-mvp-runtime",
-                "purpose": f"Implement the `{name}` behavior described in the scenario intake.",
-                "attack_surface": ["Learner-visible endpoints, shell access, or protocol behavior derived from the intake."],
-                "seed_inputs": ["seed/metadata.json"],
-                "noise_inputs": ["noise/"],
+                "purpose": service_purpose_with_realism(name, intake, profile),
+                "attack_surface": [
+                    "Learner-visible endpoints, shell access, or protocol behavior derived from the intake.",
+                    f"Industry UI/workflow surfaces to represent where relevant: {', '.join(profile.required_ui_surfaces)}.",
+                ],
+                "seed_inputs": [
+                    "seed/metadata.json",
+                    *[f"seed/{slugify(domain)}.json" for domain in profile.required_data_domains],
+                ],
+                "noise_inputs": [
+                    "noise/",
+                    *[f"noise/{slugify(expectation)}.json" for expectation in profile.noise_expectations[:3]],
+                ],
                 "healthcheck": "healthcheck.sh exits 0 when the service is ready.",
                 "reset": "reset.sh restores deterministic lab state.",
                 "evidence_logs": ["logs/app.log"],
@@ -612,8 +728,22 @@ def artifacts_from_intake(intake: ScenarioIntake) -> dict:
             }
         )
     return {
-        "seed": [],
-        "noise": [],
+        "seed": [
+            {
+                "name": f"{slugify(domain)}-synthetic-records",
+                "purpose": f"Synthetic {domain} records for realistic {profile.display_name} workflows.",
+                "path": f"seed/{slugify(domain)}.json",
+            }
+            for domain in profile.required_data_domains
+        ],
+        "noise": [
+            {
+                "name": f"{slugify(expectation[:48])}-noise",
+                "purpose": expectation,
+                "path": f"noise/{slugify(expectation[:48])}.json",
+            }
+            for expectation in profile.noise_expectations
+        ],
         "learner_handouts": [],
         "instructor_only": [{"name": "scenario-intake-source", "path": "scenario-intake.yaml"}],
         "service_artifacts": service_artifacts,
@@ -707,7 +837,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                 }
             )
 
-    if any(word in scenario_text for word in ["command injection", "diagnostic", "shell", "foothold", "command execution", "rce"]):
+    if any(word in scenario_text for word in ["command injection", "diagnostic", "shell", "command execution", "rce"]):
         if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search", "jump-host"]):
             plugins.append(
                 {

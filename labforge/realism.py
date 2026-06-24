@@ -33,6 +33,10 @@ class IndustryRealismProfile(RealismModel):
     capabilities: list[IndustryCapability] = Field(default_factory=list)
     common_technologies: list[str] = Field(default_factory=list)
     noise_expectations: list[str] = Field(default_factory=list)
+    required_ui_surfaces: list[str] = Field(default_factory=list)
+    required_data_domains: list[str] = Field(default_factory=list)
+    required_security_controls: list[str] = Field(default_factory=list)
+    provider_realism_expectations: list[str] = Field(default_factory=list)
 
 
 class RealismFinding(RealismModel):
@@ -97,6 +101,10 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
             "non-target maintenance runbooks and decoy files",
             "normal application and access logs",
         ],
+        required_ui_surfaces=["portal", "login", "request", "admin", "records"],
+        required_data_domains=["users", "groups", "tickets", "documents", "audit logs"],
+        required_security_controls=["firewall", "logging", "siem", "mfa", "segmentation"],
+        provider_realism_expectations=["Docker Compose is acceptable for generic web/data services; AD, endpoint, EDR, or Windows workstation realism should use hybrid provider support."],
     ),
     "securities": IndustryRealismProfile(
         industry="securities",
@@ -202,6 +210,13 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
             "normal customer tickets, market notices, maintenance windows, stale runbooks",
             "benign trade operations logs, compliance alerts, failed login noise",
             "non-target internal systems such as HR, accounting, and vendor portals",
+        ],
+        required_ui_surfaces=["investor", "trading", "order", "quote", "account", "compliance", "surveillance"],
+        required_data_domains=["orders", "quotes", "accounts", "positions", "settlement", "surveillance alerts", "regulatory exports"],
+        required_security_controls=["waf", "mfa", "siem", "ids", "audit", "segmentation"],
+        provider_realism_expectations=[
+            "Docker Compose can model securities web, API, and data-plane behavior.",
+            "HTS/MTS, VDI, broker terminal, EDR, or Windows endpoint realism should use VM or hybrid provider support.",
         ],
     ),
     "banking": IndustryRealismProfile(
@@ -315,6 +330,13 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
             "payment batch logs, reconciliation exceptions, fraud alerts, AML review notes, and SOC telemetry",
             "non-target systems such as HR, vendor risk, branch inventory, and marketing content",
         ],
+        required_ui_surfaces=["online banking", "mobile banking", "loan", "account", "payments", "fraud", "aml", "compliance"],
+        required_data_domains=["accounts", "ledger", "loan applications", "payments", "fraud alerts", "aml cases", "compliance exports"],
+        required_security_controls=["waf", "mfa", "device trust", "siem", "edr", "ids", "segmentation", "audit"],
+        provider_realism_expectations=[
+            "Docker Compose can model banking portal, API, and batch behavior.",
+            "Core banking terminal, endpoint EDR, Windows workstation, or AD realism should use VM-backed or hybrid provider support.",
+        ],
     ),
     "healthcare": IndustryRealismProfile(
         industry="healthcare",
@@ -330,6 +352,10 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
         ],
         common_technologies=["EHR integration engine", "HL7/FHIR API", "segmented clinical network", "centralized audit logging"],
         noise_expectations=["routine appointments, non-target departments, normal billing and clinical logs"],
+        required_ui_surfaces=["patient", "appointment", "ehr", "billing", "claims", "privacy"],
+        required_data_domains=["appointments", "encounters", "clinical notes", "claims", "billing events", "privacy audit logs"],
+        required_security_controls=["mfa", "audit", "siem", "edr", "segmentation"],
+        provider_realism_expectations=["Clinical workstation, imaging, identity, or EDR realism should use VM/hybrid assets rather than Docker-only services."],
     ),
     "manufacturing": IndustryRealismProfile(
         industry="manufacturing",
@@ -345,6 +371,10 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
         ],
         common_technologies=["jump host into OT", "plant historian", "engineering file share", "segmented firewall between IT and OT"],
         noise_expectations=["maintenance tickets, production logs, vendor manuals, non-target plant assets"],
+        required_ui_surfaces=["mes", "work order", "historian", "scada", "engineering", "maintenance"],
+        required_data_domains=["work orders", "historian tags", "alarms", "engineering changes", "maintenance logs"],
+        required_security_controls=["segmentation", "firewall", "monitoring", "ids", "jump host"],
+        provider_realism_expectations=["OT/ICS protocols and Windows engineering workstations usually require VM or hybrid provider support."],
     ),
     "active-directory": IndustryRealismProfile(
         industry="active-directory",
@@ -360,6 +390,10 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
         ],
         common_technologies=["Domain Controller", "Kerberos/LDAP/DNS", "Windows workstations", "file shares", "SIEM/EDR telemetry"],
         noise_expectations=["ordinary logon events, helpdesk tickets, GPO notes, stale shares, routine admin activity"],
+        required_ui_surfaces=["domain controller", "workstation", "file share", "admin", "event log"],
+        required_data_domains=["users", "groups", "gpo", "kerberos tickets", "smb shares", "windows event logs"],
+        required_security_controls=["edr", "event logging", "siem", "firewall", "segmentation"],
+        provider_realism_expectations=["AD realism requires Windows Server and workstation VMs; Docker-only is not sufficient for Kerberos/GPO behavior."],
     ),
     "supply-chain": IndustryRealismProfile(
         industry="supply-chain",
@@ -376,6 +410,10 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
         ],
         common_technologies=["source control", "CI/build server", "artifact store", "signing service", "update channel", "customer agent"],
         noise_expectations=["routine builds, failed test runs, release notes, customer tickets, stale runbooks, non-target channels"],
+        required_ui_surfaces=["support", "wiki", "source", "build", "release", "signing", "customer"],
+        required_data_domains=["tickets", "commits", "build jobs", "artifacts", "manifests", "release audit logs", "customer exports"],
+        required_security_controls=["waf", "audit", "siem", "signing", "segmentation", "egress control"],
+        provider_realism_expectations=["Docker Compose is acceptable for supply-chain web/API flows; signed artifact behavior must remain synthetic and lab-scoped."],
     ),
 }
 
@@ -473,6 +511,61 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
                         remediation=f"Add seed data, benign logs, stale documents, or routine tickets for `{artifact.service}`.",
                     )
                 )
+
+    for term in profile.required_ui_surfaces:
+        if term.lower() not in haystack:
+            findings.append(
+                RealismFinding(
+                    severity="error" if strict else "warning",
+                    category="ui-surface",
+                    message=f"Expected industry UI/workflow surface is not represented: {term}",
+                    expected=term,
+                    code=f"ui.{slug_part(term)}.missing",
+                    remediation=f"Add a normal learner-visible or internal UI/workflow surface for `{term}` with realistic labels, forms, routes, and records.",
+                )
+            )
+
+    for term in profile.required_data_domains:
+        if term.lower() not in haystack:
+            findings.append(
+                RealismFinding(
+                    severity="error" if strict else "warning",
+                    category="data-domain",
+                    message=f"Expected industry data domain is not represented: {term}",
+                    expected=term,
+                    code=f"data.{slug_part(term)}.missing",
+                    remediation=f"Seed synthetic but business-shaped `{term}` data, related logs, and benign noise records.",
+                )
+            )
+
+    security_haystack = json.dumps(spec.security_controls, ensure_ascii=False).lower() + " " + haystack
+    for control in profile.required_security_controls:
+        if control.lower() not in security_haystack:
+            findings.append(
+                RealismFinding(
+                    severity="error" if strict else "warning",
+                    category="security-control",
+                    message=f"Expected industry security control is not represented: {control}",
+                    expected=control,
+                    code=f"security-control.{slug_part(control)}.missing",
+                    remediation=f"Add `{control}` as an explicit security control, telemetry source, or protected architecture variant.",
+                )
+            )
+
+    deployment_text = json.dumps(spec.topology.get("deployment", {}), ensure_ascii=False).lower()
+    docker_only = "docker" in deployment_text and not any(term in deployment_text for term in ("hybrid", "vm", "proxmox", "windows", "ludus"))
+    provider_sensitive_terms = ("windows", "active directory", "kerberos", "gpo", "workstation", "edr", "ot", "scada", "plc", "ics")
+    if docker_only and any(term in haystack for term in provider_sensitive_terms):
+        findings.append(
+            RealismFinding(
+                severity="error" if strict else "warning",
+                category="provider-realism",
+                message="Docker-only deployment is declared while the scenario references assets that usually require VM or hybrid realism.",
+                expected=", ".join(profile.provider_realism_expectations or ["Use VM/hybrid provider when endpoint, AD, OT, or EDR realism is required."]),
+                code="provider.docker-only.realism-gap",
+                remediation="Switch the recommended provider to hybrid/VM-backed execution or explicitly mark those assets as simulated with reviewer approval.",
+            )
+        )
 
     anti_ctf_signals = detect_anti_ctf_signals(haystack)
     for signal in anti_ctf_signals:
@@ -590,6 +683,19 @@ def calculate_realism_scores(
     if any(finding.category == "anti-ctf" for finding in findings):
         workflow_score = max(0, workflow_score - 10)
         attack_score = max(0, attack_score - 15)
+    ui_gaps = sum(1 for finding in findings if finding.category == "ui-surface")
+    data_gaps = sum(1 for finding in findings if finding.category == "data-domain")
+    security_gaps = sum(1 for finding in findings if finding.category == "security-control")
+    provider_gaps = sum(1 for finding in findings if finding.category == "provider-realism")
+    if ui_gaps:
+        workflow_score = max(0, workflow_score - min(35, ui_gaps * 5))
+    if data_gaps:
+        data_score = max(0, data_score - min(35, data_gaps * 5))
+    if security_gaps:
+        security_score = max(0, security_score - min(40, security_gaps * 6))
+    if provider_gaps:
+        infrastructure_penalty = min(30, provider_gaps * 15)
+        zone_score = max(0, zone_score - infrastructure_penalty)
     if missing_capabilities:
         service_depth_score = max(0, service_depth_score - min(30, len(missing_capabilities) * 5))
     return RealismScoreBreakdown(
@@ -755,6 +861,30 @@ def realism_report_to_markdown(report: RealismReport) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in report.profile.common_technologies)
+    lines += [
+        "",
+        "### Required UI / Workflow Surfaces",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in report.profile.required_ui_surfaces or ["No profile-specific UI surface requirements declared."])
+    lines += [
+        "",
+        "### Required Data Domains",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in report.profile.required_data_domains or ["No profile-specific data-domain requirements declared."])
+    lines += [
+        "",
+        "### Required Security Controls",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in report.profile.required_security_controls or ["No profile-specific security-control requirements declared."])
+    lines += [
+        "",
+        "### Provider Realism Expectations",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in report.profile.provider_realism_expectations or ["No profile-specific provider expectations declared."])
     lines += [
         "",
         "### Noise Expectations",
