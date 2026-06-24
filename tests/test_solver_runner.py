@@ -520,11 +520,15 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("config=200", report.steps[0].message)
+                self.assertIn("policy=200", report.steps[0].message)
                 self.assertIn("log=200", report.steps[0].message)
                 self.assertIn("correlation=200", report.steps[0].message)
+                self.assertIn("audit=200", report.steps[0].message)
                 self.assertIn("secret_value=redacted", report.steps[0].message)
                 self.assertIn("cache_profile_matches_account=True", report.steps[0].message)
                 self.assertIn("recovered_credential=present", report.steps[0].message)
+                self.assertIn("redacted_config_audited=True", report.steps[0].message)
+                self.assertIn("startup_secret_audited=True", report.steps[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -1510,6 +1514,21 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"secret_value": "redacted", "secret_reference": "lab://secret/ref"}).encode("utf-8"))
             return
+        if self.path == "/api/config/secret-policy":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "redaction_policy": "runtime config values are redacted",
+                        "startup_log_api": "/api/config/startup-log",
+                        "correlation_api": "/api/config/correlation",
+                        "audit_api": "/api/config/access-audit",
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/api/config/correlation":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1530,6 +1549,21 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(b"vault-cache export OPERATOR_BIND_CURRENT=LabForge-Operator-Training-Secret!\n")
+            return
+        if self.path == "/api/config/access-audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "records": [
+                            {"action": "config-read", "secret_value_visible": False},
+                            {"action": "startup-log-read", "secret_value_visible": True},
+                        ]
+                    }
+                ).encode("utf-8")
+            )
             return
         self.send_response(404)
         self.end_headers()

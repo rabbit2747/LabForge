@@ -991,6 +991,13 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/config/secret-policy", "/labforge/scaffold/config/secret-policy"],
+            None,
+            timeout_seconds,
+        )
         log_status, _, log_body, log_route = http_json_first(
             "GET",
             base_url,
@@ -1005,16 +1012,31 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/config/access-audit", "/labforge/scaffold/config/access-audit"],
+            None,
+            timeout_seconds,
+        )
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        redacted_config_audited = any(isinstance(record, dict) and record.get("action") == "config-read" and record.get("secret_value_visible") is False for record in audit_records)
+        startup_secret_audited = any(isinstance(record, dict) and record.get("action") == "startup-log-read" and record.get("secret_value_visible") is True for record in audit_records)
         ok = (
             landing_ok
             and config_status == 200
+            and policy_status == 200
             and log_status == 200
             and correlation_status == 200
+            and audit_status == 200
             and config.get("secret_value") == "redacted"
+            and "redacted" in policy.get("redaction_policy", "")
             and correlation.get("secret_reference") == config.get("secret_reference")
             and correlation.get("cache_profile_matches_account") is True
             and bool(correlation.get("recovered_credential"))
             and "vault-cache export" in log_body
+            and redacted_config_audited
+            and startup_secret_audited
         )
         return plugin_step(
             order,
@@ -1025,10 +1047,12 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; config_route={config_route}; log_route={log_route}; correlation_route={correlation_route}; "
-                f"config={config_status}; log={log_status}; correlation={correlation_status}; "
+                f"{context_note}; config_route={config_route}; policy_route={policy_route}; log_route={log_route}; "
+                f"correlation_route={correlation_route}; audit_route={audit_route}; config={config_status}; "
+                f"policy={policy_status}; log={log_status}; correlation={correlation_status}; audit={audit_status}; "
                 f"secret_value={config.get('secret_value', '-')}; cache_profile_matches_account={correlation.get('cache_profile_matches_account')}; "
-                f"recovered_credential={'present' if correlation.get('recovered_credential') else 'missing'}"
+                f"recovered_credential={'present' if correlation.get('recovered_credential') else 'missing'}; "
+                f"redacted_config_audited={redacted_config_audited}; startup_secret_audited={startup_secret_audited}"
             ),
         )
     if plugin == "build-pipeline-abuse":
