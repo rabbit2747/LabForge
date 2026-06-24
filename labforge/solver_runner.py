@@ -423,8 +423,12 @@ def run_plugin_http_sequence(
     discovery_note = discovery_message(discovery_status, discovery_data)
     runbook_status, runbook_body, runbook_route = http_text_first("GET", base_url, ["/operations/runbook"], timeout_seconds)
     runbook_note = runbook_message(runbook_status, runbook_body, runbook_route)
+    routes_status, routes_data, _ = http_json("GET", f"{base_url}/operations/routes?format=json", None, timeout_seconds)
+    routes_note = route_catalog_message(routes_status, routes_data)
+    routes_ok = routes_status == 200 and bool(routes_data.get("routes"))
     landing_ok, landing_note = plugin_landing_probe(base_url, plugin, timeout_seconds)
-    context_note = f"{discovery_note}; {runbook_note}; {landing_note}"
+    landing_ok = landing_ok and routes_ok
+    context_note = f"{discovery_note}; {runbook_note}; {routes_note}; {landing_note}"
     if plugin == "ssti-preview":
         status, data, body, route = http_json_first(
             "POST",
@@ -743,6 +747,18 @@ def runbook_message(status: int, body: str, route: str) -> str:
     if status == 0:
         return "runbook=unreachable"
     return f"runbook={status}; runbook_route={route}"
+
+
+def route_catalog_message(status: int, data: dict) -> str:
+    routes = data.get("routes", []) if isinstance(data, dict) else []
+    count = len(routes) if isinstance(routes, list) else 0
+    if status == 200:
+        return f"route_catalog=200; route_count={count}"
+    if status == 404:
+        return "route_catalog=missing"
+    if status == 0:
+        return "route_catalog=unreachable"
+    return f"route_catalog={status}; route_count={count}"
 
 
 def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int) -> tuple[int, dict, str]:

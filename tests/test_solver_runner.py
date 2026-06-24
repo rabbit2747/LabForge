@@ -242,6 +242,8 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("discovery=200", report.steps[0].message)
                 self.assertIn("runbook=200", report.steps[0].message)
+                self.assertIn("route_catalog=200", report.steps[0].message)
+                self.assertIn("route_count=2", report.steps[0].message)
                 self.assertIn("landing=200", report.steps[0].message)
                 self.assertIn("landing_route=/operations/preview", report.steps[0].message)
                 self.assertIn("route=/operations/preview", report.steps[0].message)
@@ -572,6 +574,22 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"<html><body><h1>Operations Runbook</h1><p>Response Preview workflow notes</p></body></html>")
             return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "investor-portal",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/preview", "feature": "response preview"},
+                            {"method": "POST", "path": "/operations/preview", "feature": "response preview"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/operations/preview":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -649,6 +667,22 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"items": [{"plugin": "solr-velocity-rce"}]}).encode("utf-8"))
             return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "ops-search",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/search-admin", "feature": "search maintenance"},
+                            {"method": "GET", "path": "/solr/ops-core/admin/info/system", "feature": "search maintenance"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/operations/search-admin":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -692,6 +726,22 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"items": [{"plugin": "credential-exposure"}]}).encode("utf-8"))
             return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "support-portal",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/config", "feature": "runtime configuration"},
+                            {"method": "GET", "path": "/api/config/startup-log", "feature": "runtime configuration"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/operations/config":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -730,6 +780,22 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(b"<html><body><h1>Operations Runbook</h1><p>Upstream import workflow</p></body></html>")
+            return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "import-console",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/fetch", "feature": "upstream import"},
+                            {"method": "GET", "path": "/operations/fetch?url=<url>", "feature": "upstream import"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
             return
         if self.path == "/operations/fetch":
             self.send_response(200)
