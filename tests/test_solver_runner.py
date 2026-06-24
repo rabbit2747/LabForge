@@ -258,6 +258,54 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_fails_when_expected_stage_evidence_is_not_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), MissingStageEvidenceSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-missing-stage-evidence",
+                            "title": "Solver Missing Stage Evidence",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-investor-portal-ssti-preview",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "investor-portal",
+                                    "plugin": "ssti-preview",
+                                    "evidence": [
+                                        "/operations/preview",
+                                        "emitted_evidence=template_probe_confirmed",
+                                    ],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "investor-portal", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "failed")
+                self.assertEqual(report.steps[0].status, "failed")
+                self.assertIn("expected_evidence=template_probe_confirmed", report.steps[0].message)
+                self.assertIn("missing_expected_evidence=template_probe_confirmed", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_skips_plugin_without_published_service_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -653,6 +701,27 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         return
+
+
+class MissingStageEvidenceSmokeHandler(SolverRunnerSmokeHandler):
+    def do_GET(self) -> None:
+        if self.path == "/api/state":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "acquired_evidence": [],
+                        "stages": [
+                            {"stage_id": "stage-01", "status": "unlocked"},
+                            {"stage_id": "stage-02", "status": "locked"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        super().do_GET()
 
 
 class MissingLandingSmokeHandler(BaseHTTPRequestHandler):

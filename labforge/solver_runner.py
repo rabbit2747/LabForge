@@ -664,10 +664,12 @@ def run_plugin_http_sequence(
 
 
 def plugin_step(order: int, step_id: str, service: str, plugin: str, target: str, evidence: list[str], ok: bool, message: str) -> SolverRunStep:
+    expected_stage_evidence = expected_emitted_evidence(evidence)
     if ok:
-        state_note = stage_state_message(target)
+        state_ok, state_note = stage_state_check(target, expected_stage_evidence)
         if state_note:
             message = f"{message}; {state_note}"
+        ok = ok and state_ok
     return SolverRunStep(
         order=order,
         step_id=step_id,
@@ -679,6 +681,57 @@ def plugin_step(order: int, step_id: str, service: str, plugin: str, target: str
         evidence=evidence,
         message=message,
     )
+
+
+def expected_emitted_evidence(evidence: list[str]) -> list[str]:
+    expected: list[str] = []
+    for item in evidence:
+        text = str(item).strip()
+        if not text.startswith("emitted_evidence="):
+            continue
+        values = text.split("=", maxsplit=1)[1]
+        for value in values.split(","):
+            value = value.strip()
+            if value and value not in expected:
+                expected.append(value)
+    return expected
+
+
+def stage_state_check(base_url: str, expected_evidence: list[str]) -> tuple[bool, str]:
+    if not base_url.startswith("http"):
+        return True, ""
+    status, data, _ = http_json("GET", f"{base_url}/api/state", None, 3)
+    if status == 404:
+        if expected_evidence:
+            return False, f"stage_state=not-exposed; missing_expected_evidence={','.join(expected_evidence)}"
+        return True, "stage_state=not-exposed"
+    if status == 0:
+        if expected_evidence:
+            return False, f"stage_state=unreachable; missing_expected_evidence={','.join(expected_evidence)}"
+        return True, "stage_state=unreachable"
+    if status != 200:
+        if expected_evidence:
+            return False, f"stage_state={status}; missing_expected_evidence={','.join(expected_evidence)}"
+        return True, f"stage_state={status}"
+    acquired = data.get("acquired_evidence", []) if isinstance(data, dict) else []
+    stages = data.get("stages", []) if isinstance(data, dict) else []
+    unlocked = [
+        stage
+        for stage in stages
+        if isinstance(stage, dict) and str(stage.get("status", "")).lower() == "unlocked"
+    ]
+    if not isinstance(acquired, list) or not isinstance(stages, list):
+        if expected_evidence:
+            return False, f"stage_state=200; shape=unexpected; missing_expected_evidence={','.join(expected_evidence)}"
+        return True, "stage_state=200; shape=unexpected"
+    acquired_text = {str(item) for item in acquired}
+    missing = [item for item in expected_evidence if item not in acquired_text]
+    note = f"stage_state=200; acquired_evidence={len(acquired)}; unlocked_stages={len(unlocked)}"
+    if expected_evidence:
+        note = f"{note}; expected_evidence={','.join(expected_evidence)}"
+    if missing:
+        return False, f"{note}; missing_expected_evidence={','.join(missing)}"
+    return True, note
 
 
 def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tuple[bool, str]:
@@ -711,25 +764,7 @@ def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tu
 
 
 def stage_state_message(base_url: str) -> str:
-    if not base_url.startswith("http"):
-        return ""
-    status, data, _ = http_json("GET", f"{base_url}/api/state", None, 3)
-    if status == 404:
-        return "stage_state=not-exposed"
-    if status == 0:
-        return "stage_state=unreachable"
-    if status != 200:
-        return f"stage_state={status}"
-    acquired = data.get("acquired_evidence", []) if isinstance(data, dict) else []
-    stages = data.get("stages", []) if isinstance(data, dict) else []
-    unlocked = [
-        stage
-        for stage in stages
-        if isinstance(stage, dict) and str(stage.get("status", "")).lower() == "unlocked"
-    ]
-    if isinstance(acquired, list) and isinstance(stages, list):
-        return f"stage_state=200; acquired_evidence={len(acquired)}; unlocked_stages={len(unlocked)}"
-    return "stage_state=200; shape=unexpected"
+    return stage_state_check(base_url, [])[1]
 
 
 def discovery_message(status: int, data: dict) -> str:

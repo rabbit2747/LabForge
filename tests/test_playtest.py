@@ -231,8 +231,22 @@ class PlaytestTests(unittest.TestCase):
         )
         runtime_smoke = SimpleNamespace(
             items=[
-                SimpleNamespace(service="build-server", plugin="build-pipeline-abuse", status="passed", endpoint="/api/build/jobs"),
-                SimpleNamespace(service="update-server", plugin="signed-update-publish", status="passed", endpoint="/api/publish"),
+                SimpleNamespace(
+                    service="build-server",
+                    plugin="build-pipeline-abuse",
+                    status="passed",
+                    endpoint="/api/build/jobs",
+                    emitted_evidence=["build_job_created"],
+                    unlocked_stages=["stage-08"],
+                ),
+                SimpleNamespace(
+                    service="update-server",
+                    plugin="signed-update-publish",
+                    status="passed",
+                    endpoint="/api/publish",
+                    emitted_evidence=["manifest_published"],
+                    unlocked_stages=["stage-09"],
+                ),
             ]
         )
 
@@ -240,6 +254,8 @@ class PlaytestTests(unittest.TestCase):
         build_step = next(step for step in steps if step.step_id == "plugin-build-server-build-pipeline-abuse")
 
         self.assertEqual(build_step.status, "passed")
+        self.assertIn("emitted_evidence=build_job_created", build_step.evidence)
+        self.assertIn("unlocked_stages=stage-08", build_step.evidence)
         self.assertTrue(any("signed-update-publish" in cue for cue in build_step.discovery_cues))
         self.assertIn("signed-update-publish", build_step.next_step_condition)
 

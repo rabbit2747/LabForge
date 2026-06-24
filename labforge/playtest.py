@@ -988,7 +988,7 @@ def plugin_walkthrough_steps(spec: LabSpec, runtime_smoke) -> list[PlaytestStep]
                     step_id=f"plugin-{artifact.service}-{plugin_id}".replace("_", "-"),
                     title=f"{artifact.service}: {plugin_id}",
                     status=status,
-                    evidence=[smoke.endpoint if smoke else "No runtime smoke evidence for this plugin."],
+                    evidence=plugin_walkthrough_evidence(smoke),
                     learner_action=guidance["learner_action"],
                     expected_result=guidance["expected_result"],
                     discovery_cues=discovery_cues,
@@ -996,6 +996,19 @@ def plugin_walkthrough_steps(spec: LabSpec, runtime_smoke) -> list[PlaytestStep]
                 )
             )
     return steps
+
+
+def plugin_walkthrough_evidence(smoke) -> list[str]:
+    if not smoke:
+        return ["No runtime smoke evidence for this plugin."]
+    evidence = [smoke.endpoint]
+    emitted = [str(item) for item in getattr(smoke, "emitted_evidence", []) or [] if str(item).strip()]
+    unlocked = [str(item) for item in getattr(smoke, "unlocked_stages", []) or [] if str(item).strip()]
+    if emitted:
+        evidence.append(f"emitted_evidence={','.join(emitted)}")
+    if unlocked:
+        evidence.append(f"unlocked_stages={','.join(unlocked)}")
+    return evidence
 
 
 def plugin_handoff_context(spec: LabSpec) -> dict[tuple[str, str], dict[str, Any]]:
