@@ -232,6 +232,10 @@ The Docker Compose provider mounts the shared `labforge_state` volume into
 generated service-artifact containers at `/labforge-state` and documents
 trusted-update participants in `docs/provider-service-plan.md`, so generated
 provider output preserves this runtime handoff path.
+Automated solver coverage now includes a live HTTP generated-runtime test for
+the trusted-update chain: build creates a manifest, sign consumes the latest
+build, publish consumes the latest signed manifest, and customer polling consumes
+published channel state before the controlled object is exposed.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR
