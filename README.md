@@ -226,6 +226,9 @@ Learner playtest now also emits `lab-access-bundle.md` and
 `lab-access-bundle.json`, a compact handoff that collects provider start
 commands, browser URLs, SSH commands, final submission URLs, health checks,
 terminal readiness sequences, and links to solver/access evidence files.
+The E2E solver checks this bundle against `learner-access.json`,
+`solver-plan.json`, and provider `endpoints.json` so stale or contradictory
+URL/SSH handoffs are surfaced before a lab is treated as playable.
 Playtest also recognizes trusted-update supply-chain handoffs across
 `build-pipeline-abuse`, `signed-update-publish`, and
 `customer-update-callback` plugins. When these plugins are declared together,

@@ -24,6 +24,9 @@ class E2ESolverReport(E2ESolverModel):
     provider_output: str
     solver_plan: str
     access_manifest: str
+    access_bundle: str = ""
+    access_bundle_ready: bool = False
+    access_bundle_findings: list[str] = Field(default_factory=list)
     host_preflight: dict = Field(default_factory=dict)
     preflight_ready: bool = False
     lifecycle: list[ProviderLifecycleResult] = Field(default_factory=list)
@@ -57,6 +60,14 @@ def run_e2e_solver(
     write_text(out / "host-preflight.json", json.dumps(host_preflight_data, ensure_ascii=False, indent=2) + "\n")
     endpoint_manifest = provider_output / "endpoints.json"
     endpoint_manifest_arg = endpoint_manifest if endpoint_manifest.exists() else None
+    access_bundle_path = access_manifest.parent / "lab-access-bundle.json"
+    access_bundle_findings = validate_access_bundle(
+        access_bundle_path,
+        provider_output,
+        solver_plan,
+        access_manifest,
+    )
+    access_bundle_ready = bool(access_bundle_path.exists()) and not any(item.startswith("missing=") or item.startswith("mismatch=") for item in access_bundle_findings)
     lifecycle: list[ProviderLifecycleResult] = []
     if execute and not preflight_ready:
         lifecycle.append(
@@ -142,10 +153,19 @@ def run_e2e_solver(
     report = E2ESolverReport(
         provider=provider,
         mode=mode,
-        status=aggregate_e2e_status(lifecycle, access_report, solver_report, execute=execute),
+        status=aggregate_e2e_status(
+            lifecycle,
+            access_report,
+            solver_report,
+            execute=execute,
+            access_bundle_ready=access_bundle_ready,
+        ),
         provider_output=str(provider_output),
         solver_plan=str(solver_plan),
         access_manifest=str(access_manifest),
+        access_bundle=str(access_bundle_path) if access_bundle_path.exists() else "",
+        access_bundle_ready=access_bundle_ready,
+        access_bundle_findings=access_bundle_findings,
         host_preflight=host_preflight_data,
         preflight_ready=preflight_ready,
         lifecycle=lifecycle,
@@ -166,6 +186,7 @@ def aggregate_e2e_status(
     solver_report: SolverRunReport,
     *,
     execute: bool,
+    access_bundle_ready: bool = True,
 ) -> Literal["planned", "passed", "warning", "failed"]:
     if not execute:
         return "planned"
@@ -177,6 +198,8 @@ def aggregate_e2e_status(
         return "warning"
     if access_report.status == "warning" or solver_report.status == "warning":
         return "warning"
+    if not access_bundle_ready:
+        return "warning"
     return "passed"
 
 
@@ -184,6 +207,72 @@ def provider_preflight_ready(report: HostDoctorReport, provider: str) -> bool:
     if provider != "docker-compose":
         return True
     return report.host_docker_server or any(distro.docker_server for distro in report.wsl_distros)
+
+
+def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_plan: Path, access_manifest: Path) -> list[str]:
+    if not access_bundle.exists():
+        return [f"missing=lab-access-bundle.json at {access_bundle}"]
+    try:
+        data = json.loads(access_bundle.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"invalid=lab-access-bundle.json:{exc}"]
+    if not isinstance(data, dict):
+        return ["invalid=lab-access-bundle.json is not an object"]
+
+    findings: list[str] = []
+    expected_files = {
+        "provider_endpoints": provider_output / "endpoints.json",
+        "learner_access_json": access_manifest,
+        "solver_plan_json": solver_plan,
+    }
+    generated = data.get("generated_files", {})
+    if not isinstance(generated, dict):
+        findings.append("missing=generated_files")
+        generated = {}
+    for key, expected in expected_files.items():
+        actual = str(generated.get(key, "")).strip()
+        if not actual:
+            findings.append(f"missing=generated_files.{key}")
+            continue
+        if Path(actual).resolve() != expected.resolve():
+            findings.append(f"mismatch=generated_files.{key}:{actual}")
+
+    access = load_json(access_manifest)
+    learner_urls = [
+        str(item.get("connect", "")).strip()
+        for item in access.get("learner_entrypoints", []) or []
+        if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
+    ]
+    attacker_ssh = [
+        str(item.get("connect", "")).strip()
+        for item in access.get("attacker_entrypoints", []) or []
+        if isinstance(item, dict) and str(item.get("protocol", "")) == "ssh" and item.get("connect")
+    ]
+    final_urls = [
+        str(item.get("connect", "")).strip()
+        for item in access.get("final_submission_endpoints", []) or []
+        if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
+    ]
+    compare_bundle_list(findings, data, "learner_urls", learner_urls)
+    compare_bundle_list(findings, data, "attacker_ssh", attacker_ssh)
+    compare_bundle_list(findings, data, "final_submission_urls", final_urls)
+    if not data.get("solver_ready"):
+        findings.append("missing=solver_ready")
+    return findings or ["access_bundle=ready"]
+
+
+def load_json(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def compare_bundle_list(findings: list[str], bundle: dict, key: str, expected: list[str]) -> None:
+    actual = [str(item).strip() for item in bundle.get(key, []) or [] if str(item).strip()]
+    if actual != expected:
+        findings.append(f"mismatch={key}:expected={expected}:actual={actual}")
 
 
 def host_preflight_to_dict(report: HostDoctorReport) -> dict:
@@ -239,6 +328,8 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
         f"- Provider output: `{report.provider_output}`",
         f"- Solver plan: `{report.solver_plan}`",
         f"- Access manifest: `{report.access_manifest}`",
+        f"- Access bundle: `{report.access_bundle or '-'}`",
+        f"- Access bundle ready: `{str(report.access_bundle_ready).lower()}`",
         f"- Host preflight ready: `{str(report.preflight_ready).lower()}`",
         f"- Cleanup requested: `{str(report.cleanup_requested).lower()}`",
         "",
@@ -248,6 +339,12 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
         f"- Recommended execution: `{report.host_preflight.get('recommended_execution', '-') if report.host_preflight else '-'}`",
         f"- Host Docker server: `{str(report.host_preflight.get('host_docker_server', '-')).lower() if report.host_preflight else '-'}`",
         f"- WSL available: `{str(report.host_preflight.get('wsl_available', '-')).lower() if report.host_preflight else '-'}`",
+        "",
+        "## Access Bundle",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in report.access_bundle_findings or ["No access bundle findings."])
+    lines += [
         "",
         "## Lifecycle",
         "",

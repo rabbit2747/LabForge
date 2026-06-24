@@ -24,6 +24,7 @@ class E2ESolverTests(unittest.TestCase):
             (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
             solver_plan = root / "solver-plan.json"
             access_manifest = root / "learner-access.json"
+            access_bundle = root / "lab-access-bundle.json"
             solver_plan.write_text(
                 json.dumps(
                     {
@@ -44,6 +45,25 @@ class E2ESolverTests(unittest.TestCase):
                                 "evidence": ["portal"],
                             }
                         ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_bundle.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "e2e-smoke",
+                        "title": "E2E Smoke",
+                        "provider_output_dir": str(provider_output.resolve()),
+                        "learner_urls": ["http://127.0.0.1:18081/"],
+                        "attacker_ssh": ["ssh attacker@127.0.0.1 -p 2222"],
+                        "final_submission_urls": [],
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "solver_ready": True,
                     }
                 ),
                 encoding="utf-8",
@@ -97,6 +117,8 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual([item.action for item in report.lifecycle], ["validate", "deploy", "status"])
             self.assertEqual(report.access_playtest.status, "planned")
             self.assertEqual(report.solver_run.status, "planned")
+            self.assertTrue(report.access_bundle_ready)
+            self.assertIn("access_bundle=ready", report.access_bundle_findings)
             self.assertTrue((root / "e2e" / "e2e-solver.md").exists())
             self.assertTrue((root / "e2e" / "e2e-solver.yaml").exists())
             self.assertTrue((root / "e2e" / "e2e-solver.json").exists())
@@ -164,13 +186,34 @@ class E2ESolverTests(unittest.TestCase):
             playtest.mkdir()
             solver_plan = playtest / "solver-plan.json"
             access_manifest = playtest / "learner-access.json"
+            access_bundle = playtest / "lab-access-bundle.json"
             (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
             solver_plan.write_text(
                 json.dumps(
                     {
                         "lab_id": "execute-smoke",
                         "title": "Execute Smoke",
                         "steps": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_bundle.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "execute-smoke",
+                        "title": "Execute Smoke",
+                        "provider_output_dir": str(provider_output.resolve()),
+                        "learner_urls": [],
+                        "attacker_ssh": [],
+                        "final_submission_urls": [],
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "solver_ready": True,
                     }
                 ),
                 encoding="utf-8",
@@ -252,8 +295,110 @@ class E2ESolverTests(unittest.TestCase):
                 )
 
             self.assertEqual(report.status, "passed")
+            self.assertTrue(report.access_bundle_ready)
             self.assertEqual(calls, [("validate", True), ("deploy", True), ("status", True), ("destroy", True)])
             self.assertTrue((out / "e2e-solver.md").exists())
+
+    def test_e2e_solver_warns_when_access_bundle_does_not_match_access_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            provider_output.mkdir()
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            (root / "lab-access-bundle.json").write_text(
+                json.dumps(
+                    {
+                        "lab_id": "bundle-mismatch",
+                        "title": "Bundle Mismatch",
+                        "learner_urls": ["http://127.0.0.1:19999/"],
+                        "attacker_ssh": [],
+                        "final_submission_urls": [],
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "solver_ready": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            solver_plan.write_text(
+                json.dumps({"lab_id": "bundle-mismatch", "title": "Bundle Mismatch", "steps": []}),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "bundle-mismatch",
+                        "title": "Bundle Mismatch",
+                        "learner_entrypoints": [
+                            {"service": "portal", "protocol": "http", "connect": "http://127.0.0.1:18081/"}
+                        ],
+                        "attacker_entrypoints": [],
+                        "final_submission_endpoints": [],
+                        "health_checks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_lifecycle(*_args, **kwargs):
+                return ProviderLifecycleResult(
+                    provider=kwargs["provider"],
+                    action=kwargs["action"],
+                    mode="execute",
+                    status="completed",
+                    output_dir=str(provider_output),
+                )
+
+            def fake_access(*_args, **_kwargs):
+                return AccessPlaytestReport(
+                    lab_id="bundle-mismatch",
+                    title="Bundle Mismatch",
+                    mode="execute",
+                    status="passed",
+                    access_manifest=str(access_manifest),
+                )
+
+            def fake_solver(*_args, **_kwargs):
+                return SolverRunReport(
+                    lab_id="bundle-mismatch",
+                    title="Bundle Mismatch",
+                    mode="execute",
+                    status="passed",
+                    solver_plan=str(solver_plan),
+                )
+
+            with patch("labforge.e2e_solver.provider_lifecycle", side_effect=fake_lifecycle), patch(
+                "labforge.e2e_solver.run_access_playtest",
+                side_effect=fake_access,
+            ), patch("labforge.e2e_solver.run_solver_plan", side_effect=fake_solver):
+                report = run_e2e_solver(
+                    provider_output,
+                    solver_plan,
+                    access_manifest,
+                    root / "e2e",
+                    execute=True,
+                    host_preflight=HostDoctorReport(
+                        host_os="linux",
+                        platform="test",
+                        architecture="x86_64",
+                        shell_hint="sh",
+                        cwd=str(root),
+                        wsl_available=False,
+                        host_docker_cli=True,
+                        host_docker_server=True,
+                        recommended_execution="host",
+                    ),
+                )
+
+            self.assertEqual(report.status, "warning")
+            self.assertFalse(report.access_bundle_ready)
+            self.assertTrue(any(item.startswith("mismatch=learner_urls") for item in report.access_bundle_findings))
 
 
 if __name__ == "__main__":
