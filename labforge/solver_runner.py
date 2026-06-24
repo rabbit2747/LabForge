@@ -599,17 +599,23 @@ def run_plugin_http_sequence(
             "build_id": "build-smoke",
             "artifact": {"name": "smoke.tar", "sha256": "0" * 64, "url": "http://build-server/smoke.tar", "size_bytes": 1},
         }
-        signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {"canonical_manifest": manifest}, timeout_seconds)
-        publish_status, _, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
+        signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {}, timeout_seconds)
+        if signed_status == 400:
+            signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {"canonical_manifest": manifest}, timeout_seconds)
+        publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {}, timeout_seconds)
+        if publish_status == 400:
+            publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
         ok = landing_ok and signed_status == 200 and publish_status == 201
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; sign_route={sign_route}; publish_route={publish_route}; signed={signed_status}; published={publish_status}")
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; sign_route={sign_route}; publish_route={publish_route}; signed={signed_status}; published={publish_status}; signed_source={signed.get('source', '-')}; build_id={published.get('manifest', {}).get('build_id', '-')}")
     if plugin == "customer-update-callback":
         pre_status, _, _, pre_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
         manifest = {"product": "product-agent", "channel": "smoke", "build_id": "build-smoke", "artifact": {}, "signature": "smoke"}
-        poll_status, _, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"manifest": manifest}, timeout_seconds)
+        poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"channel": "smoke"}, timeout_seconds)
+        if poll_status == 400:
+            poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"manifest": manifest}, timeout_seconds)
         export_status, export, _, export_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
         ok = landing_ok and pre_status == 403 and poll_status == 202 and export_status == 200 and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; pre={pre_status}; poll={poll_status}; export={export_status}")
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; pre={pre_status}; poll={poll_status}; export={export_status}; build_id={poll.get('build_id', '-')}")
     return SolverRunStep(
         order=order,
         step_id=step_id,
