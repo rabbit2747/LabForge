@@ -521,6 +521,56 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_diagnostic_command_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            DiagnosticCommandSmokeHandler.records = []
+            server = ThreadingHTTPServer(("127.0.0.1", 0), DiagnosticCommandSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-diagnostic-command",
+                            "title": "Solver Diagnostic Command",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-ops-console-diagnostic-command-injection",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "ops-console",
+                                    "plugin": "diagnostic-command-injection",
+                                    "evidence": ["/operations/diagnostics"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "ops-console", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("info=200", report.steps[0].message)
+                self.assertIn("presets=1", report.steps[0].message)
+                self.assertIn("targets=1", report.steps[0].message)
+                self.assertIn("accepted=True", report.steps[0].message)
+                self.assertIn("audit=200", report.steps[0].message)
+                self.assertIn("audit_records=1", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_ssrf_blocked_and_allowed_fetch_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -746,6 +796,96 @@ class MissingLandingSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"preview": "49"}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
+    records: list[dict] = []
+
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "diagnostic-command-injection"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "ops-console",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/diagnostics", "feature": "operator diagnostics"},
+                            {"method": "POST", "path": "/operations/diagnostics/run", "feature": "operator diagnostics"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "ops-console",
+                        "records": [
+                            {
+                                "case_id": "OPS-0001",
+                                "workflow": "operator diagnostics",
+                                "operator_note": "Operators run approved presets and review diagnostic audit records.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/diagnostics":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Operations Diagnostics Console</h1></body></html>")
+            return
+        if self.path == "/api/diagnostics":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "presets": [{"id": "runtime-identity", "command": "id"}],
+                        "targets": [{"name": "localhost", "status": "approved"}],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/diagnostics/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"records": self.records}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        size = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
+        if self.path == "/operations/diagnostics/run":
+            self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": True, "returncode": 0})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"accepted": True, "returncode": 0, "stdout": "uid=1000(operator)\n"}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()

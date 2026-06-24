@@ -329,9 +329,25 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 retrieved,
             )
         if plugin_id == "diagnostic-command-injection":
-            response = client.post("/labforge/scaffold/diagnostics/run", json={"command": "id"})
+            info = client.get("/api/diagnostics")
+            info_data = info.get_json(silent=True) or {}
+            response = client.post("/labforge/scaffold/diagnostics/run", json={"preset": "runtime-identity", "target": "localhost"})
             data = response.get_json(silent=True) or {}
-            return assert_condition(service, plugin_id, response.status_code == 200 and data.get("accepted") is True, "/labforge/scaffold/diagnostics/run", response)
+            audit = client.get("/labforge/scaffold/diagnostics/audit")
+            audit_data = audit.get_json(silent=True) or {}
+            return assert_condition(
+                service,
+                plugin_id,
+                info.status_code == 200
+                and isinstance(info_data.get("presets"), list)
+                and isinstance(info_data.get("targets"), list)
+                and response.status_code == 200
+                and data.get("accepted") is True
+                and audit.status_code == 200
+                and any(record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in audit_data.get("records", [])),
+                "/api/diagnostics + run preset + audit",
+                audit,
+            )
         if plugin_id == "credential-exposure":
             config = client.get("/labforge/scaffold/config")
             log = client.get("/labforge/scaffold/config/startup-log")

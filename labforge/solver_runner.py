@@ -648,15 +648,53 @@ def run_plugin_http_sequence(
         ok = landing_ok and uploaded_status == 201 and retrieved_status == 200 and "labforge upload smoke" in retrieved_body
         return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; upload_route={upload_route}; retrieve_route={retrieve_route}; uploaded={uploaded_status}; retrieved={retrieved_status}; filename={filename or '-'}")
     if plugin == "diagnostic-command-injection":
+        info_status, info, _, info_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/diagnostics", "/labforge/scaffold/diagnostics"],
+            None,
+            timeout_seconds,
+        )
         status, data, _, route = http_json_first(
             "POST",
             base_url,
             ["/operations/diagnostics/run", "/labforge/scaffold/diagnostics/run"],
-            {"command": "id"},
+            {"preset": "runtime-identity", "target": "localhost"},
             timeout_seconds,
         )
-        ok = landing_ok and status == 200 and data.get("accepted") is True
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; accepted={data.get('accepted')}")
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/diagnostics/audit", "/labforge/scaffold/diagnostics/audit"],
+            None,
+            timeout_seconds,
+        )
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        ok = (
+            landing_ok
+            and info_status == 200
+            and isinstance(info.get("presets"), list)
+            and isinstance(info.get("targets"), list)
+            and status == 200
+            and data.get("accepted") is True
+            and audit_status == 200
+            and any(isinstance(record, dict) and record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in audit_records)
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; info_route={info_route}; route={route}; audit_route={audit_route}; "
+                f"info={info_status}; presets={len(info.get('presets', [])) if isinstance(info, dict) else 0}; "
+                f"targets={len(info.get('targets', [])) if isinstance(info, dict) else 0}; "
+                f"http_status={status}; accepted={data.get('accepted')}; audit={audit_status}; audit_records={len(audit_records)}"
+            ),
+        )
     if plugin == "solr-velocity-rce":
         system_status, _, _, system_route = http_json_first(
             "GET",
