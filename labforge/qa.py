@@ -331,6 +331,9 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
     critical_gap_messages = critical_playtest_gap_messages(report)
     if critical_gap_messages:
         messages.extend(critical_gap_messages)
+    access_evidence_messages = learner_access_plugin_evidence_messages(out)
+    if access_evidence_messages:
+        messages.extend(access_evidence_messages)
     if messages:
         return QaCheck(name="learner-playtest-evidence", status="failed", messages=messages)
     advisory = [f"advisory={item}" for item in report.warnings[:5]]
@@ -345,6 +348,7 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             f"steps={len(report.steps)}",
             f"report={out / 'playtest-report.yaml'}",
             f"access_bundle={out / 'lab-access-bundle.json'}",
+            f"plugin_evidence_checks={plugin_evidence_check_count(out)}",
             *advisory,
         ],
     )
@@ -362,6 +366,60 @@ def critical_playtest_gap_messages(report) -> list[str]:
         messages.append(f"critical={step.step_id}:{label}:{step.status}")
         messages.extend(f"critical_detail={item}" for item in step.evidence[:10])
     return messages
+
+
+def learner_access_plugin_evidence_messages(out: Path) -> list[str]:
+    messages: list[str] = []
+    solver_plan_path = out / "solver-plan.json"
+    access_manifest_path = out / "learner-access.json"
+    access_playtest_path = out / "access-playtest" / "access-playtest.yaml"
+    if not solver_plan_path.exists() or not access_manifest_path.exists() or not access_playtest_path.exists():
+        return messages
+    solver_plan = load_yaml(solver_plan_path)
+    access_manifest = load_yaml(access_manifest_path)
+    access_playtest = load_yaml(access_playtest_path)
+    vulnerability_steps = [
+        step
+        for step in solver_plan.get("steps", [])
+        if isinstance(step, dict) and str(step.get("action_type", "")) == "vulnerability-behavior"
+    ]
+    if not vulnerability_steps:
+        return messages
+    plugin_checks = [item for item in access_manifest.get("plugin_checks", []) if isinstance(item, dict)]
+    if not plugin_checks:
+        return ["critical=plugin-evidence:learner access manifest has vulnerability steps but no plugin_checks"]
+    check_keys = {
+        (str(item.get("service", "")), str(item.get("plugin", "")))
+        for item in plugin_checks
+    }
+    for step in vulnerability_steps:
+        key = (str(step.get("service", "")), str(step.get("plugin", "")))
+        if key not in check_keys:
+            messages.append(f"critical=plugin-evidence:missing access plugin_check for {key[0]}:{key[1]}")
+    for item in plugin_checks:
+        service = str(item.get("service", "-"))
+        plugin = str(item.get("plugin", "-"))
+        expected = item.get("expected_evidence", [])
+        if not isinstance(expected, list) or not expected:
+            messages.append(f"critical=plugin-evidence:{service}:{plugin}:missing expected_evidence")
+        if not str(item.get("state_verification", "")).strip():
+            messages.append(f"critical=plugin-evidence:{service}:{plugin}:missing state_verification")
+    access_items = [item for item in access_playtest.get("items", []) if isinstance(item, dict)]
+    plugin_items = [item for item in access_items if str(item.get("kind", "")) == "plugin-evidence"]
+    if len(plugin_items) < len(plugin_checks):
+        messages.append(
+            f"critical=plugin-evidence:access-playtest planned {len(plugin_items)} plugin-evidence checks for {len(plugin_checks)} plugin_checks"
+        )
+    return messages
+
+
+def plugin_evidence_check_count(out: Path) -> int:
+    access_manifest_path = out / "learner-access.json"
+    if not access_manifest_path.exists():
+        return 0
+    access_manifest = load_yaml(access_manifest_path)
+    checks = access_manifest.get("plugin_checks", [])
+    return len(checks) if isinstance(checks, list) else 0
 
 
 def e2e_solver_release_check(

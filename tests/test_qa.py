@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
-from labforge.qa import critical_playtest_gap_messages
+from labforge.qa import critical_playtest_gap_messages, learner_access_plugin_evidence_messages, plugin_evidence_check_count
+from labforge.io import write_text, dump_yaml
 
 
 class QaReleaseGateTests(unittest.TestCase):
@@ -39,6 +42,64 @@ class QaReleaseGateTests(unittest.TestCase):
         )
 
         self.assertEqual(critical_playtest_gap_messages(report), [])
+
+    def test_learner_access_plugin_evidence_messages_pass_when_access_checks_match_solver_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_playtest_evidence_files(
+                root,
+                plugin_checks=[
+                    {
+                        "service": "support-portal",
+                        "plugin": "ssti-preview",
+                        "state_url": "http://127.0.0.1:18080/api/state",
+                        "state_verification": "curl -sS http://127.0.0.1:18080/api/state",
+                        "expected_evidence": ["template_probe_confirmed"],
+                    }
+                ],
+                access_items=[
+                    {
+                        "check_id": "plugin-evidence-01",
+                        "service": "support-portal",
+                        "kind": "plugin-evidence",
+                        "status": "planned",
+                    }
+                ],
+            )
+
+            self.assertEqual(learner_access_plugin_evidence_messages(root), [])
+            self.assertEqual(plugin_evidence_check_count(root), 1)
+
+    def test_learner_access_plugin_evidence_messages_fail_when_plugin_checks_are_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_playtest_evidence_files(root, plugin_checks=[], access_items=[])
+
+            messages = learner_access_plugin_evidence_messages(root)
+
+            self.assertTrue(any("no plugin_checks" in message for message in messages))
+
+
+def write_playtest_evidence_files(root: Path, *, plugin_checks: list[dict], access_items: list[dict]) -> None:
+    write_text(
+        root / "solver-plan.json",
+        dump_yaml(
+            {
+                "steps": [
+                    {
+                        "step_id": "plugin-support-portal-ssti-preview",
+                        "service": "support-portal",
+                        "plugin": "ssti-preview",
+                        "action_type": "vulnerability-behavior",
+                    }
+                ]
+            }
+        ),
+    )
+    write_text(root / "learner-access.json", dump_yaml({"plugin_checks": plugin_checks}))
+    access_dir = root / "access-playtest"
+    access_dir.mkdir(parents=True, exist_ok=True)
+    write_text(access_dir / "access-playtest.yaml", dump_yaml({"items": access_items}))
 
 
 if __name__ == "__main__":
