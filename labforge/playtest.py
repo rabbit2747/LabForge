@@ -844,6 +844,24 @@ def render_learner_access_markdown(report: PlaytestReport) -> str:
         "This file lists the generated learner-facing access points and the high-level learner path.",
         "It is safe to share with supervisors. Student-facing release may require redaction of expected results.",
         "",
+        "## Quick Connect",
+        "",
+        "| Purpose | Service | Command or URL |",
+        "|---|---|---|",
+    ]
+    if report.learner_entrypoints:
+        for endpoint in report.learner_entrypoints:
+            lines.append(f"| Browser start | `{endpoint.service}` | `{endpoint.connect}` |")
+    if report.attacker_entrypoints:
+        for endpoint in report.attacker_entrypoints:
+            lines.append(f"| Terminal access | `{endpoint.service}` | `{endpoint.connect}` |")
+    if report.final_submission_endpoints:
+        for endpoint in report.final_submission_endpoints:
+            lines.append(f"| Final submission | `{endpoint.service}` | `{endpoint.connect}` |")
+    if not (report.learner_entrypoints or report.attacker_entrypoints or report.final_submission_endpoints):
+        lines.append("| - | - | No generated learner access points. |")
+    lines += [
+        "",
         "## Start Here",
         "",
     ]
@@ -864,6 +882,13 @@ def render_learner_access_markdown(report: PlaytestReport) -> str:
         lines.extend(f"- `{endpoint.service}`: `{endpoint.connect}`" for endpoint in report.final_submission_endpoints)
     else:
         lines.append("- No final submission endpoint was generated.")
+    health_lines = [
+        f"- `{endpoint.service}`: `curl -i {endpoint.health_url}`"
+        for endpoint in [*report.learner_entrypoints, *report.final_submission_endpoints]
+        if endpoint.health_url
+    ]
+    lines += ["", "## Health Checks", ""]
+    lines.extend(health_lines or ["- No HTTP health check URLs were generated."])
     lines += ["", "## High-Level Learner Path", ""]
     for step in report.steps:
         lines.append(f"- `{step.step_id}` {step.title}: {step.learner_action}")

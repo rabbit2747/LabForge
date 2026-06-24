@@ -40,8 +40,11 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue((out / "playtest-walkthrough.md").exists())
 
             access = (out / "learner-access.md").read_text(encoding="utf-8")
+            self.assertIn("Quick Connect", access)
             self.assertIn("Start Here", access)
             self.assertIn("Attacker Workstation", access)
+            self.assertIn("Final Submission", access)
+            self.assertIn("Health Checks", access)
             access_manifest = load_yaml(out / "learner-access.json")
             self.assertEqual(access_manifest["lab_id"], report.lab_id)
             self.assertTrue(access_manifest["start_commands"])
