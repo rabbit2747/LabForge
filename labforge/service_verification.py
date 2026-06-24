@@ -52,6 +52,24 @@ TEMPLATE_PUZZLE_MARKERS = (
     "solution_path",
 )
 
+LEARNER_VISIBLE_SOLVER_MARKERS: dict[str, str] = {
+    "foothold shell": "Realistic portals should call this a diagnostic console, maintenance shell, or approved jump host.",
+    "support foothold": "Learner-facing copy should not describe the attacker's achieved position.",
+    "exploit here": "The service should expose normal business behavior and let the learner infer the weakness.",
+    "submit flag": "Use controlled evidence submission language instead of game terminology.",
+    "ctf": "The lab should read like an enterprise environment, not a capture-the-flag challenge.",
+    "answer key": "Do not expose walkthrough language in learner-visible service content.",
+    "solution path": "Do not expose solver route labels in normal service content.",
+    "pwn": "Use business, operations, or incident-response language.",
+    "admin password": "Credentials should be discoverable through realistic configuration, logs, tickets, or secret references.",
+    "password is": "Avoid direct answer-style credential disclosure in business content.",
+    "cve-": "Learner-facing internal content should usually expose version and behavior clues, not the exact CVE label.",
+}
+
+LEARNER_VISIBLE_SCAN_DIRS = ("templates", "seed", "noise", "static")
+LEARNER_VISIBLE_SCAN_FILES = ("blueprint.yaml",)
+LEARNER_VISIBLE_SUFFIXES = {".html", ".htm", ".jinja", ".j2", ".json", ".jsonl", ".yaml", ".yml", ".md", ".txt", ".csv"}
+
 
 def verify_services(spec: LabSpec) -> ServiceVerificationReport:
     findings: list[ServiceVerificationFinding] = []
@@ -85,6 +103,7 @@ def verify_services(spec: LabSpec) -> ServiceVerificationReport:
         verify_seed_noise_tests(findings, artifact, service_root, artifact.source_path)
         verify_contract_depth(findings, artifact, service_root, artifact.source_path)
         verify_template_boundaries(findings, artifact, service_root, artifact.source_path)
+        verify_learner_visible_language(findings, artifact.service, service_root, artifact.source_path)
         verify_vulnerability_plugins(findings, artifact, service_root, artifact.source_path)
 
     status: Literal["passed", "warning", "failed"]
@@ -313,6 +332,39 @@ def verify_template_boundaries(findings: list[ServiceVerificationFinding], artif
         )
 
 
+def verify_learner_visible_language(
+    findings: list[ServiceVerificationFinding],
+    service: str,
+    service_root: Path,
+    source_path: str,
+) -> None:
+    reported: set[tuple[str, str]] = set()
+    for path in learner_visible_files(service_root):
+        text = read_text(path).lower()
+        if not text:
+            continue
+        for marker, reason in LEARNER_VISIBLE_SOLVER_MARKERS.items():
+            if marker not in text:
+                continue
+            rel = path.relative_to(service_root).as_posix()
+            key = (rel, marker)
+            if key in reported:
+                continue
+            reported.add(key)
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=service,
+                    category="learner-facing-language",
+                    path=f"{source_path}/{rel}",
+                    message=(
+                        f"Learner-visible content contains solver-facing marker `{marker}`. "
+                        f"{reason}"
+                    ),
+                )
+            )
+
+
 def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], artifact, service_root: Path, source_path: str) -> None:
     template_ids = vulnerability_template_ids(artifact, service_root)
     for declared in declared_vulnerability_plugins(artifact):
@@ -524,6 +576,22 @@ def first_template_puzzle_marker(text: str) -> str:
         if marker in text:
             return marker
     return ""
+
+
+def learner_visible_files(service_root: Path) -> list[Path]:
+    paths: list[Path] = []
+    for filename in LEARNER_VISIBLE_SCAN_FILES:
+        path = service_root / filename
+        if path.exists() and path.is_file():
+            paths.append(path)
+    for dirname in LEARNER_VISIBLE_SCAN_DIRS:
+        root = service_root / dirname
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix.lower() in LEARNER_VISIBLE_SUFFIXES:
+                paths.append(path)
+    return sorted(set(paths))
 
 
 def directory_has_substantive_files(path: Path) -> bool:
