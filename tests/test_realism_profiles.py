@@ -252,13 +252,162 @@ class RealismProfileTests(unittest.TestCase):
             self.assertIn("industry-context.stage-language.missing", codes)
             self.assertIn("industry-context.service-language.missing", codes)
 
+    def test_realism_flags_keyword_only_securities_capabilities_as_too_shallow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "keyword-only-securities",
+                    "title": "Keyword Only Securities",
+                    "summary": (
+                        "Securities brokerage investor trading order quote market data settlement clearing "
+                        "risk compliance surveillance SIEM object-store database."
+                    ),
+                    "final_objective": "Collect synthetic compliance export evidence.",
+                    "target_industry": "securities",
+                },
+                topology={
+                    "networks": [
+                        {"name": "public or internet edge"},
+                        {"name": "dmz"},
+                        {"name": "application"},
+                        {"name": "core trading"},
+                        {"name": "data"},
+                        {"name": "management"},
+                        {"name": "security monitoring"},
+                    ],
+                    "services": [
+                        {"name": "web-one", "role": "generic vulnerable web", "networks": ["dmz"]},
+                        {"name": "api-one", "role": "generic internal api", "networks": ["application"]},
+                        {"name": "db-one", "role": "generic database", "networks": ["data"]},
+                        {"name": "logs-one", "role": "generic log viewer", "networks": ["security monitoring"]},
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Find vulnerability.",
+                            "procedure": "Open the generic web app and continue.",
+                            "evidence": ["one"],
+                            "mitre": {"tactic": "Initial Access", "techniques": [{"id": "T1190", "name": "Exploit Public-Facing Application"}]},
+                        }
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation"]},
+            )
 
-def write_lab_files(root: Path, *, scenario: dict, topology: dict, stages: dict, security_controls: dict | None = None) -> None:
+            report = check_realism(LabSpec.load(root), industry="securities")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertIn("capability-depth.trading-channel.too-shallow", codes)
+            self.assertIn("capability-depth.market-data.too-shallow", codes)
+            self.assertIn("capability-depth.backoffice-settlement.too-shallow", codes)
+
+    def test_realism_accepts_capability_when_service_stage_and_data_support_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "deep-securities-capability",
+                    "title": "Deep Securities Capability",
+                    "summary": "Brokerage lab with a real order management and compliance workflow.",
+                    "final_objective": "Collect synthetic compliance export evidence.",
+                    "target_industry": "securities",
+                },
+                topology={
+                    "networks": [{"name": "application"}, {"name": "core trading"}, {"name": "data"}, {"name": "security monitoring"}],
+                    "services": [
+                        {
+                            "name": "order-management-system",
+                            "role": "trading order review console",
+                            "purpose": "Order entry, trade status review, and execution reports.",
+                            "networks": ["application", "core trading"],
+                        },
+                        {
+                            "name": "compliance-export-service",
+                            "role": "regulatory reporting export service",
+                            "purpose": "Compliance export approval and audit evidence review.",
+                            "networks": ["data"],
+                        },
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Review order workflow.",
+                            "procedure": "Use the order management records to review order entry, trade status review, and execution reports.",
+                            "evidence": ["order-workflow"],
+                            "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1083", "name": "File and Directory Discovery"}]},
+                        },
+                        {
+                            "id": "stage-02",
+                            "title": "Review compliance export.",
+                            "procedure": "Follow compliance export approval notes and regulatory export objects.",
+                            "evidence": ["compliance-workflow"],
+                            "mitre": {"tactic": "Collection", "techniques": [{"id": "T1005", "name": "Data from Local System"}]},
+                        },
+                    ]
+                },
+                artifacts={
+                    "service_artifacts": [
+                        {
+                            "service": "order-management-system",
+                            "source_path": "services/order-management-system",
+                            "runtime": "business-portal",
+                            "purpose": "Trading workflow runtime.",
+                            "seed_inputs": ["orders", "quotes", "execution reports"],
+                            "noise_inputs": ["benign trade status review tickets", "non-target order records"],
+                            "healthcheck": "GET /healthz",
+                            "reset": "reset.sh",
+                            "evidence_logs": ["orders audit log"],
+                            "safety_boundaries": ["synthetic data only"],
+                        },
+                        {
+                            "service": "compliance-export-service",
+                            "source_path": "services/compliance-export-service",
+                            "runtime": "data-api",
+                            "purpose": "Compliance data runtime.",
+                            "seed_inputs": ["regulatory export objects", "audit evidence"],
+                            "noise_inputs": ["surveillance alerts", "routine compliance review notes"],
+                            "healthcheck": "GET /healthz",
+                            "reset": "reset.sh",
+                            "evidence_logs": ["export audit log"],
+                            "safety_boundaries": ["synthetic data only"],
+                        },
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation"]},
+            )
+
+            report = check_realism(LabSpec.load(root), industry="securities")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertNotIn("capability-depth.trading-channel.too-shallow", codes)
+            self.assertNotIn("capability-depth.risk-compliance.too-shallow", codes)
+
+
+def write_lab_files(
+    root: Path,
+    *,
+    scenario: dict,
+    topology: dict,
+    stages: dict,
+    security_controls: dict | None = None,
+    artifacts: dict | None = None,
+) -> None:
     (root / "scenario.yaml").write_text(json.dumps(scenario, ensure_ascii=False, indent=2), encoding="utf-8")
     (root / "topology.yaml").write_text(json.dumps(topology, ensure_ascii=False, indent=2), encoding="utf-8")
     (root / "stages.yaml").write_text(json.dumps(stages, ensure_ascii=False, indent=2), encoding="utf-8")
     if security_controls is not None:
         (root / "security-controls.yaml").write_text(json.dumps(security_controls, ensure_ascii=False, indent=2), encoding="utf-8")
+    if artifacts is not None:
+        (root / "artifacts.yaml").write_text(json.dumps(artifacts, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

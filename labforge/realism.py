@@ -57,6 +57,31 @@ class RealismScoreBreakdown(RealismModel):
     attack_path: int = 0
 
 
+class IndustryCapabilityEvidence(RealismModel):
+    capability_id: str
+    service_evidence: list[str] = Field(default_factory=list)
+    stage_evidence: list[str] = Field(default_factory=list)
+    data_evidence: list[str] = Field(default_factory=list)
+    workflow_evidence: list[str] = Field(default_factory=list)
+    zone_evidence: list[str] = Field(default_factory=list)
+    security_evidence: list[str] = Field(default_factory=list)
+
+    @property
+    def evidence_dimensions(self) -> int:
+        return sum(
+            1
+            for values in (
+                self.service_evidence,
+                self.stage_evidence,
+                self.data_evidence,
+                self.workflow_evidence,
+                self.zone_evidence,
+                self.security_evidence,
+            )
+            if values
+        )
+
+
 class AntiCtfSignal(RealismModel):
     term: str
     category: str
@@ -72,6 +97,7 @@ class RealismReport(RealismModel):
     score_breakdown: RealismScoreBreakdown = Field(default_factory=RealismScoreBreakdown)
     matched_capabilities: list[str] = Field(default_factory=list)
     missing_capabilities: list[str] = Field(default_factory=list)
+    capability_evidence: dict[str, IndustryCapabilityEvidence] = Field(default_factory=dict)
     anti_ctf_signals: list[AntiCtfSignal] = Field(default_factory=list)
     findings: list[RealismFinding] = Field(default_factory=list)
 
@@ -461,6 +487,7 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
     haystack = lab_text_haystack(spec)
     context_coverage = check_industry_context(spec, industry=profile.industry, strict=strict)
     findings.extend(context_coverage.findings)
+    capability_evidence = build_capability_evidence(profile, spec)
     matched: list[str] = []
     missing: list[str] = []
     for capability in profile.capabilities:
@@ -476,6 +503,21 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
                     message=f"Missing industry capability: {capability.description}",
                     expected=", ".join(capability.keywords),
                     code=f"capability.{capability.id}.missing",
+                    remediation=capability_remediation(capability),
+                )
+            )
+        evidence = capability_evidence.get(capability.id)
+        if capability.required and evidence and keyword_matches >= capability.min_keyword_matches and evidence.evidence_dimensions < 2:
+            findings.append(
+                RealismFinding(
+                    severity="error" if strict else "warning",
+                    category="capability-depth",
+                    message=(
+                        f"Industry capability `{capability.id}` is mentioned but not backed by enough service, "
+                        "workflow, data, or network-zone evidence."
+                    ),
+                    expected="At least two evidence dimensions: service, stage procedure, business data/noise, workflow, or zone placement.",
+                    code=f"capability-depth.{capability.id}.too-shallow",
                     remediation=capability_remediation(capability),
                 )
             )
@@ -628,6 +670,7 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
         score_breakdown=score_breakdown,
         matched_capabilities=matched,
         missing_capabilities=missing,
+        capability_evidence=capability_evidence,
         anti_ctf_signals=anti_ctf_signals,
         findings=findings,
     )
@@ -780,6 +823,84 @@ def capability_context_evidence(profile: IndustryRealismProfile, items: list[dic
                 matches.append(f"{name}: {', '.join(hit_terms[:3])}")
         evidence[capability.id] = matches
     return evidence
+
+
+def build_capability_evidence(profile: IndustryRealismProfile, spec: LabSpec) -> dict[str, IndustryCapabilityEvidence]:
+    evidence: dict[str, IndustryCapabilityEvidence] = {}
+    artifact_text = json.dumps(spec.artifacts, ensure_ascii=False).lower()
+    stage_text = stage_context_haystack(spec)
+    zone_text = " ".join(str(zone.get("name", zone.get("id", ""))).lower() for zone in spec.environment.get("zones", []))
+    network_text = " ".join(str(network.get("name", "")).lower() for network in spec.networks)
+    zone_haystack = f"{zone_text} {network_text}"
+
+    for capability in profile.capabilities:
+        item = IndustryCapabilityEvidence(capability_id=capability.id)
+        item.service_evidence = capability_service_evidence(capability, spec.services)
+        item.stage_evidence = capability_item_evidence(capability, spec.stage_list)
+        item.data_evidence = capability_data_evidence(capability, artifact_text)
+        item.workflow_evidence = capability_workflow_evidence(capability, stage_text)
+        item.zone_evidence = capability_zone_evidence(capability, zone_haystack, spec.services)
+        item.security_evidence = capability_security_evidence(capability, spec.security_controls)
+        evidence[capability.id] = item
+    return evidence
+
+
+def capability_service_evidence(capability: IndustryCapability, services: list[dict[str, Any]]) -> list[str]:
+    matches: list[str] = []
+    recommended = [value.lower() for value in capability.recommended_services]
+    for service in services:
+        blob = " ".join(context_values(service)).lower()
+        name = str(service.get("name") or "service")
+        hit_terms = [keyword for keyword in capability.keywords if keyword.lower() in blob]
+        hit_terms.extend(service_name for service_name in recommended if service_name in blob)
+        if hit_terms:
+            matches.append(f"{name}: {', '.join(sorted(set(hit_terms))[:4])}")
+    return matches
+
+
+def capability_item_evidence(capability: IndustryCapability, items: list[dict[str, Any]]) -> list[str]:
+    matches: list[str] = []
+    for item in items:
+        blob = " ".join(context_values(item)).lower()
+        hit_terms = [keyword for keyword in capability.keywords if keyword.lower() in blob]
+        if hit_terms:
+            name = str(item.get("id") or item.get("name") or item.get("title") or "context-item")
+            matches.append(f"{name}: {', '.join(hit_terms[:4])}")
+    return matches
+
+
+def capability_data_evidence(capability: IndustryCapability, artifact_text: str) -> list[str]:
+    terms = capability.recommended_data or capability.keywords
+    matches = [term for term in terms if term.lower() in artifact_text]
+    return [", ".join(matches[:4])] if matches else []
+
+
+def capability_workflow_evidence(capability: IndustryCapability, stage_text: str) -> list[str]:
+    terms = capability.recommended_workflows or []
+    matches = [term for term in terms if term.lower() in stage_text]
+    return [", ".join(matches[:4])] if matches else []
+
+
+def capability_zone_evidence(capability: IndustryCapability, zone_haystack: str, services: list[dict[str, Any]]) -> list[str]:
+    matches: list[str] = []
+    for zone in capability.recommended_zones:
+        if zone.lower() in zone_haystack:
+            matches.append(zone)
+    for service in services:
+        service_networks = " ".join(context_values(service.get("networks"))).lower()
+        for zone in capability.recommended_zones:
+            if zone.lower() in service_networks and zone not in matches:
+                matches.append(zone)
+    return matches[:4]
+
+
+def capability_security_evidence(capability: IndustryCapability, security_controls: dict[str, Any]) -> list[str]:
+    controls_text = json.dumps(security_controls, ensure_ascii=False).lower()
+    security_terms = {"waf", "mfa", "siem", "ids", "edr", "soc", "audit", "logging", "segmentation", "monitoring", "firewall", "device trust"}
+    terms = [keyword for keyword in capability.keywords if keyword.lower() in security_terms]
+    terms.extend(term for term in security_terms if term in capability.description.lower())
+    matches = [term for term in sorted(set(terms)) if term in controls_text]
+    return matches[:4]
 
 
 def context_values(value: Any) -> list[str]:
@@ -1028,6 +1149,21 @@ def realism_report_to_markdown(report: RealismReport) -> str:
         "",
         f"- Matched: {', '.join(f'`{item}`' for item in report.matched_capabilities) or '-'}",
         f"- Missing: {', '.join(f'`{item}`' for item in report.missing_capabilities) or '-'}",
+        "",
+        "### Capability Evidence Depth",
+        "",
+        "| Capability | Service | Stage | Data | Workflow | Zone | Security |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    if not report.capability_evidence:
+        lines.append("| - | 0 | 0 | 0 | 0 | 0 | 0 |")
+    for capability_id, evidence in report.capability_evidence.items():
+        lines.append(
+            f"| `{capability_id}` | {len(evidence.service_evidence)} | {len(evidence.stage_evidence)} | "
+            f"{len(evidence.data_evidence)} | {len(evidence.workflow_evidence)} | {len(evidence.zone_evidence)} | "
+            f"{len(evidence.security_evidence)} |"
+        )
+    lines += [
         "",
         "## Expected Enterprise Texture",
         "",
