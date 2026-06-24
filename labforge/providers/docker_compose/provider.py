@@ -560,6 +560,7 @@ def render_security_plan(spec: LabSpec, profile: str) -> str:
 
 def render_provider_service_plan(spec: LabSpec) -> str:
     artifacts = service_artifact_map(spec)
+    trusted_update_services = services_with_trusted_update_plugins(artifacts)
     lines = [
         f"# Docker Compose Provider Service Plan - {spec.title}",
         "",
@@ -600,7 +601,32 @@ def render_provider_service_plan(spec: LabSpec) -> str:
         "Service-specific hooks should replace placeholders with deterministic implementation logic before the lab is treated as runnable.",
         "",
     ]
+    if trusted_update_services:
+        lines += [
+            "## Trusted Update Shared State",
+            "",
+            "The following services participate in a trusted-update scaffold chain and must share the `labforge_state` volume mounted at `/labforge-state`:",
+            "",
+            *[f"- `{service}`: {', '.join(plugins)}" for service, plugins in trusted_update_services.items()],
+            "",
+            "This shared state allows build manifests, signed manifests, published channel state, and customer update state to flow between generated services without hidden hard-coded answers.",
+            "",
+        ]
     return "\n".join(lines)
+
+
+def services_with_trusted_update_plugins(artifacts: dict[str, Any]) -> dict[str, list[str]]:
+    trusted_plugins = {
+        "build-pipeline-abuse",
+        "signed-update-publish",
+        "customer-update-callback",
+    }
+    services: dict[str, list[str]] = {}
+    for service, artifact in artifacts.items():
+        plugins = [plugin for plugin in artifact_vulnerability_plugins(artifact) if plugin in trusted_plugins]
+        if plugins:
+            services[service] = plugins
+    return services
 
 
 def write_runtime_scripts(out: Path) -> None:

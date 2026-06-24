@@ -228,6 +228,10 @@ The trusted-update runtime scaffolds also share lab state: signing can consume
 the latest build manifest, publishing can consume the latest signed manifest,
 and customer polling can consume the published channel state. Explicit request
 payloads still work as fallback for isolated plugin smoke tests.
+The Docker Compose provider mounts the shared `labforge_state` volume into
+generated service-artifact containers at `/labforge-state` and documents
+trusted-update participants in `docs/provider-service-plan.md`, so generated
+provider output preserves this runtime handoff path.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR
