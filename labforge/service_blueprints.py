@@ -224,7 +224,7 @@ def infer_template_from_artifact(artifact: Any) -> str:
     text = f"{artifact.service} {artifact.runtime} {artifact.purpose}".lower()
     if "drop" in text or "submit" in text:
         return "controlled-drop"
-    if "attacker" in text or "workstation" in text:
+    if "attacker" in text or "learner attack" in text:
         return "attacker-workstation-ssh"
     if "portal" in text or "public" in text or "support" in text or "wiki" in text or "docs" in text:
         return "business-portal"

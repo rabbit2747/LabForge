@@ -199,6 +199,33 @@ class IntakePluginEvidenceTest(unittest.TestCase):
             ["stage5_search_rce_confirmed", "stage6_release_route_found"],
         )
 
+    def test_workstation_review_or_diagnostic_stage_gets_runtime_plugin(self) -> None:
+        intake = ScenarioIntake(
+            lab_id="workstation-review-map",
+            title="Clinical Workstation Review Workflow",
+            target_industry="healthcare",
+            summary="The learner abuses a clinical review and diagnostic workflow on an internal workstation to expose privileged clinical context.",
+            final_objective="Retrieve a controlled synthetic audit export.",
+            learner_entrypoint="Patient portal.",
+            target_infrastructure=["patient-portal", "clinical-workstation", "audit-export-service"],
+            stages=[
+                IntakeStage(
+                    stage_id="stage-05",
+                    learner_goal="Abuse a clinical review or workstation workflow.",
+                    expected_action="Use a lab-scoped review, diagnostic, or session workflow to expose privileged clinical context.",
+                    evidence=["stage5_clinical_context"],
+                    mitre_tactic="Credential Access",
+                    mitre_techniques=["T1539 Steal Web Session Cookie"],
+                    infrastructure_touched=["clinical-workstation"],
+                )
+            ],
+        )
+
+        plugins = vulnerability_plugins_for_service(intake, "clinical-workstation")
+
+        self.assertEqual(plugin_by_id(plugins, "stored-xss-review")["emits_evidence"], ["stage5_clinical_context"])
+        self.assertEqual(plugin_by_id(plugins, "diagnostic-command-injection")["emits_evidence"], ["stage5_clinical_context"])
+
     def test_automatic_plugins_without_stage_evidence_are_not_generated(self) -> None:
         intake = ScenarioIntake(
             lab_id="unmapped",

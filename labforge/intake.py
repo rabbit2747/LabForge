@@ -777,7 +777,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
     if any(word in scenario_text for word in ["xss", "cross-site", "review", "bot", "manager", "approval"]) or any(
         word in service_text for word in ["review", "release-console", "manager-console"]
     ):
-        if any(word in service_text for word in ["console", "review", "release", "manager", "portal", "internal"]):
+        if any(word in service_text for word in ["console", "review", "release", "manager", "portal", "internal", "workstation"]):
             plugins.append(
                 {
                     "id": "stored-xss-review",
@@ -842,7 +842,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
             )
 
     if any(word in scenario_text for word in ["command injection", "diagnostic", "shell", "command execution", "rce"]):
-        if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search", "jump-host"]):
+        if any(word in service_text for word in ["portal", "ops", "admin", "console", "diagnostic", "bastion", "search", "jump-host", "workstation"]):
             plugins.append(
                 {
                     "id": "diagnostic-command-injection",

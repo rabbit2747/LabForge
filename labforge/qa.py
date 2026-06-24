@@ -326,6 +326,9 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
         messages.append("No playtest steps generated.")
     if report.failures:
         messages.extend(f"failure={item}" for item in report.failures[:10])
+    critical_gap_messages = critical_playtest_gap_messages(report)
+    if critical_gap_messages:
+        messages.extend(critical_gap_messages)
     if messages:
         return QaCheck(name="learner-playtest-evidence", status="failed", messages=messages)
     advisory = [f"advisory={item}" for item in report.warnings[:5]]
@@ -342,6 +345,20 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             *advisory,
         ],
     )
+
+
+def critical_playtest_gap_messages(report) -> list[str]:
+    critical_ids = {
+        "implementation-01": "stage implementation coverage",
+    }
+    messages: list[str] = []
+    for step in report.steps:
+        label = critical_ids.get(step.step_id)
+        if not label or step.status == "passed":
+            continue
+        messages.append(f"critical={step.step_id}:{label}:{step.status}")
+        messages.extend(f"critical_detail={item}" for item in step.evidence[:10])
+    return messages
 
 
 def e2e_solver_release_check(

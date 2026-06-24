@@ -206,7 +206,9 @@ hospital, factory, AD domain, or supply-chain vendor is flagged before release.
 It also reports whether each scenario stage maps to a generated service runtime,
 vulnerability plugin evidence path, discovery/collection runtime context, or
 final submission endpoint, reducing the chance that a multi-stage chain exists
-only as documentation.
+only as documentation. Release gate treats stage implementation coverage gaps
+as critical learner-playtest failures, so a lab is not release-ready when stages
+are merely described but not backed by generated runnable components.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR
