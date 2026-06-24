@@ -555,7 +555,8 @@ the scenario has a multi-stage chain, and writes:
   path.
 - `stage-chain/stage-chain.md`: machine-checked stage graph showing each stage's
   required inputs, produced evidence, touched services, unlock target, and
-  learner clue.
+  learner clue. The chain check also flags missing, placeholder-thin, or
+  CTF/answer-key style clues so generated labs keep a realistic discovery path.
 - `playtest-walkthrough.md`: supervisor-facing copy/paste walkthrough for
   starting provider output, opening access points, checking generated behavior,
   and stopping the lab.

@@ -48,6 +48,38 @@ class ChainManifestTests(unittest.TestCase):
         self.assertEqual(manifest.status, "failed")
         self.assertIn("stage-02 requires evidence not produced by earlier stages: missing_secret", manifest.failures)
 
+    def test_stage_chain_warns_when_learner_clue_uses_generic_fallback(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="missing-clue",
+            title="Missing Clue",
+            services=[{"name": "portal"}],
+            stage_list=[
+                {"id": "stage-01", "title": "Entry", "procedure": "", "evidence": ["entry_seen"]},
+                {"id": "stage-02", "title": "Next", "procedure": "Review portal notes.", "evidence": ["done"]},
+            ],
+        )
+
+        manifest = build_chain_manifest(spec)
+
+        self.assertEqual(manifest.status, "warning")
+        self.assertIn("stage-01 learner clue is a generic fallback rather than a scenario-specific clue.", manifest.warnings)
+
+    def test_stage_chain_warns_on_ctf_or_answer_key_clues(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="ctf-clue",
+            title="CTF Clue",
+            services=[{"name": "portal"}],
+            stage_list=[
+                {"id": "stage-01", "title": "Entry", "procedure": "Find the flag in the portal answer key.", "evidence": ["entry_seen"]},
+                {"id": "stage-02", "title": "Next", "procedure": "Review portal notes.", "evidence": ["done"]},
+            ],
+        )
+
+        manifest = build_chain_manifest(spec)
+
+        self.assertEqual(manifest.status, "warning")
+        self.assertIn("stage-01 learner clue contains CTF or answer-key wording.", manifest.warnings)
+
     def test_service_chain_view_returns_local_and_adjacent_context(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
         manifest = build_chain_manifest(spec)

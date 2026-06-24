@@ -110,6 +110,9 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
     continuity_failures, continuity_warnings = validate_chain_continuity(nodes)
     failures.extend(continuity_failures)
     warnings.extend(continuity_warnings)
+    clue_failures, clue_warnings = validate_clue_quality(nodes)
+    failures.extend(clue_failures)
+    warnings.extend(clue_warnings)
     orphaned = [node.stage_id for node in nodes[1:] if not node.required_inputs]
     if orphaned:
         warnings.append(f"Stages without required inputs or inferred previous evidence: {', '.join(orphaned)}")
@@ -161,6 +164,64 @@ def validate_chain_continuity(nodes: list[ChainNode]) -> tuple[list[str], list[s
     if unused and len(nodes) > 1:
         warnings.append(f"Produced evidence not used by another stage: {', '.join(unused[:10])}")
     return failures, warnings
+
+
+def validate_clue_quality(nodes: list[ChainNode]) -> tuple[list[str], list[str]]:
+    failures: list[str] = []
+    warnings: list[str] = []
+    direct_answer_terms = (
+        "flag",
+        "ctf",
+        "answer key",
+        "copy paste",
+        "copy/paste",
+        "정답",
+        "플래그",
+    )
+    weak_phrases = {
+        "continue",
+        "continue.",
+        "next",
+        "start.",
+        "proceed",
+        "go next",
+        "do it",
+    }
+    for index, node in enumerate(nodes):
+        clue = " ".join(node.learner_clue.split())
+        normalized = clue.lower()
+        if not clue:
+            failures.append(f"{node.stage_id} has no learner clue.")
+            continue
+        if len(clue) < 24 or normalized in weak_phrases:
+            warnings.append(f"{node.stage_id} learner clue is too thin to guide a human learner.")
+        if normalized.startswith("review normal business behavior related to"):
+            warnings.append(f"{node.stage_id} learner clue is a generic fallback rather than a scenario-specific clue.")
+        if any(term in normalized for term in direct_answer_terms):
+            warnings.append(f"{node.stage_id} learner clue contains CTF or answer-key wording.")
+        thin_clue = len(clue) < 32
+        if thin_clue and not (clue_references_any(clue, node.required_inputs) or clue_references_any(clue, node.services)):
+            warnings.append(f"{node.stage_id} learner clue is short and lacks an evidence or service anchor.")
+    return failures, warnings
+
+
+def clue_references_any(clue: str, values: list[str]) -> bool:
+    normalized = normalize_clue_text(clue)
+    for value in values:
+        text = normalize_clue_text(value)
+        if not text:
+            continue
+        if text in normalized:
+            return True
+        parts = [part for part in text.split() if len(part) >= 4]
+        if parts and any(part in normalized for part in parts):
+            return True
+    return False
+
+
+def normalize_clue_text(value: str) -> str:
+    chars = [ch.lower() if ch.isalnum() else " " for ch in str(value)]
+    return " ".join("".join(chars).split())
 
 
 def explicit_or_inferred_next(stage: dict[str, Any], stages: list[dict[str, Any]], index: int) -> str | None:
