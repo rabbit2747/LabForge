@@ -496,6 +496,23 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "idor-object-access":
+        catalog_status, catalog, _, catalog_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/business-objects?owner=learner", "/labforge/scaffold/objects?owner=learner"],
+            None,
+            timeout_seconds,
+        )
+        entitlement_status, entitlement, _, entitlement_route = http_json_first(
+            "GET",
+            base_url,
+            [
+                "/api/business-objects/obj-9001/entitlement?owner=learner",
+                "/labforge/scaffold/objects/obj-9001/entitlement?owner=learner",
+            ],
+            None,
+            timeout_seconds,
+        )
         status, data, _, route = http_json_first(
             "GET",
             base_url,
@@ -503,8 +520,30 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
-        ok = landing_ok and status == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}")
+        visible_ids = {str(item.get("id")) for item in catalog.get("items", []) if isinstance(item, dict)}
+        ok = (
+            landing_ok
+            and catalog_status == 200
+            and "obj-9001" not in visible_ids
+            and entitlement_status == 200
+            and entitlement.get("allowed") is False
+            and status == 200
+            and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; catalog_route={catalog_route}; entitlement_route={entitlement_route}; "
+                f"route={route}; catalog={catalog_status}; entitlement={entitlement_status}; "
+                f"entitlement_allowed={entitlement.get('allowed')}; direct_read={status}"
+            ),
+        )
     if plugin == "ssrf-internal-fetch":
         blocked_status, blocked_data, _, blocked_route = http_json_first(
             "GET",

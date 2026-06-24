@@ -236,9 +236,25 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 callback,
             )
         if plugin_id == "idor-object-access":
+            catalog = client.get("/labforge/scaffold/objects?owner=learner")
+            visible = catalog.get_json(silent=True) or {}
+            entitlement = client.get("/labforge/scaffold/objects/obj-9001/entitlement?owner=learner")
+            entitlement_data = entitlement.get_json(silent=True) or {}
             response = client.get("/labforge/scaffold/objects/obj-9001?owner=learner")
             data = response.get_json(silent=True) or {}
-            return assert_condition(service, plugin_id, response.status_code == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", "")), "/labforge/scaffold/objects/obj-9001", response)
+            visible_ids = {str(item.get("id")) for item in visible.get("items", []) if isinstance(item, dict)}
+            return assert_condition(
+                service,
+                plugin_id,
+                catalog.status_code == 200
+                and "obj-9001" not in visible_ids
+                and entitlement.status_code == 200
+                and entitlement_data.get("allowed") is False
+                and response.status_code == 200
+                and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", "")),
+                "/labforge/scaffold/objects catalog + entitlement + direct object read",
+                response,
+            )
         if plugin_id == "ssrf-internal-fetch":
             blocked = client.get("/labforge/scaffold/fetch?url=http://169.254.169.254/latest")
             import urllib.request
