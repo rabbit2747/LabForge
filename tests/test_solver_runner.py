@@ -244,6 +244,8 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertIn("runbook=200", report.steps[0].message)
                 self.assertIn("route_catalog=200", report.steps[0].message)
                 self.assertIn("route_count=2", report.steps[0].message)
+                self.assertIn("operations_context=200", report.steps[0].message)
+                self.assertIn("context_records=1", report.steps[0].message)
                 self.assertIn("landing=200", report.steps[0].message)
                 self.assertIn("landing_route=/operations/preview", report.steps[0].message)
                 self.assertIn("route=/operations/preview", report.steps[0].message)
@@ -590,6 +592,25 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
             )
             return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "investor-portal",
+                        "records": [
+                            {
+                                "case_id": "OPS-0001",
+                                "workflow": "response preview",
+                                "operator_note": "Support writers validate merge fields before sending.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/operations/preview":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -683,6 +704,25 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
             )
             return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "ops-search",
+                        "records": [
+                            {
+                                "case_id": "OPS-0001",
+                                "workflow": "search maintenance",
+                                "operator_note": "Operations staff review search core health before release work.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/operations/search-admin":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -742,6 +782,25 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
             )
             return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "support-portal",
+                        "records": [
+                            {
+                                "case_id": "OPS-0001",
+                                "workflow": "runtime configuration",
+                                "operator_note": "Operators correlate config redaction with startup logs.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/operations/config":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -792,6 +851,25 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                         "routes": [
                             {"method": "GET", "path": "/operations/fetch", "feature": "upstream import"},
                             {"method": "GET", "path": "/operations/fetch?url=<url>", "feature": "upstream import"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "import-console",
+                        "records": [
+                            {
+                                "case_id": "OPS-0001",
+                                "workflow": "upstream import",
+                                "operator_note": "Analysts compare blocked metadata targets with approved internal sources.",
+                            }
                         ],
                     }
                 ).encode("utf-8")

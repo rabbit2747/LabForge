@@ -426,9 +426,12 @@ def run_plugin_http_sequence(
     routes_status, routes_data, _ = http_json("GET", f"{base_url}/operations/routes?format=json", None, timeout_seconds)
     routes_note = route_catalog_message(routes_status, routes_data)
     routes_ok = routes_status == 200 and bool(routes_data.get("routes"))
+    context_status, context_data, _ = http_json("GET", f"{base_url}/operations/context?format=json", None, timeout_seconds)
+    operations_context_note = operations_context_message(context_status, context_data)
+    context_ok = context_status == 200 and bool(context_data.get("records"))
     landing_ok, landing_note = plugin_landing_probe(base_url, plugin, timeout_seconds)
-    landing_ok = landing_ok and routes_ok
-    context_note = f"{discovery_note}; {runbook_note}; {routes_note}; {landing_note}"
+    landing_ok = landing_ok and routes_ok and context_ok
+    context_note = f"{discovery_note}; {runbook_note}; {routes_note}; {operations_context_note}; {landing_note}"
     if plugin == "ssti-preview":
         status, data, body, route = http_json_first(
             "POST",
@@ -759,6 +762,18 @@ def route_catalog_message(status: int, data: dict) -> str:
     if status == 0:
         return "route_catalog=unreachable"
     return f"route_catalog={status}; route_count={count}"
+
+
+def operations_context_message(status: int, data: dict) -> str:
+    records = data.get("records", []) if isinstance(data, dict) else []
+    count = len(records) if isinstance(records, list) else 0
+    if status == 200:
+        return f"operations_context=200; context_records={count}"
+    if status == 404:
+        return "operations_context=missing"
+    if status == 0:
+        return "operations_context=unreachable"
+    return f"operations_context={status}; context_records={count}"
 
 
 def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int) -> tuple[int, dict, str]:
