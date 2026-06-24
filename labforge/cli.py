@@ -1093,6 +1093,9 @@ def command_qa_release_gate(args: argparse.Namespace) -> int:
         materialize=args.materialize,
         force=args.force,
         agent_result_dir=Path(args.agent_results) if args.agent_results else None,
+        execute_e2e=args.execute_e2e,
+        cleanup_e2e=args.cleanup_e2e,
+        e2e_timeout_seconds=args.e2e_timeout,
     )
     print(f"Release gate status: {report.status}")
     print(f"- {(Path(args.out) / 'release-gate-report.md').resolve()}")
@@ -1643,6 +1646,9 @@ def main(argv: list[str] | None = None) -> int:
     qa_release_gate_parser.add_argument("--profile", default="unprotected", choices=["unprotected", "protected"])
     qa_release_gate_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize MVP runtimes before building")
     qa_release_gate_parser.add_argument("--agent-results", help="Directory containing agent *.result.yaml files, including industry realism reviewer output")
+    qa_release_gate_parser.add_argument("--execute-e2e", action="store_true", help="Start the generated provider output and run E2E access plus solver probes. Default is dry-run evidence only.")
+    qa_release_gate_parser.add_argument("--cleanup-e2e", action="store_true", help="Stop provider output after --execute-e2e probes finish.")
+    qa_release_gate_parser.add_argument("--e2e-timeout", type=int, default=60, help="Provider lifecycle timeout in seconds when --execute-e2e is used.")
     qa_release_gate_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
     qa_release_gate_parser.set_defaults(func=command_qa_release_gate)
     qa_mvp_matrix_parser = qa_sub.add_parser(

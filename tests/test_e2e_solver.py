@@ -4,9 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from labforge.doctor import HostDoctorReport
 from labforge.e2e_solver import run_e2e_solver
+from labforge.qa import e2e_solver_release_check
 
 
 class E2ESolverTests(unittest.TestCase):
@@ -96,6 +99,54 @@ class E2ESolverTests(unittest.TestCase):
             self.assertTrue((root / "e2e" / "e2e-solver.json").exists())
             self.assertTrue((root / "e2e" / "host-preflight.md").exists())
             self.assertTrue((root / "e2e" / "host-preflight.json").exists())
+
+    def test_release_gate_execute_e2e_requires_passed_solver_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            playtest = root / "learner-playtest"
+            out = root / "e2e"
+            provider_output.mkdir()
+            playtest.mkdir()
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            (playtest / "solver-plan.json").write_text("{}\n", encoding="utf-8")
+            (playtest / "learner-access.json").write_text("{}\n", encoding="utf-8")
+
+            def fake_e2e(*_args, **_kwargs):
+                for relative in (
+                    "e2e-solver.md",
+                    "e2e-solver.yaml",
+                    "e2e-solver.json",
+                    "host-preflight.md",
+                    "host-preflight.json",
+                    "access-playtest/access-playtest.yaml",
+                    "solver-run/solver-run.yaml",
+                ):
+                    path = out / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("ok\n", encoding="utf-8")
+                return SimpleNamespace(
+                    status="warning",
+                    mode="execute",
+                    preflight_ready=True,
+                    lifecycle=[],
+                    access_playtest=SimpleNamespace(status="passed"),
+                    solver_run=SimpleNamespace(status="warning"),
+                )
+
+            with patch("labforge.qa.run_e2e_solver", side_effect=fake_e2e):
+                check = e2e_solver_release_check(
+                    provider_output,
+                    playtest,
+                    out,
+                    provider="docker-compose",
+                    execute=True,
+                )
+
+            self.assertEqual(check.name, "e2e-solver-evidence")
+            self.assertEqual(check.status, "failed")
+            self.assertIn("execute=true", check.messages)
 
 
 if __name__ == "__main__":

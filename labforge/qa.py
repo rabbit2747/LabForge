@@ -172,6 +172,9 @@ def run_release_gate(
     materialize: bool = False,
     force: bool = False,
     agent_result_dir: Path | None = None,
+    execute_e2e: bool = False,
+    cleanup_e2e: bool = False,
+    e2e_timeout_seconds: int = 60,
 ) -> ReleaseGateReport:
     working_lab = lab_root.resolve()
     if materialize:
@@ -244,7 +247,17 @@ def run_release_gate(
     checks.append(learner_experience_check(spec, provider_out, strict=True))
     learner_playtest_out = out / "learner-playtest"
     checks.append(learner_playtest_release_check(working_lab, learner_playtest_out, provider=provider, profile=profile))
-    checks.append(e2e_solver_release_check(provider_out, learner_playtest_out, out / "e2e-solver", provider=provider))
+    checks.append(
+        e2e_solver_release_check(
+            provider_out,
+            learner_playtest_out,
+            out / "e2e-solver",
+            provider=provider,
+            execute=execute_e2e,
+            cleanup=cleanup_e2e,
+            timeout_seconds=e2e_timeout_seconds,
+        )
+    )
 
     status: Literal["passed", "failed"] = "failed" if any(check.status != "passed" for check in checks) else "passed"
     report = ReleaseGateReport(
@@ -328,7 +341,16 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
     )
 
 
-def e2e_solver_release_check(provider_out: Path, learner_playtest_out: Path, out: Path, *, provider: str) -> QaCheck:
+def e2e_solver_release_check(
+    provider_out: Path,
+    learner_playtest_out: Path,
+    out: Path,
+    *,
+    provider: str,
+    execute: bool = False,
+    cleanup: bool = False,
+    timeout_seconds: int = 60,
+) -> QaCheck:
     solver_plan = learner_playtest_out / "solver-plan.json"
     access_manifest = learner_playtest_out / "learner-access.json"
     required = [provider_out / "endpoints.json", solver_plan, access_manifest]
@@ -348,8 +370,9 @@ def e2e_solver_release_check(provider_out: Path, learner_playtest_out: Path, out
             access_manifest,
             out,
             provider=provider,
-            execute=False,
-            cleanup=False,
+            execute=execute,
+            cleanup=cleanup,
+            timeout_seconds=timeout_seconds,
         )
     except Exception as exc:  # noqa: BLE001 - release gate should preserve E2E planning failures.
         return QaCheck(
@@ -373,11 +396,17 @@ def e2e_solver_release_check(provider_out: Path, learner_playtest_out: Path, out
             status="failed",
             messages=[f"missing_output={path}" for path in missing_outputs],
         )
-    if report.status not in {"planned", "passed", "warning"}:
+    acceptable_statuses = {"passed"} if execute else {"planned", "passed", "warning"}
+    if report.status not in acceptable_statuses:
         return QaCheck(
             name="e2e-solver-evidence",
             status="failed",
-            messages=[f"status={report.status}", f"report={out / 'e2e-solver.md'}"],
+            messages=[
+                f"status={report.status}",
+                f"mode={report.mode}",
+                f"execute={str(execute).lower()}",
+                f"report={out / 'e2e-solver.md'}",
+            ],
         )
     return QaCheck(
         name="e2e-solver-evidence",
@@ -385,6 +414,8 @@ def e2e_solver_release_check(provider_out: Path, learner_playtest_out: Path, out
         messages=[
             f"status={report.status}",
             f"mode={report.mode}",
+            f"execute={str(execute).lower()}",
+            f"cleanup={str(cleanup).lower()}",
             f"preflight_ready={str(report.preflight_ready).lower()}",
             f"lifecycle_steps={len(report.lifecycle)}",
             f"access_status={report.access_playtest.status if report.access_playtest else 'missing'}",

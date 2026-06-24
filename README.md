@@ -504,9 +504,12 @@ writes `release-gate/e2e-solver/`. This launch-oriented evidence binds the
 generated provider output, learner access manifest, solver plan, host preflight,
 provider lifecycle plan, browser/terminal access checks, and solver-runner plan
 into one supervisor report. The release gate uses dry-run mode by default; run
-`python -m labforge qa e2e-solver ... --execute` after reviewing the provider
-output when you want LabForge to start the lab and probe reachable browser or
-SSH targets.
+`python -m labforge qa release-gate ... --execute-e2e --cleanup-e2e` after
+reviewing the provider output when you want the release gate itself to start the
+lab, probe reachable browser or SSH targets, run supported solver steps, and
+stop the provider output afterward. You can also run
+`python -m labforge qa e2e-solver ... --execute` directly against an existing
+provider output directory.
 
 `qa playtest` creates learner-path evidence from the generated lab. It builds
 provider output, reads learner-visible URLs and SSH commands, runs supported
