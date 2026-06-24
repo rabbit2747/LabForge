@@ -909,6 +909,13 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/search/policy", "/labforge/scaffold/solr/policy"],
+            None,
+            timeout_seconds,
+        )
         drift_before_status, drift_before, _, drift_before_route = http_json_first(
             "GET",
             base_url,
@@ -953,11 +960,29 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/search/audit", "/labforge/scaffold/solr/audit"],
+            None,
+            timeout_seconds,
+        )
         core_items = cores.get("cores", []) if isinstance(cores, dict) else []
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        config_recorded = any(
+            isinstance(item, dict) and item.get("action") == "response-writer-config-change" and item.get("accepted") is True
+            for item in audit_records
+        )
+        execution_recorded = any(
+            isinstance(item, dict) and item.get("action") == "template-query-executed" and item.get("accepted") is True
+            for item in audit_records
+        )
         ok = (
             landing_ok
             and cores_status == 200
             and any(isinstance(item, dict) and item.get("legacy") is True for item in core_items)
+            and policy_status == 200
+            and policy.get("audit_api") == "/api/search/audit"
             and drift_before_status == 200
             and drift_before.get("legacy_track") is True
             and system_status == 200
@@ -965,6 +990,9 @@ def run_plugin_http_sequence(
             and select_status == 200
             and drift_after_status == 200
             and drift_after.get("velocity_response_writer") is True
+            and audit_status == 200
+            and config_recorded
+            and execution_recorded
             and "uid=8983(solr)" in select_body
         )
         return plugin_step(
@@ -976,11 +1004,12 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; cores_route={cores_route}; drift_before_route={drift_before_route}; "
-                f"system_route={system_route}; config_route={config_route}; select_route={select_route}; drift_after_route={drift_after_route}; "
+                f"{context_note}; cores_route={cores_route}; policy_route={policy_route}; drift_before_route={drift_before_route}; "
+                f"system_route={system_route}; config_route={config_route}; select_route={select_route}; drift_after_route={drift_after_route}; audit_route={audit_route}; "
                 f"cores={cores_status}; legacy_cores={sum(1 for item in core_items if isinstance(item, dict) and item.get('legacy') is True)}; "
-                f"drift_before={drift_before_status}; system={system_status}; config={config_status}; select={select_status}; "
-                f"drift_after={drift_after_status}; velocity_response_writer={drift_after.get('velocity_response_writer')}"
+                f"policy={policy_status}; drift_before={drift_before_status}; system={system_status}; config={config_status}; select={select_status}; "
+                f"drift_after={drift_after_status}; velocity_response_writer={drift_after.get('velocity_response_writer')}; "
+                f"audit={audit_status}; config_recorded={config_recorded}; execution_recorded={execution_recorded}"
             ),
         )
     if plugin == "credential-exposure":

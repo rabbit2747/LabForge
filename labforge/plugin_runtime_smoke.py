@@ -455,6 +455,7 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             )
         if plugin_id == "solr-velocity-rce":
             cores = client.get("/labforge/scaffold/solr/cores")
+            policy = client.get("/labforge/scaffold/solr/policy")
             drift_before = client.get("/labforge/scaffold/solr/config-drift")
             system = client.get("/labforge/scaffold/solr/admin/info/system")
             enabled = client.post(
@@ -477,14 +478,20 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 },
             )
             drift_after = client.get("/labforge/scaffold/solr/config-drift")
+            audit = client.get("/labforge/scaffold/solr/audit")
             cores_data = cores.get_json(silent=True) or {}
+            policy_data = policy.get_json(silent=True) or {}
             drift_before_data = drift_before.get_json(silent=True) or {}
             drift_after_data = drift_after.get_json(silent=True) or {}
+            audit_data = audit.get_json(silent=True) or {}
+            audit_records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
             return assert_condition(
                 service,
                 plugin_id,
                 cores.status_code == 200
                 and any(core.get("legacy") is True for core in cores_data.get("cores", []) if isinstance(core, dict))
+                and policy.status_code == 200
+                and policy_data.get("audit_api") == "/api/search/audit"
                 and drift_before.status_code == 200
                 and drift_before_data.get("legacy_track") is True
                 and system.status_code == 200
@@ -492,9 +499,12 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and executed.status_code == 200
                 and drift_after.status_code == 200
                 and drift_after_data.get("velocity_response_writer") is True
+                and audit.status_code == 200
+                and any(record.get("action") == "response-writer-config-change" and record.get("accepted") is True for record in audit_records)
+                and any(record.get("action") == "template-query-executed" and record.get("accepted") is True for record in audit_records)
                 and "uid=8983(solr)" in executed.get_data(as_text=True),
-                "/labforge/scaffold/solr/cores + config-drift + select",
-                drift_after,
+                "/labforge/scaffold/solr/cores + policy + config-drift + select + audit",
+                audit,
             )
         if plugin_id == "build-pipeline-abuse":
             context = client.get("/labforge/scaffold/build/context")

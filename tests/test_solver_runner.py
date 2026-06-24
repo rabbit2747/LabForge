@@ -1346,6 +1346,7 @@ class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
 
 class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
     velocity_enabled = False
+    audit_records: list[dict[str, object]] = []
 
     def do_GET(self) -> None:
         if self.path == "/operations/reference":
@@ -1414,6 +1415,23 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
             )
             return
+        if self.path == "/api/search/policy":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "workflow": "legacy operations search maintenance",
+                        "core": "ops-core",
+                        "version": "8.3.1",
+                        "audit_api": "/api/search/audit",
+                        "drift_api": "/api/search/config-drift",
+                        "legacy_response_writer_policy": "Response-writer changes are audited.",
+                    }
+                ).encode("utf-8")
+            )
+            return
         if self.path == "/api/search/config-drift":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1436,10 +1454,17 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"lucene": {"solr-spec-version": "8.3.1"}}).encode("utf-8"))
             return
         if self.path.startswith("/solr/ops-core/select"):
+            self.audit_records.append({"action": "template-query-executed", "accepted": True, "core": "ops-core"})
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(b"uid=8983(solr) gid=8983(solr) groups=8983(solr)\n")
+            return
+        if self.path == "/api/search/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"records": self.audit_records}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()
@@ -1447,6 +1472,7 @@ class SolrVelocitySmokeHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if self.path == "/solr/ops-core/config":
             type(self).velocity_enabled = True
+            self.audit_records.append({"action": "response-writer-config-change", "accepted": True, "core": "ops-core"})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
