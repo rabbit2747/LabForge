@@ -66,6 +66,15 @@ class AccessPlaytestTests(unittest.TestCase):
                                 "expected": "shell",
                             }
                         ],
+                        "terminal_sequences": [
+                            {
+                                "service": "attacker-workstation",
+                                "kind": "ssh-command-sequence",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                                "commands": ["echo labforge-terminal-ready", "pwd"],
+                                "expected_texts": ["labforge-terminal-ready"],
+                            }
+                        ],
                         "first_action": "Open http://127.0.0.1:18081/",
                     }
                 ),
@@ -77,9 +86,10 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertEqual(report.status, "planned")
             self.assertEqual(report.browser_targets, ["http://127.0.0.1:18081/"])
             self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
-            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned"])
+            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned"])
             self.assertEqual(report.items[0].kind, "browser-http")
             self.assertEqual(report.items[1].kind, "final-http")
+            self.assertEqual(report.items[-1].kind, "ssh-command-sequence")
             self.assertTrue((root / "access-playtest" / "access-playtest.md").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.yaml").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.json").exists())
@@ -234,6 +244,48 @@ class AccessPlaytestTests(unittest.TestCase):
         self.assertEqual(argv[0], "ssh")
         self.assertIn("BatchMode=yes", argv)
         self.assertIn("ConnectTimeout=5", argv)
+
+    def test_access_playtest_executes_ssh_command_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "learner-access.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "terminal-smoke",
+                        "title": "Terminal Smoke",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "health_checks": [],
+                        "terminal_checks": [],
+                        "terminal_sequences": [
+                            {
+                                "service": "attacker-workstation",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                                "commands": ["echo labforge-terminal-ready", "pwd"],
+                                "expected_texts": ["labforge-terminal-ready"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            completed = SimpleNamespace(returncode=0, stdout="labforge-terminal-ready\n/home/attacker\n", stderr="")
+
+            with patch("labforge.access_playtest.shutil.which", return_value="ssh"), patch(
+                "labforge.access_playtest.subprocess.run",
+                return_value=completed,
+            ) as run_mock:
+                report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.items[0].kind, "ssh-command-sequence")
+            self.assertEqual(report.items[0].status, "passed")
+            self.assertIn("commands=2", report.items[0].message)
+            argv = run_mock.call_args.args[0]
+            self.assertEqual(argv[0], "ssh")
+            self.assertIn("BatchMode=yes", argv)
+            self.assertEqual(argv[-1], "echo labforge-terminal-ready && pwd")
 
 
 class BrowserSmokeHandler(BaseHTTPRequestHandler):

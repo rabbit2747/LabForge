@@ -525,12 +525,12 @@ the scenario has a multi-stage chain, and writes:
   learner path.
 - `learner-access.json`: machine-readable access manifest with start/status/stop
   commands, learner browser targets, attacker SSH targets, health checks,
-  terminal checks, and first learner action.
+  terminal checks, terminal command sequences, and first learner action.
 - `access-playtest/access-playtest.md`: browser/terminal access verification
   plan generated from `learner-access.json`. Re-run it with
   `python -m labforge qa access-playtest <playtest/learner-access.json> --out <out>`
   for dry-run planning, or add `--execute` after the provider is running to run
-  supported `curl` and SSH batch checks.
+  supported `curl`, SSH batch checks, and SSH command sequences.
 - `solver-plan.md/json`: ordered, supervisor-facing solver-agent plan derived
   from learner access, stage-chain checks, plugin runtime evidence, and final
   submission endpoints. It is designed for automated playtest agents and avoids

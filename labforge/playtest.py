@@ -74,6 +74,15 @@ class LearnerAccessCheck(PlaytestModel):
     expected: str
 
 
+class LearnerTerminalSequence(PlaytestModel):
+    service: str
+    kind: str = "ssh-command-sequence"
+    connect: str
+    commands: list[str] = Field(default_factory=list)
+    expected_texts: list[str] = Field(default_factory=list)
+    expected: str = "Remote command sequence completes."
+
+
 class LearnerAccessManifest(PlaytestModel):
     lab_id: str
     title: str
@@ -88,6 +97,7 @@ class LearnerAccessManifest(PlaytestModel):
     final_submission_endpoints: list[PlaytestEndpoint] = Field(default_factory=list)
     health_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_checks: list[LearnerAccessCheck] = Field(default_factory=list)
+    terminal_sequences: list[LearnerTerminalSequence] = Field(default_factory=list)
     first_action: str = ""
     notes: list[str] = Field(default_factory=list)
 
@@ -277,6 +287,17 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path) ->
         for endpoint in report.attacker_entrypoints + report.learner_entrypoints
         if endpoint.protocol == "ssh" and endpoint.connect
     ]
+    terminal_sequences = [
+        LearnerTerminalSequence(
+            service=endpoint.service,
+            connect=endpoint.connect,
+            commands=["echo labforge-terminal-ready", "pwd"],
+            expected_texts=["labforge-terminal-ready"],
+            expected="SSH target accepts non-interactive learner commands.",
+        )
+        for endpoint in report.attacker_entrypoints + report.learner_entrypoints
+        if endpoint.protocol == "ssh" and endpoint.connect
+    ]
     return LearnerAccessManifest(
         lab_id=report.lab_id,
         title=report.title,
@@ -302,11 +323,12 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path) ->
         final_submission_endpoints=report.final_submission_endpoints,
         health_checks=health_checks,
         terminal_checks=terminal_checks,
+        terminal_sequences=terminal_sequences,
         first_action=first_action,
         notes=[
             "Run start commands from the generated provider output directory.",
             "Use health checks to confirm HTTP services before manual or automated playtest.",
-            "Use terminal checks for attacker workstation or SSH-based learner hosts.",
+            "Use terminal checks and terminal sequences for attacker workstation or SSH-based learner hosts.",
         ],
     )
 
@@ -920,6 +942,13 @@ def render_learner_access_markdown(report: PlaytestReport) -> str:
     ]
     lines += ["", "## Health Checks", ""]
     lines.extend(health_lines or ["- No HTTP health check URLs were generated."])
+    sequence_lines = [
+        f"- `{endpoint.service}`: `echo labforge-terminal-ready && pwd` via `{endpoint.connect}`"
+        for endpoint in [*report.attacker_entrypoints, *report.learner_entrypoints]
+        if endpoint.protocol == "ssh" and endpoint.connect
+    ]
+    lines += ["", "## Terminal Command Sequences", ""]
+    lines.extend(sequence_lines or ["- No SSH terminal command sequence was generated."])
     lines += ["", "## High-Level Learner Path", ""]
     for step in report.steps:
         lines.append(f"- `{step.step_id}` {step.title}: {step.learner_action}")

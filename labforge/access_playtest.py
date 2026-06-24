@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 import urllib.error
@@ -99,6 +100,9 @@ def run_access_playtest(
     for index, check in enumerate(data.get("terminal_checks", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_check(f"terminal-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
+    for index, check in enumerate(data.get("terminal_sequences", []) or [], start=1):
+        if isinstance(check, dict):
+            items.append(run_terminal_sequence_check(f"terminal-seq-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
 
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
     status = aggregate_status(items, execute=execute)
@@ -125,7 +129,14 @@ def load_access_manifest(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"learner access manifest is not an object: {path}")
-    for key in ("learner_entrypoints", "attacker_entrypoints", "final_submission_endpoints", "health_checks", "terminal_checks"):
+    for key in (
+        "learner_entrypoints",
+        "attacker_entrypoints",
+        "final_submission_endpoints",
+        "health_checks",
+        "terminal_checks",
+        "terminal_sequences",
+    ):
         data.setdefault(key, [])
     return data
 
@@ -448,6 +459,130 @@ def run_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int
     )
 
 
+def run_terminal_sequence_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:
+    service = str(check.get("service", ""))
+    connect = str(check.get("connect") or check.get("command") or "").strip()
+    commands = [str(item).strip() for item in check.get("commands", []) or [] if str(item).strip()]
+    expected_texts = [str(item).strip() for item in check.get("expected_texts", []) or [] if str(item).strip()]
+    expected = str(check.get("expected", "remote command sequence completes and expected output is visible"))
+    if not connect:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command="",
+            status="failed",
+            expected=expected,
+            message="missing SSH connect command",
+        )
+    if not commands:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=connect,
+            status="failed",
+            expected=expected,
+            message="missing remote commands",
+        )
+    remote_script = " && ".join(commands)
+    display_command = f"{connect} {shlex.quote(remote_script)}"
+    if not execute:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=display_command,
+            status="planned",
+            expected=expected,
+            message="dry-run",
+        )
+    argv = ssh_sequence_argv(connect, remote_script)
+    if not argv:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=display_command,
+            status="skipped",
+            expected=expected,
+            message="unsupported SSH command sequence",
+        )
+    executable = shutil.which(argv[0])
+    if not executable:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=display_command,
+            status="skipped",
+            expected=expected,
+            message=f"missing executable: {argv[0]}",
+        )
+    try:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=display_command,
+            status="failed",
+            expected=expected,
+            stdout=stdout.strip(),
+            stderr=stderr.strip(),
+            message=f"remote command sequence timed out after {timeout_seconds}s",
+        )
+    stdout = completed.stdout.strip()
+    stderr = completed.stderr.strip()
+    if completed.returncode != 0:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=display_command,
+            status="failed",
+            expected=expected,
+            stdout=stdout,
+            stderr=stderr,
+            message=f"exit_code={completed.returncode}",
+        )
+    missing = [text for text in expected_texts if text not in stdout and text not in stderr]
+    if missing:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-command-sequence",
+            command=display_command,
+            status="warning",
+            expected=expected,
+            stdout=stdout,
+            stderr=stderr,
+            message=f"exit_code=0; missing_expected_text={','.join(missing)}",
+        )
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="ssh-command-sequence",
+        command=display_command,
+        status="passed",
+        expected=expected,
+        stdout=stdout,
+        stderr=stderr,
+        message=f"exit_code=0; commands={len(commands)}; matched_expected_text={len(expected_texts)}",
+    )
+
+
 def command_to_argv(command: str, kind: str) -> list[str]:
     if command.startswith("curl "):
         return command.split()
@@ -457,6 +592,15 @@ def command_to_argv(command: str, kind: str) -> list[str]:
             parts[1:1] = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5"]
         return parts
     return []
+
+
+def ssh_sequence_argv(connect: str, remote_script: str) -> list[str]:
+    if not connect.startswith("ssh "):
+        return []
+    parts = connect.split()
+    if "-o" not in parts:
+        parts[1:1] = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5"]
+    return [*parts, remote_script]
 
 
 def aggregate_status(items: list[AccessPlaytestItem], *, execute: bool) -> Literal["planned", "passed", "warning", "failed"]:

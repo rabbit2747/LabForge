@@ -57,6 +57,8 @@ class PlaytestTests(unittest.TestCase):
             self.assertEqual(len(access_manifest["final_submission_endpoints"]), len(report.final_submission_endpoints))
             self.assertTrue(access_manifest["health_checks"])
             self.assertTrue(access_manifest["terminal_checks"])
+            self.assertTrue(access_manifest["terminal_sequences"])
+            self.assertEqual(access_manifest["terminal_sequences"][0]["commands"], ["echo labforge-terminal-ready", "pwd"])
             self.assertTrue(access_manifest["first_action"])
             solver_plan = load_yaml(out / "solver-plan.json")
             self.assertEqual(solver_plan["lab_id"], report.lab_id)
