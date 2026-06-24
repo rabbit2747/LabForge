@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from labforge.chain import build_chain_manifest, service_chain_view, write_chain_manifest
+from labforge.chain import apply_evidence_to_stage_state, build_chain_manifest, service_chain_view, stage_state_seed, write_chain_manifest
 from labforge.model import LabSpec
 
 
@@ -33,6 +33,23 @@ class ChainManifestTests(unittest.TestCase):
         self.assertGreaterEqual(view["stage_count"], 1)
         self.assertTrue(any(stage["stage_id"] == "stage-02" for stage in view["stages"]))
         self.assertTrue(view["incoming"] or view["outgoing"])
+
+    def test_stage_state_unlocks_when_required_evidence_is_acquired(self) -> None:
+        spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
+        manifest = build_chain_manifest(spec)
+        state = stage_state_seed(manifest, "hr-portal")
+
+        stage_02 = next(stage for stage in state["stages"] if stage["stage_id"] == "stage-02")
+        self.assertEqual(stage_02["status"], "locked")
+
+        apply_evidence_to_stage_state(state, "preview_request_captured")
+        stage_02 = next(stage for stage in state["stages"] if stage["stage_id"] == "stage-02")
+        self.assertEqual(stage_02["status"], "locked")
+
+        apply_evidence_to_stage_state(state, "template_probe_confirmed")
+        stage_02 = next(stage for stage in state["stages"] if stage["stage_id"] == "stage-02")
+        self.assertEqual(stage_02["status"], "unlocked")
+        self.assertIn("template_probe_confirmed", state["acquired_evidence"])
 
     def test_write_chain_manifest_outputs_review_files(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))

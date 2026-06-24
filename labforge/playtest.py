@@ -315,16 +315,25 @@ def service_chain_runtime_step(spec: LabSpec, working_lab: Path, chain_manifest)
         checked += 1
         root = working_lab / artifact.source_path
         path = root / "seed" / "chain.json"
+        state_path = root / "seed" / "stage-state.json"
         if not path.exists():
             missing.append(f"{service}: missing seed/chain.json")
             continue
+        if not state_path.exists():
+            missing.append(f"{service}: missing seed/stage-state.json")
+            continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            state = json.loads(state_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            missing.append(f"{service}: seed/chain.json is not valid JSON")
+            missing.append(f"{service}: chain/state seed is not valid JSON")
             continue
         if data.get("service") != service:
             missing.append(f"{service}: seed/chain.json service mismatch")
+        if state.get("service") != service:
+            missing.append(f"{service}: seed/stage-state.json service mismatch")
+        if "acquired_evidence" not in state or "stages" not in state:
+            missing.append(f"{service}: seed/stage-state.json missing evidence state fields")
         expected_stages = stages_by_service.get(service, 0)
         actual_stages = int(data.get("stage_count") or 0)
         if expected_stages and actual_stages < expected_stages:
@@ -348,7 +357,7 @@ def service_chain_runtime_step(spec: LabSpec, working_lab: Path, chain_manifest)
             status="failed",
             evidence=missing,
             learner_action="Regenerate or materialize service runtimes before release.",
-            expected_result="Every generated runtime has seed/chain.json.",
+            expected_result="Every generated runtime has seed/chain.json and seed/stage-state.json.",
         )
     if weak:
         return PlaytestStep(
@@ -363,7 +372,7 @@ def service_chain_runtime_step(spec: LabSpec, working_lab: Path, chain_manifest)
         step_id="chain-runtime-01",
         title="Service runtimes carry stage-chain context",
         status="passed",
-        evidence=[f"{checked} services include seed/chain.json with service-specific context."],
+        evidence=[f"{checked} services include chain context and evidence state seeds."],
         learner_action="Use each service's Chain Context endpoint or UI panel to understand related workflow evidence.",
         expected_result="Learners can discover how evidence from one service leads to the next stage without reading source code.",
     )

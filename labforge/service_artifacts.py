@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from .chain import build_chain_manifest, service_chain_view
+from .chain import build_chain_manifest, service_chain_view, stage_state_seed
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_blueprints import create_service_blueprints, write_service_blueprint_files
@@ -233,6 +233,10 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
         files.setdefault(
             "seed/chain.json",
             json.dumps(service_chain_view(chain_manifest, artifact.service), ensure_ascii=False, indent=2) + "\n",
+        )
+        files.setdefault(
+            "seed/stage-state.json",
+            json.dumps(stage_state_seed(chain_manifest, artifact.service), ensure_ascii=False, indent=2) + "\n",
         )
         for filename, content in files.items():
             path = service_root / filename

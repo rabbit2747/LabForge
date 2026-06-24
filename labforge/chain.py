@@ -234,6 +234,61 @@ def service_chain_view(manifest: ChainManifest, service: str) -> dict[str, Any]:
     }
 
 
+def stage_state_seed(manifest: ChainManifest, service: str) -> dict[str, Any]:
+    """Build initial evidence/unlock state for generated service runtimes."""
+    evidence_catalog = sorted({evidence for node in manifest.nodes for evidence in [*node.required_inputs, *node.produces]})
+    stages = []
+    for node in manifest.nodes:
+        unlocked = not node.required_inputs
+        stages.append(
+            {
+                "stage_id": node.stage_id,
+                "title": node.title,
+                "services": node.services,
+                "required_inputs": node.required_inputs,
+                "produces": node.produces,
+                "unlocks": node.unlocks,
+                "status": "unlocked" if unlocked else "locked",
+                "unlock_reason": "entrypoint" if unlocked else "waiting_for_evidence",
+            }
+        )
+    return {
+        "lab_id": manifest.lab_id,
+        "service": service,
+        "chain_status": manifest.status,
+        "acquired_evidence": [],
+        "evidence_catalog": evidence_catalog,
+        "stages": stages,
+        "events": [],
+    }
+
+
+def apply_evidence_to_stage_state(state: dict[str, Any], evidence: str) -> dict[str, Any]:
+    evidence = str(evidence).strip()
+    if not evidence:
+        return recompute_stage_state(state)
+    acquired = state.setdefault("acquired_evidence", [])
+    if evidence not in acquired:
+        acquired.append(evidence)
+        state.setdefault("events", []).append({"event": "evidence.acquired", "evidence": evidence})
+    return recompute_stage_state(state)
+
+
+def recompute_stage_state(state: dict[str, Any]) -> dict[str, Any]:
+    acquired = set(state.get("acquired_evidence", []))
+    for stage in state.get("stages", []):
+        required = set(stage.get("required_inputs", []))
+        missing = sorted(required - acquired)
+        if not missing:
+            stage["status"] = "unlocked"
+            stage["unlock_reason"] = "required_evidence_satisfied" if required else "entrypoint"
+            stage.pop("missing_evidence", None)
+        else:
+            stage["status"] = "locked"
+            stage["missing_evidence"] = missing
+    return state
+
+
 def render_chain_markdown(manifest: ChainManifest) -> str:
     lines = [
         f"# Stage Chain - {manifest.title}",
