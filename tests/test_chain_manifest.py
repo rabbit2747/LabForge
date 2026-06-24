@@ -1,9 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from labforge.chain import apply_evidence_to_stage_state, build_chain_manifest, service_chain_view, stage_state_seed, write_chain_manifest
 from labforge.model import LabSpec
+from labforge.service_artifacts import vulnerability_evidence_map
 
 
 class ChainManifestTests(unittest.TestCase):
@@ -50,6 +52,19 @@ class ChainManifestTests(unittest.TestCase):
         stage_02 = next(stage for stage in state["stages"] if stage["stage_id"] == "stage-02")
         self.assertEqual(stage_02["status"], "unlocked")
         self.assertIn("template_probe_confirmed", state["acquired_evidence"])
+
+    def test_vulnerability_evidence_map_uses_service_stage_outputs(self) -> None:
+        spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
+        manifest = build_chain_manifest(spec)
+        artifact = SimpleNamespace(
+            service="hr-portal",
+            model_extra={"vulnerability_plugins": [{"id": "ssti-preview"}]},
+        )
+        evidence_map = vulnerability_evidence_map(manifest, artifact)
+
+        self.assertIn("ssti-preview", evidence_map)
+        self.assertIn("template_probe_confirmed", evidence_map["ssti-preview"])
+        self.assertIn("command_execution_confirmed", evidence_map["ssti-preview"])
 
     def test_write_chain_manifest_outputs_review_files(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))

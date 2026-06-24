@@ -121,9 +121,13 @@ def load_generated_app_module(service: str, app_path: Path) -> tuple[Any | None,
 def isolate_generated_state(module: Any, service: str) -> None:
     root = Path(tempfile.mkdtemp(prefix=f"labforge-runtime-smoke-{normalize_template_id(service)}-"))
     state = root / "state"
+    seed = root / "seed"
     logs = root / "logs"
+    seed.mkdir(parents=True, exist_ok=True)
     patches = {
+        "SEED_DIR": seed,
         "STATE_DIR": state,
+        "STAGE_STATE_PATH": state / "stage-state.json",
         "LOG_PATH": logs / "service-events.jsonl",
         "REVIEW_ITEMS_PATH": state / "stored-xss-review-items.json",
         "BUILD_JOBS_PATH": state / "build-pipeline-jobs.json",

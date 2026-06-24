@@ -16,7 +16,9 @@ from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_blueprints import create_service_blueprints, write_service_blueprint_files
 from .service_templates import render_enterprise_flask_service, render_template_files
+from .service_templates import normalize_template_id
 from .vulnerability_plugins import render_vulnerability_plugin_contracts
+from .vulnerability_plugins import declared_vulnerability_plugins
 from .vulnerability_scaffolds import render_vulnerability_scaffold_files
 
 
@@ -238,6 +240,12 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             "seed/stage-state.json",
             json.dumps(stage_state_seed(chain_manifest, artifact.service), ensure_ascii=False, indent=2) + "\n",
         )
+        evidence_map = vulnerability_evidence_map(chain_manifest, artifact)
+        if evidence_map:
+            files.setdefault(
+                "seed/vulnerability-evidence.json",
+                json.dumps(evidence_map, ensure_ascii=False, indent=2) + "\n",
+            )
         for filename, content in files.items():
             path = service_root / filename
             if path.exists() and not force:
@@ -245,6 +253,33 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             write_text(path, content)
             written.append(path)
     return written
+
+
+def vulnerability_evidence_map(chain_manifest, artifact) -> dict[str, list[str]]:
+    service_view = service_chain_view(chain_manifest, artifact.service)
+    service_evidence = sorted(
+        {
+            evidence
+            for stage in service_view.get("stages", [])
+            for evidence in stage.get("produces", [])
+            if evidence
+        }
+    )
+    evidence_map: dict[str, list[str]] = {}
+    for plugin in declared_vulnerability_plugins(artifact):
+        plugin_id = normalize_template_id(str(plugin.get("id", "")))
+        if not plugin_id:
+            continue
+        explicit = plugin.get("emits_evidence") or plugin.get("evidence") or plugin.get("produces")
+        if isinstance(explicit, str):
+            values = [explicit]
+        elif isinstance(explicit, list):
+            values = [str(item) for item in explicit if str(item).strip()]
+        else:
+            values = service_evidence
+        if values:
+            evidence_map[plugin_id] = sorted(set(values))
+    return evidence_map
 
 
 def service_runtime_port(service: dict) -> int:
