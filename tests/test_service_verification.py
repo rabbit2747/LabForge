@@ -59,6 +59,79 @@ class ServiceVerificationTests(unittest.TestCase):
 
             self.assertFalse(findings)
 
+    def test_stage_chain_context_flags_thin_or_unanchored_clues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab(root)
+            service_root = root / "services" / "support-portal"
+            write_service_runtime(service_root)
+            (service_root / "seed" / "chain.json").write_text(
+                json.dumps(
+                    {
+                        "service": "support-portal",
+                        "stage_count": 2,
+                        "stages": [
+                            {
+                                "stage_id": "stage-01",
+                                "title": "Support review",
+                                "services": ["support-portal"],
+                                "required_inputs": [],
+                                "produces": ["support_context"],
+                                "learner_clue": "Continue.",
+                            },
+                            {
+                                "stage_id": "stage-02",
+                                "title": "Internal workflow",
+                                "services": ["support-portal"],
+                                "required_inputs": ["support_context"],
+                                "produces": ["internal_context"],
+                                "learner_clue": "Review the ordinary business process and look around carefully.",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = verify_services(LabSpec.load(root))
+            findings = [item for item in report.findings if item.category == "stage-clue-context"]
+            messages = "\n".join(item.message for item in findings)
+
+            self.assertTrue(findings)
+            self.assertIn("stage-01 learner clue is too thin", messages)
+            self.assertIn("stage-02 learner clue does not mention its service, evidence, or required input anchors", messages)
+
+    def test_stage_chain_context_accepts_anchored_business_clue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab(root)
+            service_root = root / "services" / "support-portal"
+            write_service_runtime(service_root)
+            (service_root / "seed" / "chain.json").write_text(
+                json.dumps(
+                    {
+                        "service": "support-portal",
+                        "stage_count": 1,
+                        "stages": [
+                            {
+                                "stage_id": "stage-01",
+                                "title": "Support review",
+                                "services": ["support-portal"],
+                                "required_inputs": [],
+                                "produces": ["support_context"],
+                                "learner_clue": "Use support-portal case notes to correlate support_context with approved diagnostics records.",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = verify_services(LabSpec.load(root))
+            findings = [item for item in report.findings if item.category == "stage-clue-context"]
+
+            self.assertFalse(findings)
+
 
 def write_lab(root: Path) -> None:
     (root / "scenario.yaml").write_text(
@@ -137,6 +210,7 @@ def write_service_runtime(service_root: Path) -> None:
     (service_root / "reset.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     (service_root / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
     (service_root / "app.py").write_text("print('support portal')\n", encoding="utf-8")
+    (service_root / "seed").mkdir(parents=True, exist_ok=True)
     (service_root / "noise").mkdir(parents=True, exist_ok=True)
     (service_root / "noise" / "events.jsonl").write_text('{"event":"routine"}\n', encoding="utf-8")
     (service_root / "tests").mkdir(parents=True, exist_ok=True)

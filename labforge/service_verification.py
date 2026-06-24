@@ -104,6 +104,7 @@ def verify_services(spec: LabSpec) -> ServiceVerificationReport:
         verify_contract_depth(findings, artifact, service_root, artifact.source_path)
         verify_template_boundaries(findings, artifact, service_root, artifact.source_path)
         verify_learner_visible_language(findings, artifact.service, service_root, artifact.source_path)
+        verify_stage_clue_context(findings, artifact.service, service_root, artifact.source_path)
         verify_vulnerability_plugins(findings, artifact, service_root, artifact.source_path)
 
     status: Literal["passed", "warning", "failed"]
@@ -365,6 +366,84 @@ def verify_learner_visible_language(
             )
 
 
+def verify_stage_clue_context(
+    findings: list[ServiceVerificationFinding],
+    service: str,
+    service_root: Path,
+    source_path: str,
+) -> None:
+    chain_path = service_root / "seed" / "chain.json"
+    if not chain_path.exists():
+        return
+    try:
+        chain = json.loads(chain_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        findings.append(
+            ServiceVerificationFinding(
+                severity="error",
+                service=service,
+                category="stage-clue-context",
+                path=f"{source_path}/seed/chain.json",
+                message=f"Stage chain context is not valid JSON: {exc}",
+            )
+        )
+        return
+    stages = chain.get("stages", []) if isinstance(chain, dict) else []
+    if not isinstance(stages, list) or not stages:
+        return
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        stage_id = str(stage.get("stage_id", "unknown-stage"))
+        clue = " ".join(str(stage.get("learner_clue", "")).split())
+        normalized = clue.lower()
+        if not clue:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=service,
+                    category="stage-clue-context",
+                    path=f"{source_path}/seed/chain.json",
+                    message=f"{stage_id} has no learner clue in service runtime chain context.",
+                )
+            )
+            continue
+        if len(clue) < 32 or normalized in {"continue", "continue.", "next", "proceed", "start."}:
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=service,
+                    category="stage-clue-context",
+                    path=f"{source_path}/seed/chain.json",
+                    message=f"{stage_id} learner clue is too thin for a human learner: `{clue}`.",
+                )
+            )
+        if normalized.startswith("review normal business behavior related to"):
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=service,
+                    category="stage-clue-context",
+                    path=f"{source_path}/seed/chain.json",
+                    message=f"{stage_id} learner clue is a generic fallback rather than service-specific context.",
+                )
+            )
+        anchors = stage_clue_anchors(stage)
+        if len(clue) < 80 and anchors and not clue_mentions_any(clue, anchors):
+            findings.append(
+                ServiceVerificationFinding(
+                    severity="warning",
+                    service=service,
+                    category="stage-clue-context",
+                    path=f"{source_path}/seed/chain.json",
+                    message=(
+                        f"{stage_id} learner clue does not mention its service, evidence, or required input anchors. "
+                        "Learners may have to guess why this service matters."
+                    ),
+                )
+            )
+
+
 def verify_vulnerability_plugins(findings: list[ServiceVerificationFinding], artifact, service_root: Path, source_path: str) -> None:
     template_ids = vulnerability_template_ids(artifact, service_root)
     for declared in declared_vulnerability_plugins(artifact):
@@ -592,6 +671,35 @@ def learner_visible_files(service_root: Path) -> list[Path]:
             if path.is_file() and path.suffix.lower() in LEARNER_VISIBLE_SUFFIXES:
                 paths.append(path)
     return sorted(set(paths))
+
+
+def stage_clue_anchors(stage: dict) -> list[str]:
+    anchors: list[str] = []
+    for key in ("services", "required_inputs", "produces"):
+        for value in stage.get(key, []) or []:
+            text = str(value).strip()
+            if text:
+                anchors.append(text)
+    return anchors
+
+
+def clue_mentions_any(clue: str, anchors: list[str]) -> bool:
+    clue_text = normalize_text_for_match(clue)
+    for anchor in anchors:
+        anchor_text = normalize_text_for_match(anchor)
+        if not anchor_text:
+            continue
+        if anchor_text in clue_text:
+            return True
+        parts = [part for part in anchor_text.split() if len(part) >= 4]
+        if parts and any(part in clue_text for part in parts):
+            return True
+    return False
+
+
+def normalize_text_for_match(value: str) -> str:
+    chars = [ch.lower() if ch.isalnum() else " " for ch in str(value)]
+    return " ".join("".join(chars).split())
 
 
 def directory_has_substantive_files(path: Path) -> bool:
