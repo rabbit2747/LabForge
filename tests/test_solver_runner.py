@@ -556,6 +556,8 @@ class SolverRunnerTests(unittest.TestCase):
 
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("registry=200", report.steps[0].message)
+                self.assertIn("approved_source=http://metadata-service:8080/metadata", report.steps[0].message)
                 self.assertIn("blocked_fetch_status=400", report.steps[0].message)
                 self.assertIn("allowed_fetch_status=200", report.steps[0].message)
                 self.assertIn("allowed=True", report.steps[0].message)
@@ -949,6 +951,25 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(b"<html><body><h1>Upstream Import Console</h1></body></html>")
+            return
+        if self.path == "/api/source-registry":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "sources": [
+                            {
+                                "url": "http://metadata-service:8080/metadata",
+                                "owner": "integration-operations",
+                                "status": "approved",
+                            }
+                        ],
+                        "blocked_examples": ["http://169.254.169.254/latest"],
+                    }
+                ).encode("utf-8")
+            )
             return
         if self.path.startswith("/operations/fetch?url=http://169.254.169.254/latest"):
             self.send_response(400)

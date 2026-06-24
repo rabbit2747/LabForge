@@ -256,6 +256,10 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 response,
             )
         if plugin_id == "ssrf-internal-fetch":
+            registry = client.get("/labforge/scaffold/source-registry")
+            registry_data = registry.get_json(silent=True) or {}
+            sources = registry_data.get("sources", [])
+            first_source = sources[0].get("url") if sources and isinstance(sources[0], dict) else "http://metadata-service:8080/metadata"
             blocked = client.get("/labforge/scaffold/fetch?url=http://169.254.169.254/latest")
             import urllib.request
 
@@ -278,7 +282,7 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
 
             urllib.request.urlopen = fake_urlopen
             try:
-                allowed = client.get("/labforge/scaffold/fetch?url=http://metadata-service:8080/metadata")
+                allowed = client.get(f"/labforge/scaffold/fetch?url={first_source}")
             finally:
                 urllib.request.urlopen = original_urlopen
             blocked_data = blocked.get_json(silent=True) or {}
@@ -286,11 +290,14 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             return assert_condition(
                 service,
                 plugin_id,
-                blocked.status_code == 400
+                registry.status_code == 200
+                and isinstance(sources, list)
+                and len(sources) >= 1
+                and blocked.status_code == 400
                 and blocked_data.get("allowed") is False
                 and allowed.status_code == 200
                 and allowed_data.get("allowed") is True,
-                "/labforge/scaffold/fetch",
+                "/labforge/scaffold/source-registry + fetch policy comparison",
                 allowed,
             )
         if plugin_id == "path-traversal-download":

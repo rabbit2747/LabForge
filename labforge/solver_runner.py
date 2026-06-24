@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Literal
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -545,6 +546,21 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "ssrf-internal-fetch":
+        registry_status, registry, _, registry_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/source-registry", "/labforge/scaffold/source-registry"],
+            None,
+            timeout_seconds,
+        )
+        sources = registry.get("sources", []) if isinstance(registry, dict) else []
+        approved_source = ""
+        for source in sources:
+            if isinstance(source, dict) and source.get("status") == "approved" and source.get("url"):
+                approved_source = str(source["url"])
+                break
+        if not approved_source:
+            approved_source = "http://metadata-service:8080/metadata"
         blocked_status, blocked_data, _, blocked_route = http_json_first(
             "GET",
             base_url,
@@ -555,17 +571,23 @@ def run_plugin_http_sequence(
         allowed_status, allowed_data, allowed_body, allowed_route = http_json_first(
             "GET",
             base_url,
-            ["/operations/fetch?url=http://metadata-service:8080/metadata", "/labforge/scaffold/fetch?url=http://metadata-service:8080/metadata"],
+            [
+                f"/operations/fetch?url={quote(approved_source, safe=':/')}",
+                f"/labforge/scaffold/fetch?url={quote(approved_source, safe=':/')}",
+            ],
             None,
             timeout_seconds,
         )
         ok = (
             landing_ok
+            and registry_status == 200
+            and isinstance(sources, list)
+            and len(sources) >= 1
             and blocked_status == 400
             and blocked_data.get("allowed") is False
             and allowed_status == 200
             and allowed_data.get("allowed") is True
-            and "metadata-service" in (json.dumps(allowed_data) + allowed_body)
+            and approved_source.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0] in (json.dumps(allowed_data) + allowed_body)
         )
         return plugin_step(
             order,
@@ -576,7 +598,8 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; blocked_route={blocked_route}; allowed_route={allowed_route}; "
+                f"{context_note}; registry_route={registry_route}; blocked_route={blocked_route}; allowed_route={allowed_route}; "
+                f"registry={registry_status}; approved_source={approved_source}; "
                 f"blocked_fetch_status={blocked_status}; blocked_allowed={blocked_data.get('allowed')}; "
                 f"allowed_fetch_status={allowed_status}; allowed={allowed_data.get('allowed')}"
             ),
