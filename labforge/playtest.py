@@ -106,6 +106,7 @@ class LearnerAccessManifest(PlaytestModel):
     health_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_sequences: list[LearnerTerminalSequence] = Field(default_factory=list)
+    plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
     first_action: str = ""
     notes: list[str] = Field(default_factory=list)
 
@@ -226,12 +227,12 @@ def run_playtest(
     write_text(out / "playtest-report.yaml", dump_yaml(report.model_dump()))
     write_text(out / "playtest-report.json", report.model_dump_json(indent=2))
     write_text(out / "playtest-report.md", render_playtest_markdown(report))
-    access_manifest = build_learner_access_manifest(report, provider_out)
-    write_text(out / "learner-access.json", access_manifest.model_dump_json(indent=2))
-    write_text(out / "learner-access.md", render_learner_access_markdown(report))
     solver_plan = build_solver_plan(report)
     write_text(out / "solver-plan.json", solver_plan.model_dump_json(indent=2))
     write_text(out / "solver-plan.md", render_solver_plan_markdown(solver_plan))
+    access_manifest = build_learner_access_manifest(report, provider_out, solver_plan=solver_plan)
+    write_text(out / "learner-access.json", access_manifest.model_dump_json(indent=2))
+    write_text(out / "learner-access.md", render_learner_access_markdown(report))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
     access_bundle = build_lab_access_bundle(report, access_manifest, solver_plan, provider_out, out)
     write_text(out / "lab-access-bundle.json", access_bundle.model_dump_json(indent=2))
@@ -298,7 +299,7 @@ def is_primary_learner_endpoint(item: dict[str, Any]) -> bool:
     return True
 
 
-def build_learner_access_manifest(report: PlaytestReport, provider_out: Path) -> LearnerAccessManifest:
+def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *, solver_plan: SolverPlan | None = None) -> LearnerAccessManifest:
     first_action = ""
     if report.learner_entrypoints:
         first = report.learner_entrypoints[0]
@@ -361,6 +362,12 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path) ->
         health_checks=health_checks,
         terminal_checks=terminal_checks,
         terminal_sequences=terminal_sequences,
+        plugin_checks=plugin_checks_from_solver_plan(
+            solver_plan,
+            service_base_urls=service_base_urls_from_endpoint_manifest(load_endpoint_manifest(provider_out)),
+        )
+        if solver_plan
+        else [],
         first_action=first_action,
         notes=[
             "Run start commands from the generated provider output directory.",

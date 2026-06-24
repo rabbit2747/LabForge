@@ -103,6 +103,9 @@ def run_access_playtest(
     for index, check in enumerate(data.get("terminal_sequences", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_terminal_sequence_check(f"terminal-seq-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
+    for index, check in enumerate(data.get("plugin_checks", []) or [], start=1):
+        if isinstance(check, dict):
+            items.append(run_plugin_evidence_check(f"plugin-evidence-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
 
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
     status = aggregate_status(items, execute=execute)
@@ -136,6 +139,7 @@ def load_access_manifest(path: Path) -> dict:
         "health_checks",
         "terminal_checks",
         "terminal_sequences",
+        "plugin_checks",
     ):
         data.setdefault(key, [])
     return data
@@ -581,6 +585,121 @@ def run_terminal_sequence_check(check_id: str, check: dict, *, execute: bool, ti
         stderr=stderr,
         message=f"exit_code=0; commands={len(commands)}; matched_expected_text={len(expected_texts)}",
     )
+
+
+def run_plugin_evidence_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:
+    service = str(check.get("service", ""))
+    plugin = str(check.get("plugin", ""))
+    state_url = str(check.get("state_url", "")).strip()
+    expected_evidence = [str(item).strip() for item in check.get("expected_evidence", []) or [] if str(item).strip()]
+    command = f"GET {state_url}" if state_url else str(check.get("state_verification", "")).strip()
+    expected = f"acquired_evidence contains {', '.join(expected_evidence)}" if expected_evidence else "stage state is reachable"
+    if not state_url:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="plugin-evidence",
+            command=command,
+            status="skipped" if execute else "planned",
+            expected=expected,
+            message="plugin evidence has no published HTTP state URL",
+        )
+    if not execute:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="plugin-evidence",
+            command=command,
+            status="planned",
+            expected=expected,
+            message=f"dry-run; plugin={plugin}",
+        )
+    status, data, body = http_json_get(state_url, timeout_seconds)
+    if status == 0:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="plugin-evidence",
+            command=command,
+            status="failed",
+            expected=expected,
+            stderr=body,
+            message=f"state URL unreachable; plugin={plugin}",
+        )
+    if status != 200:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="plugin-evidence",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=body[:500],
+            message=f"state HTTP status={status}; plugin={plugin}",
+        )
+    acquired = data.get("acquired_evidence", []) if isinstance(data, dict) else []
+    if not isinstance(acquired, list):
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="plugin-evidence",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=body[:500],
+            message=f"state shape missing acquired_evidence list; plugin={plugin}",
+        )
+    acquired_text = {str(item) for item in acquired}
+    missing = [item for item in expected_evidence if item not in acquired_text]
+    if missing:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="plugin-evidence",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=body[:500],
+            message=f"missing_expected_evidence={','.join(missing)}; acquired_evidence={len(acquired_text)}; plugin={plugin}",
+        )
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="plugin-evidence",
+        command=command,
+        status="passed",
+        expected=expected,
+        stdout=body[:500],
+        message=f"expected_evidence_present={len(expected_evidence)}; acquired_evidence={len(acquired_text)}; plugin={plugin}",
+    )
+
+
+def http_json_get(url: str, timeout_seconds: int) -> tuple[int, dict, str]:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "LabForgeAccessPlaytest/1.0 (+plugin-evidence-probe)", "Accept": "application/json,text/plain;q=0.8,*/*;q=0.5"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310 - lab-contained generated target.
+            body = response.read(16384).decode("utf-8", "replace")
+            return int(response.status), parse_json_body(body), body
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read(4096).decode("utf-8", "replace")
+        finally:
+            exc.close()
+        return int(exc.code), parse_json_body(body), body
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 0, {}, str(exc)
+
+
+def parse_json_body(body: str) -> dict:
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def command_to_argv(command: str, kind: str) -> list[str]:

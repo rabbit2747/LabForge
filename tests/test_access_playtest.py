@@ -75,6 +75,14 @@ class AccessPlaytestTests(unittest.TestCase):
                                 "expected_texts": ["labforge-terminal-ready"],
                             }
                         ],
+                        "plugin_checks": [
+                            {
+                                "service": "investor-portal",
+                                "plugin": "ssti-preview",
+                                "state_url": "http://127.0.0.1:18081/api/state",
+                                "expected_evidence": ["template_probe_confirmed"],
+                            }
+                        ],
                         "first_action": "Open http://127.0.0.1:18081/",
                     }
                 ),
@@ -86,10 +94,11 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertEqual(report.status, "planned")
             self.assertEqual(report.browser_targets, ["http://127.0.0.1:18081/"])
             self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
-            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned"])
+            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned", "planned"])
             self.assertEqual(report.items[0].kind, "browser-http")
             self.assertEqual(report.items[1].kind, "final-http")
-            self.assertEqual(report.items[-1].kind, "ssh-command-sequence")
+            self.assertEqual(report.items[-2].kind, "ssh-command-sequence")
+            self.assertEqual(report.items[-1].kind, "plugin-evidence")
             self.assertTrue((root / "access-playtest" / "access-playtest.md").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.yaml").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.json").exists())
@@ -134,6 +143,91 @@ class AccessPlaytestTests(unittest.TestCase):
                 self.assertIn("http_status=200", report.items[0].message)
                 self.assertIn("matched_expected_text=1", report.items[0].message)
                 self.assertIn("Operational Summary", report.items[0].stdout)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_access_playtest_executes_plugin_evidence_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), StateSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                manifest = root / "learner-access.json"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "plugin-evidence-smoke",
+                            "title": "Plugin Evidence Smoke",
+                            "learner_entrypoints": [],
+                            "attacker_entrypoints": [],
+                            "health_checks": [],
+                            "terminal_checks": [],
+                            "plugin_checks": [
+                                {
+                                    "service": "support-portal",
+                                    "plugin": "ssti-preview",
+                                    "state_url": f"{base_url}/api/state",
+                                    "expected_evidence": ["template_probe_confirmed"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(len(report.items), 1)
+                self.assertEqual(report.items[0].kind, "plugin-evidence")
+                self.assertEqual(report.items[0].status, "passed")
+                self.assertIn("expected_evidence_present=1", report.items[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_access_playtest_fails_when_plugin_evidence_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), StateSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                manifest = root / "learner-access.json"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "plugin-evidence-smoke",
+                            "title": "Plugin Evidence Smoke",
+                            "learner_entrypoints": [],
+                            "attacker_entrypoints": [],
+                            "health_checks": [],
+                            "terminal_checks": [],
+                            "plugin_checks": [
+                                {
+                                    "service": "support-portal",
+                                    "plugin": "ssti-preview",
+                                    "state_url": f"{base_url}/api/state",
+                                    "expected_evidence": ["missing_event"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+                self.assertEqual(report.status, "failed")
+                self.assertEqual(report.items[0].kind, "plugin-evidence")
+                self.assertEqual(report.items[0].status, "failed")
+                self.assertIn("missing_expected_evidence=missing_event", report.items[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -294,6 +388,17 @@ class BrowserSmokeHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(b"<html><body><h1>Operational Summary</h1></body></html>")
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class StateSmokeHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"acquired_evidence": ["template_probe_confirmed"], "stages": []}).encode("utf-8"))
 
     def log_message(self, format: str, *args: object) -> None:
         return
