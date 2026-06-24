@@ -41,6 +41,8 @@ class PlaytestStep(PlaytestModel):
     evidence: list[str] = Field(default_factory=list)
     learner_action: str = ""
     expected_result: str = ""
+    discovery_cues: list[str] = Field(default_factory=list)
+    next_step_condition: str = ""
 
 
 class PlaytestReport(PlaytestModel):
@@ -100,6 +102,8 @@ class SolverPlanStep(PlaytestModel):
     expected_result: str
     evidence: list[str] = Field(default_factory=list)
     automation_hint: str = ""
+    discovery_cues: list[str] = Field(default_factory=list)
+    next_step_condition: str = ""
 
 
 class SolverPlan(PlaytestModel):
@@ -326,6 +330,8 @@ def build_solver_plan(report: PlaytestReport) -> SolverPlan:
                 expected_result=step.expected_result,
                 evidence=step.evidence,
                 automation_hint=automation_hint_for_step(action_type, service, plugin),
+                discovery_cues=step.discovery_cues,
+                next_step_condition=step.next_step_condition,
             )
         )
     warnings = list(report.failures or report.warnings or [])
@@ -668,17 +674,93 @@ def plugin_walkthrough_steps(spec: LabSpec, runtime_smoke) -> list[PlaytestStep]
             plugin_id = str(plugin.get("id", ""))
             smoke = smoke_by_plugin.get((artifact.service, plugin_id))
             status: PlaytestStatus = "passed" if smoke and smoke.status == "passed" else "warning"
+            guidance = guidance_for_plugin(plugin_id, artifact.service)
             steps.append(
                 PlaytestStep(
                     step_id=f"plugin-{artifact.service}-{plugin_id}".replace("_", "-"),
                     title=f"{artifact.service}: {plugin_id}",
                     status=status,
                     evidence=[smoke.endpoint if smoke else "No runtime smoke evidence for this plugin."],
-                    learner_action=learner_action_for_plugin(plugin_id, artifact.service),
-                    expected_result=expected_result_for_plugin(plugin_id),
+                    learner_action=guidance["learner_action"],
+                    expected_result=guidance["expected_result"],
+                    discovery_cues=guidance["discovery_cues"],
+                    next_step_condition=guidance["next_step_condition"],
                 )
             )
     return steps
+
+
+def guidance_for_plugin(plugin_id: str, service: str) -> dict[str, Any]:
+    cues = {
+        "ssti-preview": [
+            "Start with normal merge fields or preview variables before testing expressions.",
+            "A safe arithmetic probe should change only the rendered preview, not application state.",
+            "If the renderer discloses context keys, use those names to reason about available business objects.",
+        ],
+        "stored-xss-review": [
+            "Look for content that is submitted by one role and later reviewed by another role.",
+            "Confirm storage first with harmless markup before attempting browser-driven behavior.",
+            "The important observation is the reviewer context, not the submitter confirmation.",
+        ],
+        "idor-object-access": [
+            "Compare a filtered object list with direct object read URLs.",
+            "Look for adjacent identifiers in metadata, logs, or workflow references.",
+            "The useful signal is when direct access returns an object that the list view would hide.",
+        ],
+        "ssrf-internal-fetch": [
+            "Find why the business service fetches URLs server-side, such as import, preview, or integration checks.",
+            "Use blocked target errors to learn policy boundaries.",
+            "Internal service names should come from normal docs, route metadata, or previous stage evidence.",
+        ],
+        "path-traversal-download": [
+            "Start from the public document index and inspect how filenames are passed.",
+            "Compare normal public downloads with adjacent synthetic document folders.",
+            "Stay inside the generated lab document boundary; host filesystem access is not required.",
+        ],
+        "unsafe-file-upload": [
+            "Read the stated attachment policy, then verify what the backend actually stores.",
+            "Follow the returned retrieval URL or review route after upload.",
+            "The next step is available when uploaded content is accepted and observable through the service.",
+        ],
+        "diagnostic-command-injection": [
+            "Run normal diagnostics first to establish user, host, and network context.",
+            "Blocked-token messages are containment clues, not dead ends.",
+            "Use command effects only inside the generated lab boundary.",
+        ],
+        "build-pipeline-abuse": [
+            "Read build context before creating a job; it should name required fields.",
+            "Use release metadata and patch references visible through normal workflow context.",
+            "The next step starts when a build returns artifact and canonical manifest metadata.",
+        ],
+        "signed-update-publish": [
+            "Sign the canonical manifest before publishing; raw artifacts should not be enough.",
+            "Compare channel state before and after publish.",
+            "The next step starts when the controlled update channel contains a signed manifest.",
+        ],
+        "customer-update-callback": [
+            "Check customer status before polling to confirm the export is gated.",
+            "After update application, inspect status and callback evidence before reading exports.",
+            "The final object should become reachable only after trusted update state changes.",
+        ],
+    }
+    next_conditions = {
+        "ssti-preview": "Proceed when the preview renderer evaluates a benign expression and exposes enough context to identify the next internal workflow.",
+        "stored-xss-review": "Proceed when stored content is opened in the reviewer or manager context and produces observable reviewer-side evidence.",
+        "idor-object-access": "Proceed when a controlled restricted object is retrieved through direct reference behavior.",
+        "ssrf-internal-fetch": "Proceed when an allowed server-side fetch reaches a lab-internal target and returns useful metadata.",
+        "path-traversal-download": "Proceed when a controlled restricted document is read from the synthetic document workspace.",
+        "unsafe-file-upload": "Proceed when a learner-supplied attachment is stored and retrievable through normal service routes.",
+        "diagnostic-command-injection": "Proceed when diagnostic execution proves lab-contained command influence and returns host or service context.",
+        "build-pipeline-abuse": "Proceed when a build job returns artifact metadata and a canonical manifest for the next trust step.",
+        "signed-update-publish": "Proceed when the signed manifest is published into the intended update channel.",
+        "customer-update-callback": "Proceed when customer update state unlocks the controlled final object or callback proof.",
+    }
+    return {
+        "learner_action": learner_action_for_plugin(plugin_id, service),
+        "expected_result": expected_result_for_plugin(plugin_id),
+        "discovery_cues": cues.get(plugin_id, ["Use normal business workflows first, then test edge-case behavior that matches the scenario stage."]),
+        "next_step_condition": next_conditions.get(plugin_id, "Proceed when the service emits the stage evidence needed by the next workflow."),
+    }
 
 
 def learner_action_for_plugin(plugin_id: str, service: str) -> str:
@@ -806,13 +888,14 @@ def render_solver_plan_markdown(plan: SolverPlan) -> str:
         "",
         "## Ordered Steps",
         "",
-        "| # | Type | Step | Service | Plugin | Learner Action | Expected Result | Automation Hint |",
-        "|---|---|---|---|---|---|---|---|",
+        "| # | Type | Step | Service | Plugin | Learner Action | Discovery Cues | Next Condition | Expected Result | Automation Hint |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for step in plan.steps:
         lines.append(
             f"| {step.order} | `{step.action_type}` | `{step.step_id}` {escape_cell(step.title)} | "
             f"`{step.service or '-'}` | `{step.plugin or '-'}` | {escape_cell(step.learner_action)} | "
+            f"{escape_cell('; '.join(step.discovery_cues) or '-')} | {escape_cell(step.next_step_condition or '-')} | "
             f"{escape_cell(step.expected_result)} | {escape_cell(step.automation_hint)} |"
         )
     if plan.warnings:
@@ -878,6 +961,8 @@ def render_playtest_walkthrough_markdown(report: PlaytestReport) -> str:
                 f"### {step.title}",
                 "",
                 f"- Learner action: {step.learner_action}",
+                f"- Discovery cues: {'; '.join(step.discovery_cues) if step.discovery_cues else '-'}",
+                f"- Next step condition: {step.next_step_condition or '-'}",
                 f"- Expected result: {step.expected_result}",
                 f"- Evidence: {', '.join(step.evidence) if step.evidence else '-'}",
                 "",

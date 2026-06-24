@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from labforge.io import load_yaml
-from labforge.playtest import run_playtest
+from labforge.playtest import guidance_for_plugin, run_playtest
 
 
 class PlaytestTests(unittest.TestCase):
@@ -70,6 +70,14 @@ class PlaytestTests(unittest.TestCase):
             hr_portal = compose["services"]["hr-portal"]
             self.assertEqual(hr_portal["environment"]["LABFORGE_STATE_DIR"], "/labforge-state")
             self.assertIn("labforge_state:/labforge-state", hr_portal["volumes"])
+
+    def test_plugin_guidance_contains_discovery_cues_and_next_condition(self) -> None:
+        guidance = guidance_for_plugin("ssti-preview", "support-portal")
+
+        self.assertIn("preview", guidance["learner_action"])
+        self.assertTrue(guidance["discovery_cues"])
+        self.assertIn("normal merge fields", guidance["discovery_cues"][0])
+        self.assertIn("Proceed when", guidance["next_step_condition"])
 
 
 if __name__ == "__main__":
