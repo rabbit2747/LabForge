@@ -102,6 +102,7 @@ class AccessPlaytestTests(unittest.TestCase):
                                     "role": "learner-entry",
                                     "protocol": "http",
                                     "connect": f"{base_url}/",
+                                    "expected_texts": ["Operational Summary"],
                                 }
                             ],
                             "attacker_entrypoints": [],
@@ -119,7 +120,49 @@ class AccessPlaytestTests(unittest.TestCase):
                 self.assertEqual(report.items[0].kind, "browser-http")
                 self.assertEqual(report.items[0].status, "passed")
                 self.assertIn("http_status=200", report.items[0].message)
+                self.assertIn("matched_expected_text=1", report.items[0].message)
                 self.assertIn("Operational Summary", report.items[0].stdout)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_access_playtest_warns_when_browser_expected_text_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), BrowserSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                manifest = root / "learner-access.json"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "browser-smoke",
+                            "title": "Browser Smoke",
+                            "learner_entrypoints": [
+                                {
+                                    "service": "business-portal",
+                                    "role": "learner-entry",
+                                    "protocol": "http",
+                                    "connect": f"{base_url}/",
+                                    "expected_text": "Missing Business Console",
+                                }
+                            ],
+                            "attacker_entrypoints": [],
+                            "health_checks": [],
+                            "terminal_checks": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+                self.assertEqual(report.status, "warning")
+                self.assertEqual(report.items[0].status, "warning")
+                self.assertIn("missing_expected_text=Missing Business Console", report.items[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)

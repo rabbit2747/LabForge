@@ -1,9 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from labforge.io import load_yaml
-from labforge.playtest import guidance_for_plugin, run_playtest
+from labforge.playtest import endpoint_group, guidance_for_plugin, run_playtest
+from labforge.providers.docker_compose.provider import endpoint_expected_texts
 
 
 class PlaytestTests(unittest.TestCase):
@@ -81,6 +83,41 @@ class PlaytestTests(unittest.TestCase):
         self.assertTrue(guidance["discovery_cues"])
         self.assertIn("normal merge fields", guidance["discovery_cues"][0])
         self.assertIn("Proceed when", guidance["next_step_condition"])
+
+    def test_endpoint_group_preserves_browser_expected_texts(self) -> None:
+        endpoints = endpoint_group(
+            {
+                "published_endpoints": [
+                    {
+                        "service": "document-portal",
+                        "role": "learner-entry",
+                        "protocol": "http",
+                        "connect": "http://127.0.0.1:18080/",
+                        "expected_text": "Document Library",
+                        "expected_texts": ["Published Documents", "Document Library"],
+                    }
+                ]
+            },
+            lambda _item: True,
+        )
+
+        self.assertEqual(endpoints[0].expected_texts, ["Document Library", "Published Documents"])
+
+    def test_docker_provider_derives_expected_texts_from_artifact_plugins(self) -> None:
+        artifact = SimpleNamespace(
+            runtime="business-portal",
+            model_extra={
+                "vulnerability_plugins": [
+                    {"id": "path-traversal-download"},
+                    {"id": "diagnostic-command-injection"},
+                ]
+            },
+        )
+
+        self.assertEqual(
+            endpoint_expected_texts(artifact),
+            ["Operational Summary", "Document Library", "Operations Diagnostics Console"],
+        )
 
 
 if __name__ == "__main__":

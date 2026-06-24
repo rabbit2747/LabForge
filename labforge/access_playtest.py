@@ -148,14 +148,18 @@ def run_http_entrypoint_check(
             message="missing HTTP URL",
         )
     command = f"GET {url}"
+    expected_texts = normalize_expected_texts(entrypoint)
     if not execute:
+        expected_detail = expected
+        if expected_texts:
+            expected_detail = f"{expected}; expected text: {', '.join(expected_texts)}"
         return AccessPlaytestItem(
             check_id=check_id,
             service=service,
             kind=kind,
             command=command,
             status="planned",
-            expected=expected,
+            expected=expected_detail,
             message="dry-run",
         )
 
@@ -206,8 +210,17 @@ def run_http_entrypoint_check(
         or "text/html" in content_type.lower()
     )
     if 200 <= status_code < 400 and looks_like_browser_content:
-        status: AccessCheckStatus = "passed"
-        message = f"http_status={status_code}; content_type={content_type or 'unknown'}; body_bytes={len(body)}"
+        missing_texts = [text for text in expected_texts if text not in body]
+        if missing_texts:
+            status: AccessCheckStatus = "warning"
+            message = (
+                f"http_status={status_code}; content_type={content_type or 'unknown'}; "
+                f"body_bytes={len(body)}; missing_expected_text={','.join(missing_texts)}"
+            )
+        else:
+            status = "passed"
+            text_note = f"; matched_expected_text={len(expected_texts)}" if expected_texts else ""
+            message = f"http_status={status_code}; content_type={content_type or 'unknown'}; body_bytes={len(body)}{text_note}"
     elif 400 <= status_code < 500 and body_sample:
         status = "warning"
         message = f"http_status={status_code}; target responded with client error page"
@@ -225,6 +238,17 @@ def run_http_entrypoint_check(
         stdout=body_sample,
         message=message,
     )
+
+
+def normalize_expected_texts(entrypoint: dict) -> list[str]:
+    values: list[str] = []
+    single = str(entrypoint.get("expected_text", "")).strip()
+    if single:
+        values.append(single)
+    raw_many = entrypoint.get("expected_texts", [])
+    if isinstance(raw_many, list):
+        values.extend(str(item).strip() for item in raw_many if str(item).strip())
+    return list(dict.fromkeys(values))
 
 
 def run_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:

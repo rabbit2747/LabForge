@@ -228,6 +228,7 @@ def build_endpoint_manifest(spec: LabSpec) -> dict[str, Any]:
     used_host_ports: set[int] = set()
     published: list[dict[str, Any]] = []
     internal: list[dict[str, Any]] = []
+    artifacts = service_artifact_map(spec)
 
     for service in spec.services:
         name = str(service["name"])
@@ -255,6 +256,9 @@ def build_endpoint_manifest(spec: LabSpec) -> dict[str, Any]:
                     else:
                         item["url"] = f"http://127.0.0.1:{default_host_port}/"
                         item["health_url"] = f"http://127.0.0.1:{default_host_port}/healthz"
+                        expected_texts = endpoint_expected_texts(artifacts.get(name))
+                        if expected_texts:
+                            item["expected_texts"] = expected_texts
                 published.append(item)
         else:
             internal.append(
@@ -274,6 +278,64 @@ def build_endpoint_manifest(spec: LabSpec) -> dict[str, Any]:
         "published_endpoints": published,
         "internal_services": internal,
     }
+
+
+def endpoint_expected_texts(artifact: Any | None) -> list[str]:
+    if artifact is None:
+        return []
+    values: list[str] = []
+    template = normalize_artifact_template(artifact)
+    template_texts = {
+        "business-portal": ["Operational Summary"],
+        "internal-admin-console": ["Operational Summary"],
+        "identity-gateway": ["Operational Summary"],
+        "data-api": ["Operational Summary"],
+        "audit-log-service": ["Operational Summary"],
+        "object-store": ["Operational Summary"],
+        "siem-log-viewer": ["Operational Summary"],
+    }
+    values.extend(template_texts.get(template, []))
+    plugin_texts = {
+        "ssti-preview": ["Response Preview", "Approved Merge Fields"],
+        "stored-xss-review": ["Review Intake", "Reviewer Inbox"],
+        "idor-object-access": ["Business Object Catalog"],
+        "ssrf-internal-fetch": ["Upstream Import Console"],
+        "path-traversal-download": ["Document Library"],
+        "unsafe-file-upload": ["Case Attachment Portal"],
+        "diagnostic-command-injection": ["Operations Diagnostics Console"],
+        "build-pipeline-abuse": ["Release Build Console"],
+        "signed-update-publish": ["Update Channel Console"],
+        "customer-update-callback": ["Customer Agent Status"],
+    }
+    for plugin in artifact_vulnerability_plugins(artifact):
+        values.extend(plugin_texts.get(plugin, []))
+    return list(dict.fromkeys(values))
+
+
+def normalize_artifact_template(artifact: Any) -> str:
+    extra = getattr(artifact, "model_extra", None) or {}
+    explicit = extra.get("template")
+    if isinstance(explicit, dict):
+        explicit = explicit.get("id")
+    value = explicit or getattr(artifact, "runtime", "")
+    return "".join(char.lower() if char.isalnum() else "-" for char in str(value)).strip("-")
+
+
+def artifact_vulnerability_plugins(artifact: Any) -> list[str]:
+    extra = getattr(artifact, "model_extra", None) or {}
+    raw = extra.get("vulnerability_plugins", [])
+    if not isinstance(raw, list):
+        return []
+    plugins: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            value = item.get("id", "")
+        else:
+            value = item
+        plugin_id = "".join(char.lower() if char.isalnum() else "-" for char in str(value)).strip("-")
+        if plugin_id:
+            plugins.append(plugin_id)
+    return plugins
 
 
 def endpoint_protocol(container_port: str) -> str:
