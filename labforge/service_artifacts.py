@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_blueprints import create_service_blueprints, write_service_blueprint_files
-from .service_templates import render_template_files
+from .service_templates import render_enterprise_flask_service, render_template_files
 from .vulnerability_plugins import render_vulnerability_plugin_contracts
 from .vulnerability_scaffolds import render_vulnerability_scaffold_files
 
@@ -215,18 +215,17 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
         service_root.mkdir(parents=True, exist_ok=True)
         service = services_by_name.get(artifact.service, {})
         port = service_runtime_port(service)
-        files = render_template_files(artifact, port, blueprint=blueprint_by_service.get(artifact.service)) or {
-            "Dockerfile": render_runtime_dockerfile(artifact, port),
-            "app.py": render_runtime_app(artifact, port),
-            "seed/metadata.json": render_runtime_metadata(artifact, port),
-            "seed/workflow.json": render_runtime_workflow(spec, artifact),
-            "seed/blueprint.json": (
-                json.dumps(blueprint_by_service[artifact.service].model_dump(), ensure_ascii=False, indent=2) + "\n"
-                if artifact.service in blueprint_by_service
-                else "{}\n"
-            ),
-            "tests/test_smoke.py": render_runtime_smoke_test(),
-        }
+        blueprint = blueprint_by_service.get(artifact.service)
+        files = render_template_files(artifact, port, blueprint=blueprint)
+        if not files:
+            files = render_enterprise_flask_service(artifact, port, blueprint=blueprint)
+            files.setdefault("seed/metadata.json", render_runtime_metadata(artifact, port))
+            files.setdefault("seed/workflow.json", render_runtime_workflow(spec, artifact))
+            files.setdefault(
+                "seed/blueprint.json",
+                json.dumps(blueprint.model_dump(), ensure_ascii=False, indent=2) + "\n" if blueprint else "{}\n",
+            )
+            files.setdefault("tests/test_smoke.py", render_runtime_smoke_test())
         files.update(render_vulnerability_plugin_contracts(artifact))
         files.update(render_vulnerability_scaffold_files(artifact, files))
         for filename, content in files.items():

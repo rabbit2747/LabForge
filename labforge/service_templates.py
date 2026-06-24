@@ -54,6 +54,8 @@ def render_template_files(artifact: Any, port: int, *, blueprint: Any | None = N
     files = template.renderer(artifact, port, blueprint=blueprint)
     files.setdefault("seed/metadata.json", render_metadata(artifact, port, template.template_id))
     files.setdefault("seed/workflow.json", render_workflow_seed(artifact, blueprint))
+    files.setdefault("seed/records.json", render_default_records(artifact, getattr(blueprint, "role", template.template_id) if blueprint else template.template_id))
+    files.setdefault("seed/clues.json", render_default_clues(artifact, getattr(blueprint, "role", template.template_id) if blueprint else template.template_id))
     files.setdefault("noise/events.jsonl", render_noise_seed(artifact))
     if blueprint:
         files.setdefault("seed/blueprint.json", json.dumps(blueprint.model_dump(), ensure_ascii=False, indent=2) + "\n")
@@ -110,20 +112,9 @@ def render_workflow_seed(artifact: Any, blueprint: Any | None) -> str:
 
 
 def render_noise_seed(artifact: Any) -> str:
-    events = [
-        {
-            "service": artifact.service,
-            "event": "baseline.startup",
-            "severity": "info",
-            "source": "labforge-mvp-runtime",
-        },
-        {
-            "service": artifact.service,
-            "event": "baseline.healthcheck",
-            "severity": "info",
-            "source": "labforge-mvp-runtime",
-        },
-    ]
+    role = normalize_template_id(str(getattr(artifact, "runtime", "service")))
+    domain = business_domain_for_artifact(artifact, role)
+    events = business_events(str(artifact.service), role, domain)
     return "\n".join(json.dumps(item, ensure_ascii=False) for item in events) + "\n"
 
 
@@ -255,7 +246,7 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "import os",
                 "from datetime import datetime, timezone",
                 "from pathlib import Path",
-                "from flask import Flask, jsonify, request",
+                "from flask import Flask, jsonify, render_template_string, request",
                 "",
                 f"SERVICE = {artifact.service!r}",
                 f"PURPOSE = {artifact.purpose!r}",
@@ -275,6 +266,13 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "    return fallback",
                 "",
                 "",
+                "def load_events():",
+                "    path = SEED_DIR.parent / 'noise' / 'events.jsonl'",
+                "    if not path.exists():",
+                "        return []",
+                "    return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]",
+                "",
+                "",
                 "def append_event(event, payload=None):",
                 "    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)",
                 "    record = {'time': datetime.now(timezone.utc).isoformat(), 'service': SERVICE, 'event': event, 'payload': payload or {}}",
@@ -290,7 +288,12 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "@app.get('/')",
                 "def index():",
                 "    append_event('index.viewed')",
-                "    return jsonify({'service': SERVICE, 'role': ROLE, 'purpose': PURPOSE, 'routes': ROUTES})",
+                "    metadata = load_json('metadata.json', {'service': SERVICE, 'role': ROLE, 'purpose': PURPOSE})",
+                "    workflow = load_json('workflow.json', {'normal_workflows': []})",
+                "    records = load_json('records.json', {'items': []}).get('items', [])",
+                "    clues = load_json('clues.json', {'items': []}).get('items', [])",
+                "    events = load_events()[:8]",
+                "    return render_template_string(DASHBOARD_TEMPLATE, service=SERVICE, role=ROLE, purpose=PURPOSE, metadata=metadata, routes=ROUTES, workflow=workflow, records=records, clues=clues, events=events)",
                 "",
                 "",
                 "@app.get('/metadata')",
@@ -306,6 +309,12 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "@app.get('/workflow')",
                 "def workflow():",
                 "    return jsonify(load_json('workflow.json', {'service': SERVICE, 'routes': ROUTES, 'normal_workflows': []}))",
+                "",
+                "",
+                "@app.get('/api/clues')",
+                "def api_clues():",
+                "    append_event('clues.queried')",
+                "    return jsonify(load_json('clues.json', {'items': []}))",
                 "",
                 "",
                 "@app.get('/api/records')",
@@ -324,8 +333,72 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "@app.get('/logs/events')",
                 "def log_events():",
                 "    if not LOG_PATH.exists():",
-                "        return jsonify({'items': []})",
-                "    return jsonify({'items': [json.loads(line) for line in LOG_PATH.read_text(encoding='utf-8').splitlines() if line.strip()]})",
+                "        return jsonify({'items': load_events()})",
+                "    generated = [json.loads(line) for line in LOG_PATH.read_text(encoding='utf-8').splitlines() if line.strip()]",
+                "    return jsonify({'items': [*load_events(), *generated]})",
+                "",
+                "",
+                "DASHBOARD_TEMPLATE = '''",
+                "<!doctype html>",
+                "<html lang=\"en\">",
+                "<head>",
+                "  <meta charset=\"utf-8\">",
+                "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+                "  <title>{{ service }} - Operations</title>",
+                "  <style>",
+                "    :root { color-scheme: light; --ink:#18212f; --muted:#647084; --line:#d8dee8; --panel:#ffffff; --bg:#f3f6fa; --accent:#2254a3; --ok:#147a55; --warn:#9a5b00; }",
+                "    * { box-sizing: border-box; }",
+                "    body { margin:0; font-family: Inter, Segoe UI, Arial, sans-serif; background:var(--bg); color:var(--ink); }",
+                "    header { background:#10233f; color:white; padding:18px 28px; display:flex; justify-content:space-between; gap:24px; align-items:center; }",
+                "    header h1 { margin:0; font-size:20px; font-weight:650; letter-spacing:0; }",
+                "    header .meta { color:#c8d4e6; font-size:13px; }",
+                "    nav { background:#fff; border-bottom:1px solid var(--line); padding:0 28px; display:flex; gap:18px; }",
+                "    nav a { color:#344258; text-decoration:none; padding:13px 0; font-size:14px; border-bottom:2px solid transparent; }",
+                "    nav a.active { color:var(--accent); border-color:var(--accent); font-weight:650; }",
+                "    main { max-width:1180px; margin:24px auto; padding:0 18px; display:grid; grid-template-columns:2fr 1fr; gap:18px; }",
+                "    section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; }",
+                "    h2 { margin:0 0 12px; font-size:16px; }",
+                "    .muted { color:var(--muted); font-size:13px; line-height:1.5; }",
+                "    table { width:100%; border-collapse:collapse; font-size:13px; }",
+                "    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid #edf1f6; vertical-align:top; }",
+                "    th { color:#536176; font-weight:650; background:#f8fafc; }",
+                "    .pill { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:3px 8px; font-size:12px; color:#40506a; background:#f8fafc; }",
+                "    .ok { color:var(--ok); } .warn { color:var(--warn); }",
+                "    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }",
+                "    .tile { border:1px solid #edf1f6; border-radius:8px; padding:12px; background:#fbfcfe; }",
+                "    code { font-family: Consolas, ui-monospace, monospace; font-size:12px; }",
+                "    @media (max-width: 860px) { main { grid-template-columns:1fr; } .grid { grid-template-columns:1fr; } }",
+                "  </style>",
+                "</head>",
+                "<body>",
+                "  <header>",
+                "    <div><h1>{{ service }}</h1><div class=\"meta\">{{ role }} · synthetic enterprise training environment</div></div>",
+                "    <span class=\"pill\">{{ metadata.get('status', 'template-runtime') }}</span>",
+                "  </header>",
+                "  <nav><a class=\"active\" href=\"/\">Overview</a><a href=\"/workflow\">Workflow</a><a href=\"/api/records\">Records API</a><a href=\"/logs/events\">Events</a><a href=\"/api/routes\">Routes</a></nav>",
+                "  <main>",
+                "    <div>",
+                "      <section><h2>Operational Summary</h2><p class=\"muted\">{{ purpose }}</p><div class=\"grid\">",
+                "        <div class=\"tile\"><strong>Routes</strong><br><span class=\"muted\">{{ routes|length }} declared business/API surfaces</span></div>",
+                "        <div class=\"tile\"><strong>Records</strong><br><span class=\"muted\">{{ records|length }} seeded business records</span></div>",
+                "        <div class=\"tile\"><strong>Workflows</strong><br><span class=\"muted\">{{ workflow.get('normal_workflows', [])|length }} normal workflows</span></div>",
+                "        <div class=\"tile\"><strong>Evidence</strong><br><span class=\"muted\">audit events available under <code>/logs/events</code></span></div>",
+                "      </div></section>",
+                "      <section style=\"margin-top:18px\"><h2>Business Records</h2><table><tr><th>ID</th><th>Type</th><th>Status</th><th>Owner</th><th>Updated</th></tr>",
+                "      {% for item in records %}<tr><td><code>{{ item.get('id') }}</code></td><td>{{ item.get('type') }}</td><td><span class=\"pill\">{{ item.get('status') }}</span></td><td>{{ item.get('owner', '-') }}</td><td>{{ item.get('updated_at', '-') }}</td></tr>{% endfor %}",
+                "      </table></section>",
+                "      <section style=\"margin-top:18px\"><h2>Route Catalog</h2><table><tr><th>Method</th><th>Path</th><th>Purpose</th><th>Auth</th></tr>",
+                "      {% for route in routes %}<tr><td>{{ route.get('method') }}</td><td><code>{{ route.get('path') }}</code></td><td>{{ route.get('purpose') }}</td><td>{{ route.get('auth') }}</td></tr>{% endfor %}",
+                "      </table></section>",
+                "    </div>",
+                "    <aside>",
+                "      <section><h2>Operations Notes</h2>{% for clue in clues %}<p class=\"muted\"><strong>{{ clue.get('title') }}</strong><br>{{ clue.get('detail') }}</p>{% endfor %}</section>",
+                "      <section style=\"margin-top:18px\"><h2>Recent Events</h2>{% for event in events %}<p class=\"muted\"><code>{{ event.get('event') }}</code><br>{{ event.get('severity','info') }} · {{ event.get('source', event.get('role', service)) }}</p>{% endfor %}</section>",
+                "    </aside>",
+                "  </main>",
+                "</body>",
+                "</html>",
+                "'''",
                 "",
                 "",
                 "if __name__ == '__main__':",
@@ -334,6 +407,7 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
             ]
         ),
         "seed/records.json": render_default_records(artifact, role),
+        "seed/clues.json": render_default_clues(artifact, role),
         "noise/events.jsonl": render_default_events(artifact, role),
         "healthcheck.sh": render_http_healthcheck(port),
         "reset.sh": render_reset_script(),
@@ -521,21 +595,135 @@ def render_reset_script() -> str:
 
 
 def render_default_records(artifact: Any, role: str) -> str:
+    domain = business_domain_for_artifact(artifact, role)
+    service = str(artifact.service)
     data = {
-        "items": [
-            {"id": f"{artifact.service}-record-001", "type": role, "status": "active", "classification": "synthetic-training-data"},
-            {"id": f"{artifact.service}-record-002", "type": role, "status": "archived", "classification": "synthetic-training-data"},
-        ]
+        "items": business_records(service, role, domain)
     }
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
 def render_default_events(artifact: Any, role: str) -> str:
-    events = [
-        {"service": artifact.service, "role": role, "event": "service.started", "severity": "info"},
-        {"service": artifact.service, "role": role, "event": "routine.healthcheck", "severity": "info"},
-    ]
+    domain = business_domain_for_artifact(artifact, role)
+    events = business_events(str(artifact.service), role, domain)
     return "\n".join(json.dumps(item, ensure_ascii=False) for item in events) + "\n"
+
+
+def render_default_clues(artifact: Any, role: str) -> str:
+    domain = business_domain_for_artifact(artifact, role)
+    data = {"items": business_clues(str(artifact.service), role, domain, artifact)}
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def business_domain_for_artifact(artifact: Any, role: str) -> str:
+    blob = " ".join(
+        [
+            str(getattr(artifact, "service", "")),
+            str(getattr(artifact, "runtime", "")),
+            str(getattr(artifact, "purpose", "")),
+            role,
+            " ".join(str(item) for item in getattr(artifact, "attack_surface", []) or []),
+        ]
+    ).lower()
+    if any(token in blob for token in ("loan", "bank", "deposit", "account", "payment", "wire", "aml", "fraud")):
+        return "banking"
+    if any(token in blob for token in ("trade", "trading", "investor", "market", "settlement", "brokerage", "compliance")):
+        return "securities"
+    if any(token in blob for token in ("patient", "ehr", "clinical", "appointment", "claims", "billing")):
+        return "healthcare"
+    if any(token in blob for token in ("mes", "factory", "plant", "ot", "scada", "historian", "production")):
+        return "manufacturing"
+    if any(token in blob for token in ("domain", "ldap", "kerberos", "windows", "active directory", "workstation")):
+        return "active-directory"
+    if any(token in blob for token in ("build", "release", "update", "artifact", "repo", "signing")):
+        return "supply-chain"
+    return "enterprise"
+
+
+def business_records(service: str, role: str, domain: str) -> list[dict[str, str]]:
+    common = {
+        "classification": "synthetic-training-data",
+        "source_service": service,
+    }
+    if domain == "banking":
+        return [
+            {**common, "id": "LN-2026-0418", "type": "loan-review-case", "status": "needs-document-review", "owner": "loan-ops", "updated_at": "2026-05-18T09:42:11Z"},
+            {**common, "id": "AML-2026-1172", "type": "aml-case", "status": "analyst-review", "owner": "fincrime-ops", "updated_at": "2026-05-18T10:05:44Z"},
+            {**common, "id": "PAY-BATCH-0518-A", "type": "payment-batch", "status": "reconciled-with-exceptions", "owner": "payments", "updated_at": "2026-05-18T10:31:09Z"},
+        ]
+    if domain == "securities":
+        return [
+            {**common, "id": "ORD-884210", "type": "trade-exception", "status": "operations-review", "owner": "trade-ops", "updated_at": "2026-05-18T08:58:02Z"},
+            {**common, "id": "SURV-2026-229", "type": "surveillance-alert", "status": "open", "owner": "compliance", "updated_at": "2026-05-18T09:16:44Z"},
+            {**common, "id": "SETTLE-EOD-0518", "type": "settlement-batch", "status": "pending-eod", "owner": "back-office", "updated_at": "2026-05-18T10:02:19Z"},
+        ]
+    if domain == "healthcare":
+        return [
+            {**common, "id": "APT-2026-2210", "type": "appointment-request", "status": "scheduled", "owner": "front-desk", "updated_at": "2026-05-18T08:22:15Z"},
+            {**common, "id": "EHR-AUD-9042", "type": "privacy-audit-item", "status": "review-needed", "owner": "privacy-office", "updated_at": "2026-05-18T09:50:02Z"},
+            {**common, "id": "CLM-661802", "type": "claims-case", "status": "payer-response-pending", "owner": "billing", "updated_at": "2026-05-18T10:44:30Z"},
+        ]
+    if domain == "manufacturing":
+        return [
+            {**common, "id": "WO-17-4552", "type": "work-order", "status": "released-to-line", "owner": "production", "updated_at": "2026-05-18T07:35:03Z"},
+            {**common, "id": "ENG-CHG-902", "type": "engineering-change", "status": "awaiting-review", "owner": "engineering", "updated_at": "2026-05-18T09:09:25Z"},
+            {**common, "id": "HIST-ALM-310", "type": "historian-alarm", "status": "acknowledged", "owner": "plant-ops", "updated_at": "2026-05-18T10:12:47Z"},
+        ]
+    if domain == "supply-chain":
+        return [
+            {**common, "id": "BR-4421", "type": "build-request", "status": "manager-review", "owner": "release-ops", "updated_at": "2026-05-18T08:41:00Z"},
+            {**common, "id": "REL-2.6.4", "type": "release-channel", "status": "staged", "owner": "release-engineering", "updated_at": "2026-05-18T09:22:11Z"},
+            {**common, "id": "CUST-PILOT-204", "type": "customer-integration", "status": "pilot", "owner": "customer-success", "updated_at": "2026-05-18T10:40:31Z"},
+        ]
+    if domain == "active-directory":
+        return [
+            {**common, "id": "USR-1042", "type": "directory-user", "status": "active", "owner": "identity-ops", "updated_at": "2026-05-18T08:18:44Z"},
+            {**common, "id": "GRP-FIN-OPS", "type": "security-group", "status": "review-due", "owner": "iam", "updated_at": "2026-05-18T09:31:03Z"},
+            {**common, "id": "SHARE-BOARD", "type": "file-share", "status": "restricted", "owner": "corp-it", "updated_at": "2026-05-18T10:20:56Z"},
+        ]
+    return [
+        {**common, "id": f"{service}-case-001", "type": role, "status": "active", "owner": "operations", "updated_at": "2026-05-18T09:00:00Z"},
+        {**common, "id": f"{service}-case-002", "type": role, "status": "pending-review", "owner": "support", "updated_at": "2026-05-18T09:45:00Z"},
+        {**common, "id": f"{service}-archive-003", "type": "archive-record", "status": "archived", "owner": "records", "updated_at": "2026-05-18T10:30:00Z"},
+    ]
+
+
+def business_events(service: str, role: str, domain: str) -> list[dict[str, str]]:
+    labels = {
+        "banking": ("loan.document.received", "aml.case.queued", "payment.batch.reconciled"),
+        "securities": ("trade.exception.opened", "marketdata.feed.refreshed", "surveillance.alert.queued"),
+        "healthcare": ("appointment.updated", "ehr.access.reviewed", "claim.status.polled"),
+        "manufacturing": ("workorder.released", "historian.alarm.acknowledged", "engineering.change.reviewed"),
+        "supply-chain": ("build.request.reviewed", "artifact.metadata.indexed", "release.channel.checked"),
+        "active-directory": ("directory.bind.success", "group.review.queued", "share.access.denied"),
+        "enterprise": ("case.updated", "record.reviewed", "routine.healthcheck"),
+    }
+    selected = labels.get(domain, labels["enterprise"])
+    return [
+        {"service": service, "role": role, "event": "service.started", "severity": "info", "source": "labforge-runtime"},
+        {"service": service, "role": role, "event": selected[0], "severity": "info", "source": "business-workflow"},
+        {"service": service, "role": role, "event": selected[1], "severity": "info", "source": "operations-job"},
+        {"service": service, "role": role, "event": selected[2], "severity": "warning", "source": "monitoring"},
+    ]
+
+
+def business_clues(service: str, role: str, domain: str, artifact: Any) -> list[dict[str, str]]:
+    seed_inputs = ", ".join(str(item) for item in getattr(artifact, "seed_inputs", []) or []) or "baseline seed package"
+    noise_inputs = ", ".join(str(item) for item in getattr(artifact, "noise_inputs", []) or []) or "routine operational noise"
+    return [
+        {
+            "title": "Data lineage",
+            "detail": f"This service consumes {seed_inputs}. Treat records as synthetic but business-shaped.",
+        },
+        {
+            "title": "Operational noise",
+            "detail": f"Routine context includes {noise_inputs}; not every event is part of the learner path.",
+        },
+        {
+            "title": "Review posture",
+            "detail": f"{service} is operated as a {domain} {role}; validate workflows through normal routes before testing edge cases.",
+        },
+    ]
 
 
 def render_enterprise_runtime_readme(artifact: Any, role: str) -> str:

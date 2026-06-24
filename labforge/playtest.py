@@ -87,6 +87,7 @@ def run_playtest(
         entrypoint_step(learner_entrypoints),
         attacker_step(attacker_entrypoints),
         vulnerability_runtime_step(runtime_smoke),
+        service_realism_step(spec, working_lab),
         scenario_stage_step(spec),
         final_submission_step(final_submission_endpoints),
     ]
@@ -239,6 +240,48 @@ def scenario_stage_step(spec: LabSpec) -> PlaytestStep:
         evidence=[f"{len(stages)} stages declared."],
         learner_action="Follow the stages in the student guide or generated learner-access report.",
         expected_result="The scenario can be reviewed as an ordered learner path.",
+    )
+
+
+def service_realism_step(spec: LabSpec, working_lab: Path) -> PlaytestStep:
+    checked = 0
+    missing: list[str] = []
+    for artifact in declared_service_artifacts(spec):
+        service = str(artifact.service)
+        lower = service.lower()
+        if any(token in lower for token in ("attacker", "workstation", "control-", "drop")):
+            continue
+        checked += 1
+        root = working_lab / artifact.source_path
+        expected = [root / "seed" / "records.json", root / "seed" / "clues.json", root / "noise" / "events.jsonl"]
+        absent = [path.relative_to(root).as_posix() for path in expected if not path.exists()]
+        if absent:
+            missing.append(f"{service}: missing {', '.join(absent)}")
+    if checked == 0:
+        return PlaytestStep(
+            step_id="realism-01",
+            title="Services include business records, clues, and operational noise",
+            status="warning",
+            evidence=["No business services were eligible for seed/noise realism checks."],
+            learner_action="Review generated services manually.",
+            expected_result="Business services should include seed records, clues, and operational noise.",
+        )
+    if missing:
+        return PlaytestStep(
+            step_id="realism-01",
+            title="Services include business records, clues, and operational noise",
+            status="failed",
+            evidence=missing,
+            learner_action="Do not release the lab until business services include realistic seed/noise artifacts.",
+            expected_result="Every business service has records.json, clues.json, and noise/events.jsonl.",
+        )
+    return PlaytestStep(
+        step_id="realism-01",
+        title="Services include business records, clues, and operational noise",
+        status="passed",
+        evidence=[f"{checked} business services include records, clues, and noise."],
+        learner_action="Use visible business records and operational notes to distinguish signal from ordinary company context.",
+        expected_result="Generated services feel like business systems rather than empty CTF endpoints.",
     )
 
 

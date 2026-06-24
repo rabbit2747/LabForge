@@ -192,7 +192,14 @@ infrastructure templates such as `python-flask-web`, `business-portal`,
 `attacker-workstation-ssh`, and `controlled-drop`, or fall back to a generic
 safe runtime when no template is selected. `services status` reports whether
 each service is missing, scaffolded, blueprinted, materialized as a runtime, or
-tested. LabForge does not yet generate full
+tested. Materialized service runtimes now include a business-shaped HTML
+dashboard, route catalog, `/api/records`, `/api/clues`, `/logs/events`,
+deterministic seed records, operational clues, and noise events. The generated
+data is synthetic and scenario-derived, but it is shaped around the target
+business domain when possible: banking labs get loan, payment, AML, and
+fraud-like records; securities labs get trade, market-data, settlement, and
+compliance records; healthcare and manufacturing labs get their own
+workflow-shaped records. LabForge does not yet generate full
 scenario-specific vulnerable service source code, production VM infrastructure,
 complete Ansible roles, complete Terraform modules, or production-grade
 enforcement logic for WAF, IDS, SIEM, or EDR controls.
