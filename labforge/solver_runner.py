@@ -404,6 +404,29 @@ def run_plugin_http_sequence(
         )
         ok = landing_ok and system_status == 200 and config_status == 200 and select_status == 200 and "uid=8983(solr)" in select_body
         return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; system_route={system_route}; config_route={config_route}; select_route={select_route}; system={system_status}; config={config_status}; select={select_status}")
+    if plugin == "credential-exposure":
+        config_status, config, _, config_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/config", "/labforge/scaffold/config"],
+            None,
+            timeout_seconds,
+        )
+        log_status, _, log_body, log_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/config/startup-log", "/labforge/scaffold/config/startup-log"],
+            None,
+            timeout_seconds,
+        )
+        ok = (
+            landing_ok
+            and config_status == 200
+            and log_status == 200
+            and config.get("secret_value") == "redacted"
+            and "vault-cache export" in log_body
+        )
+        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; config_route={config_route}; log_route={log_route}; config={config_status}; log={log_status}; secret_value={config.get('secret_value', '-')}")
     if plugin == "build-pipeline-abuse":
         payload = {"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"}
         status, data, _, route = http_json_first(
@@ -475,6 +498,7 @@ def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tu
         "unsafe-file-upload": (["/attachments", "/labforge/scaffold/uploads"], ["Case Attachment Portal"]),
         "diagnostic-command-injection": (["/operations/diagnostics", "/labforge/scaffold/diagnostics"], ["Operations Diagnostics Console"]),
         "solr-velocity-rce": (["/operations/search-admin", "/solr/ops-core/admin/info/system", "/labforge/scaffold/solr/admin/info/system"], ["Search Operations Console"]),
+        "credential-exposure": (["/operations/config", "/api/config", "/labforge/scaffold/config"], ["Runtime Configuration"]),
         "build-pipeline-abuse": (["/operations/build", "/api/build/context", "/labforge/scaffold/build/context"], ["Release Build Console"]),
         "signed-update-publish": (["/operations/update-channel", "/api/channels/smoke", "/labforge/scaffold/channels/smoke"], ["Update Channel Console"]),
         "customer-update-callback": (["/operations/customer-agent", "/api/customer/status", "/labforge/scaffold/customer/status"], ["Customer Agent Status"]),

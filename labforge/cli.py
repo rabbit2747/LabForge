@@ -73,6 +73,11 @@ from .studio import run_studio
 from .service_templates import list_service_templates
 from .vulnerability_plugins import list_vulnerability_plugins
 from .vulnerability_scaffolds import SUPPORTED_VULNERABILITY_SCAFFOLDS
+from .vulnerability_coverage import (
+    build_vulnerability_coverage_report,
+    vulnerability_coverage_to_json,
+    vulnerability_coverage_to_markdown,
+)
 from .verified_mvp import write_verified_mvp_manifest
 from .workflow import create_workflow_report, workflow_report_to_json, workflow_report_to_markdown
 from .service_artifacts import (
@@ -936,6 +941,20 @@ def command_services_vulnerability_plugins(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_services_vulnerability_coverage(args: argparse.Namespace) -> int:
+    report = build_vulnerability_coverage_report()
+    rendered = vulnerability_coverage_to_json(report) if args.format == "json" else vulnerability_coverage_to_markdown(report)
+    if args.out:
+        out = Path(args.out)
+        write_text(out, rendered)
+        print(f"Rendered vulnerability coverage report: {out.resolve()}")
+    else:
+        print(rendered)
+    if args.strict and report.status != "passed":
+        return 1
+    return 0
+
+
 def command_services_apply_result(args: argparse.Namespace) -> int:
     spec = LabSpec.load(Path(args.lab))
     report = apply_service_result(
@@ -1520,6 +1539,11 @@ def main(argv: list[str] | None = None) -> int:
     services_templates_parser.set_defaults(func=command_services_templates)
     services_vuln_plugins_parser = services_sub.add_parser("vulnerability-plugins", help="List built-in scenario-specific vulnerability plugin contracts")
     services_vuln_plugins_parser.set_defaults(func=command_services_vulnerability_plugins)
+    services_vuln_coverage_parser = services_sub.add_parser("vulnerability-coverage", help="Report runnable scaffold, smoke, solver, guidance, and browser-text coverage for vulnerability plugins")
+    services_vuln_coverage_parser.add_argument("--format", choices=["text", "json"], default="text")
+    services_vuln_coverage_parser.add_argument("--out")
+    services_vuln_coverage_parser.add_argument("--strict", action="store_true", help="Return non-zero unless every runnable vulnerability scaffold has full coverage")
+    services_vuln_coverage_parser.set_defaults(func=command_services_vulnerability_coverage)
     services_check_parser = services_sub.add_parser("check", help="Validate service artifact directories")
     services_check_parser.add_argument("lab")
     services_check_parser.set_defaults(func=command_services_check)
