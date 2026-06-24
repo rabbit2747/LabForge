@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .chain import build_chain_manifest, write_chain_manifest
 from .io import dump_yaml, write_text
 from .model import LabSpec
 from .plugin_runtime_smoke import run_plugin_runtime_smoke
@@ -76,6 +77,7 @@ def run_playtest(
     spec = LabSpec.load(working_lab)
     provider_out = out / "provider-output"
     build_lab(spec, provider_out, provider_name=provider, profile=profile)
+    chain_manifest = write_chain_manifest(spec, out / "stage-chain")
     endpoints = load_endpoint_manifest(provider_out)
     runtime_smoke = run_plugin_runtime_smoke(spec, out / "plugin-runtime-smoke")
 
@@ -88,7 +90,7 @@ def run_playtest(
         attacker_step(attacker_entrypoints),
         vulnerability_runtime_step(runtime_smoke),
         service_realism_step(spec, working_lab),
-        scenario_stage_step(spec),
+        scenario_stage_step(spec, chain_manifest),
         final_submission_step(final_submission_endpoints),
     ]
     steps.extend(plugin_walkthrough_steps(spec, runtime_smoke))
@@ -222,24 +224,34 @@ def vulnerability_runtime_step(runtime_smoke) -> PlaytestStep:
     )
 
 
-def scenario_stage_step(spec: LabSpec) -> PlaytestStep:
+def scenario_stage_step(spec: LabSpec, chain_manifest=None) -> PlaytestStep:
+    manifest = chain_manifest or build_chain_manifest(spec)
     stages = spec.stage_list
-    if len(stages) < 2:
+    if manifest.status == "failed":
         return PlaytestStep(
             step_id="chain-01",
-            title="Scenario has a multi-stage learner chain",
+            title="Scenario has a connected multi-stage learner chain",
             status="failed",
-            evidence=["Scenario has fewer than two declared stages."],
-            learner_action="Scenario designer must define the learner chain before release.",
-            expected_result="A hands-on lab should include a sequence of learner actions, not a single isolated endpoint.",
+            evidence=manifest.failures or ["Stage chain manifest failed."],
+            learner_action="Scenario designer must define connected stages before release.",
+            expected_result="A hands-on lab should include ordered stage links and evidence carried between stages.",
+        )
+    if manifest.status == "warning":
+        return PlaytestStep(
+            step_id="chain-01",
+            title="Scenario has a connected multi-stage learner chain",
+            status="warning",
+            evidence=manifest.warnings,
+            learner_action="Review stage-chain/stage-chain.md and resolve weak service mappings or missing carried evidence.",
+            expected_result="Each stage should declare or infer inputs, outputs, touched services, and the next stage.",
         )
     return PlaytestStep(
         step_id="chain-01",
-        title="Scenario has a multi-stage learner chain",
+        title="Scenario has a connected multi-stage learner chain",
         status="passed",
-        evidence=[f"{len(stages)} stages declared."],
+        evidence=[f"{len(stages)} stages declared.", f"{len(manifest.links)} links generated."],
         learner_action="Follow the stages in the student guide or generated learner-access report.",
-        expected_result="The scenario can be reviewed as an ordered learner path.",
+        expected_result="The scenario can be reviewed as an ordered learner path with carried evidence.",
     )
 
 

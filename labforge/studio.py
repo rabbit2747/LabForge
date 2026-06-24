@@ -705,6 +705,8 @@ def available_reports(path: Path) -> list[dict[str, str]]:
         ("Service Status", "service-status/service-status.md"),
         ("Service Result Review", "service-result-review/service-result-review.md"),
         ("Plugin Runtime Smoke", "plugin-runtime-smoke/plugin-runtime-smoke.md"),
+        ("Stage Chain", "stage-chain/stage-chain.md"),
+        ("Stage Chain YAML", "stage-chain/stage-chain.yaml"),
         ("Learner Access", "playtest/learner-access.md"),
         ("Learner Playtest", "playtest/playtest-report.md"),
         ("Playtest Walkthrough", "playtest/playtest-walkthrough.md"),

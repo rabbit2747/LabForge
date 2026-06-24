@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .design import create_design_fix_task_packages, create_design_fix_tasks, create_design_workspace_from_prompt, review_design_workspace
 from .agent_orchestration import write_baseline_agent_results
+from .chain import write_chain_manifest
 from .implementation_plan import create_service_agent_packages, create_service_implementation_plan
 from .intake import normalize_prompt_text
 from .io import dump_yaml, load_yaml, write_text
@@ -299,6 +300,19 @@ def create_lab_pipeline(
                 for item in runtime_smoke.items
                 if item.status != "passed"
             ][:20],
+        )
+    )
+
+    chain_dir = out / "stage-chain"
+    chain_manifest = write_chain_manifest(spec, chain_dir)
+    steps.append(
+        PipelineStepResult(
+            id="stage-chain",
+            title="Generate multi-stage chain manifest",
+            status="done" if chain_manifest.status == "passed" else ("failed" if chain_manifest.status == "failed" else "warning"),
+            summary=f"Stage chain status: {chain_manifest.status}; nodes={len(chain_manifest.nodes)}; links={len(chain_manifest.links)}.",
+            artifacts=[str(chain_dir / "stage-chain.md"), str(chain_dir / "stage-chain.yaml"), str(chain_dir / "stage-chain.json")],
+            warnings=[*chain_manifest.failures[:10], *chain_manifest.warnings[:10]],
         )
     )
 
@@ -602,6 +616,34 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                 status="missing",
                 evidence=[str(lab_dir)],
                 required_action="Regenerate the pipeline workspace.",
+            )
+        )
+
+    chain_report_path = workspace / "stage-chain" / "stage-chain.yaml"
+    if chain_report_path.exists():
+        chain_report = load_yaml(chain_report_path)
+        chain_status = str(chain_report.get("status", "failed"))
+        nodes = chain_report.get("nodes", [])
+        links = chain_report.get("links", [])
+        items.append(
+            PipelineGateItem(
+                name="stage-chain",
+                status="passed" if chain_status == "passed" else ("failed" if chain_status == "failed" else "warning"),
+                evidence=[
+                    f"status={chain_status}",
+                    f"nodes={len(nodes) if isinstance(nodes, list) else 'unknown'}",
+                    f"links={len(links) if isinstance(links, list) else 'unknown'}",
+                ],
+                required_action="Fix stage chain warnings/failures before learner release." if chain_status != "passed" else "",
+            )
+        )
+    else:
+        items.append(
+            PipelineGateItem(
+                name="stage-chain",
+                status="missing",
+                evidence=[str(chain_report_path)],
+                required_action="Regenerate the pipeline or run the chain manifest generator.",
             )
         )
 
