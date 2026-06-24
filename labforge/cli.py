@@ -1141,6 +1141,8 @@ def command_qa_playtest(args: argparse.Namespace) -> int:
     print(f"- {(Path(args.out) / 'playtest-walkthrough.md').resolve()}")
     print(f"- {(Path(args.out) / 'lab-access-bundle.md').resolve()}")
     print(f"- {(Path(args.out) / 'lab-access-bundle.json').resolve()}")
+    print(f"- {(Path(args.out) / 'human-readiness.md').resolve()}")
+    print(f"- {(Path(args.out) / 'human-readiness.json').resolve()}")
     return 0 if report.status in {"passed", "warning"} else 1
 
 

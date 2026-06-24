@@ -317,6 +317,9 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
         out / "playtest-walkthrough.md",
         out / "lab-access-bundle.md",
         out / "lab-access-bundle.json",
+        out / "human-readiness.md",
+        out / "human-readiness.yaml",
+        out / "human-readiness.json",
         out / "playtest-report.yaml",
     ]
     missing = [str(path) for path in required_files if not path.exists()]
@@ -337,6 +340,9 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
     stage_handoff_messages = learner_access_stage_handoff_messages(out)
     if stage_handoff_messages:
         messages.extend(stage_handoff_messages)
+    human_messages = human_readiness_gap_messages(out)
+    if human_messages:
+        messages.extend(human_messages)
     if messages:
         return QaCheck(name="learner-playtest-evidence", status="failed", messages=messages)
     advisory = [f"advisory={item}" for item in report.warnings[:5]]
@@ -353,6 +359,7 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             f"access_bundle={out / 'lab-access-bundle.json'}",
             f"plugin_evidence_checks={plugin_evidence_check_count(out)}",
             f"stage_handoffs={stage_handoff_count(out)}",
+            f"human_readiness_checks={human_readiness_check_count(out)}",
             *advisory,
         ],
     )
@@ -480,6 +487,40 @@ def stage_handoff_count(out: Path) -> int:
     access_bundle = load_yaml(access_bundle_path)
     handoffs = access_bundle.get("stage_handoffs", [])
     return len(handoffs) if isinstance(handoffs, list) else 0
+
+
+def human_readiness_gap_messages(out: Path) -> list[str]:
+    report_path = out / "human-readiness.json"
+    if not report_path.exists():
+        return ["critical=human-readiness:missing human-readiness.json"]
+    report = load_yaml(report_path)
+    messages: list[str] = []
+    status = str(report.get("status", ""))
+    if status == "failed":
+        messages.append(f"critical=human-readiness:status={status}")
+    elif not status:
+        messages.append("critical=human-readiness:status=missing")
+    checks = [item for item in report.get("checks", []) if isinstance(item, dict)]
+    if not checks:
+        messages.append("critical=human-readiness:no checks")
+        return messages
+    for item in checks:
+        if str(item.get("status", "")) != "failed":
+            continue
+        check_id = str(item.get("check_id", "-"))
+        step_id = str(item.get("step_id", "-"))
+        for message in item.get("messages", [])[:5]:
+            messages.append(f"critical=human-readiness:{check_id}:{step_id}:{message}")
+    return messages
+
+
+def human_readiness_check_count(out: Path) -> int:
+    report_path = out / "human-readiness.json"
+    if not report_path.exists():
+        return 0
+    report = load_yaml(report_path)
+    checks = report.get("checks", [])
+    return len(checks) if isinstance(checks, list) else 0
 
 
 def e2e_solver_release_check(

@@ -613,6 +613,10 @@ the scenario has a multi-stage chain, and writes:
 - `playtest-walkthrough.md`: supervisor-facing copy/paste walkthrough for
   starting provider output, opening access points, checking generated behavior,
   and stopping the lab.
+- `human-readiness.md/json/yaml`: supervisor-facing review of whether each
+  generated solver step has enough learner action text, discovery cues, next
+  conditions, access details, and evidence checks for a human learner to follow
+  without reading source code.
 - `playtest-report.yaml/json`: machine-readable playtest status for Studio,
   verified MVP manifests, and later browser/terminal automation.
 

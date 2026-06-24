@@ -163,6 +163,21 @@ class LabAccessBundle(PlaytestModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class HumanReadinessCheck(PlaytestModel):
+    check_id: str
+    step_id: str
+    status: PlaytestStatus
+    messages: list[str] = Field(default_factory=list)
+
+
+class HumanReadinessReport(PlaytestModel):
+    lab_id: str
+    title: str
+    status: PlaytestStatus
+    checks: list[HumanReadinessCheck] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
 def run_playtest(
     lab_root: Path,
     out: Path,
@@ -238,6 +253,10 @@ def run_playtest(
     access_bundle = build_lab_access_bundle(report, access_manifest, solver_plan, provider_out, out, chain_manifest=chain_manifest)
     write_text(out / "lab-access-bundle.json", access_bundle.model_dump_json(indent=2))
     write_text(out / "lab-access-bundle.md", render_lab_access_bundle_markdown(access_bundle))
+    human_readiness = build_human_readiness_report(report, access_manifest, solver_plan)
+    write_text(out / "human-readiness.json", human_readiness.model_dump_json(indent=2))
+    write_text(out / "human-readiness.yaml", dump_yaml(human_readiness.model_dump()))
+    write_text(out / "human-readiness.md", render_human_readiness_markdown(human_readiness))
     run_access_playtest(out / "learner-access.json", out / "access-playtest", execute=False)
     run_solver_plan(out / "solver-plan.json", out / "solver-run", access_manifest=out / "learner-access.json", execute=False)
     return report
@@ -473,6 +492,7 @@ def build_lab_access_bundle(
         "access_playtest_report": str((playtest_out / "access-playtest" / "access-playtest.md").resolve()),
         "solver_run_report": str((playtest_out / "solver-run" / "solver-run.md").resolve()),
         "walkthrough": str((playtest_out / "playtest-walkthrough.md").resolve()),
+        "human_readiness_report": str((playtest_out / "human-readiness.md").resolve()),
     }
     return LabAccessBundle(
         lab_id=report.lab_id,
@@ -509,6 +529,106 @@ def build_lab_access_bundle(
             "Run access-playtest and solver-run reports after deployment to prove the lab is playable.",
         ],
     )
+
+
+def build_human_readiness_report(
+    report: PlaytestReport,
+    access: LearnerAccessManifest,
+    solver_plan: SolverPlan,
+) -> HumanReadinessReport:
+    checks: list[HumanReadinessCheck] = [human_access_readiness_check(report, access)]
+    plugin_check_keys = {
+        (str(item.get("service", "")), str(item.get("plugin", "")))
+        for item in access.plugin_checks
+        if isinstance(item, dict)
+    }
+    for step in solver_plan.steps:
+        checks.append(human_solver_step_readiness_check(step, plugin_check_keys))
+    failures = [check for check in checks if check.status == "failed"]
+    warnings = [check for check in checks if check.status == "warning"]
+    status: PlaytestStatus = "failed" if failures else ("warning" if warnings else "passed")
+    return HumanReadinessReport(
+        lab_id=report.lab_id,
+        title=report.title,
+        status=status,
+        checks=checks,
+        summary={
+            "checks": len(checks),
+            "passed": len([check for check in checks if check.status == "passed"]),
+            "warning": len(warnings),
+            "failed": len(failures),
+        },
+    )
+
+
+def human_access_readiness_check(report: PlaytestReport, access: LearnerAccessManifest) -> HumanReadinessCheck:
+    messages: list[str] = []
+    warnings: list[str] = []
+    if not report.learner_entrypoints and not report.attacker_entrypoints:
+        messages.append("No learner browser URL or attacker SSH endpoint is available.")
+    if not access.first_action:
+        messages.append("Learner access manifest has no first_action.")
+    if not access.start_commands:
+        messages.append("No provider start command is documented.")
+    if not report.final_submission_endpoints:
+        warnings.append("No final submission endpoint is available.")
+    status: PlaytestStatus = "failed" if messages else ("warning" if warnings else "passed")
+    return HumanReadinessCheck(
+        check_id="human-access-01",
+        step_id="access",
+        status=status,
+        messages=[*messages, *warnings] or ["Learner start, terminal access, and final submission handoff are documented."],
+    )
+
+
+def human_solver_step_readiness_check(
+    step: SolverPlanStep,
+    plugin_check_keys: set[tuple[str, str]],
+) -> HumanReadinessCheck:
+    messages: list[str] = []
+    learner_action = " ".join(step.learner_action.split())
+    expected_result = " ".join(step.expected_result.split())
+    if len(learner_action) < 24:
+        messages.append("learner_action is too thin for a human learner.")
+    if len(expected_result) < 24:
+        messages.append("expected_result is too thin for a human learner.")
+    if contains_answer_key_language(learner_action):
+        messages.append("learner_action contains answer-key or CTF-style wording.")
+    for cue in step.discovery_cues:
+        if contains_answer_key_language(cue):
+            messages.append("discovery_cues contain answer-key or CTF-style wording.")
+    if step.action_type == "vulnerability-behavior":
+        if not step.discovery_cues:
+            messages.append("vulnerability step has no discovery_cues.")
+        if not step.next_step_condition:
+            messages.append("vulnerability step has no next_step_condition.")
+        if (step.service, step.plugin) not in plugin_check_keys:
+            messages.append(f"missing plugin evidence check for {step.service}:{step.plugin}.")
+    if step.action_type == "command-sequence":
+        if not step.terminal:
+            messages.append("terminal command sequence has no SSH target.")
+        if not step.commands or not step.expected_texts:
+            messages.append("terminal command sequence lacks commands or expected output.")
+    return HumanReadinessCheck(
+        check_id=f"human-{step.order:02d}",
+        step_id=step.step_id,
+        status="failed" if messages else "passed",
+        messages=messages or ["Step has learner action, expected result, cues, and verification material."],
+    )
+
+
+def contains_answer_key_language(text: str) -> bool:
+    normalized = text.lower()
+    blocked = (
+        "answer key",
+        "copy paste",
+        "copy/paste",
+        "ctf",
+        "flag",
+        "just submit",
+        "use the exact",
+    )
+    return any(term in normalized for term in blocked)
 
 
 def stage_handoffs_from_chain_manifest(chain_manifest) -> list[dict[str, Any]]:
@@ -1490,6 +1610,29 @@ def render_playtest_markdown(report: PlaytestReport) -> str:
         lines += ["## Failures", "", *[f"- {item}" for item in report.failures], ""]
     if report.warnings:
         lines += ["## Warnings", "", *[f"- {item}" for item in report.warnings], ""]
+    return "\n".join(lines)
+
+
+def render_human_readiness_markdown(report: HumanReadinessReport) -> str:
+    lines = [
+        f"# Human Readiness - {report.title}",
+        "",
+        "This supervisor-facing report checks whether generated learner guidance is actionable without reading source code.",
+        "",
+        f"- Lab ID: `{report.lab_id}`",
+        f"- Status: `{report.status}`",
+        f"- Checks: `{report.summary.get('checks', len(report.checks))}`",
+        f"- Passed: `{report.summary.get('passed', 0)}`",
+        f"- Warning: `{report.summary.get('warning', 0)}`",
+        f"- Failed: `{report.summary.get('failed', 0)}`",
+        "",
+        "| Check | Step | Status | Messages |",
+        "|---|---|---|---|",
+    ]
+    for check in report.checks:
+        messages = "<br>".join(escape_cell(message) for message in check.messages) or "-"
+        lines.append(f"| `{check.check_id}` | `{check.step_id}` | `{check.status}` | {messages} |")
+    lines.append("")
     return "\n".join(lines)
 
 

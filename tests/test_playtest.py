@@ -11,6 +11,7 @@ from labforge.playtest import (
     plugin_handoff_context,
     plugin_checks_from_solver_plan,
     plugin_walkthrough_steps,
+    build_human_readiness_report,
     run_playtest,
     service_realism_step,
     service_base_urls_from_endpoint_manifest,
@@ -59,6 +60,9 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue((out / "playtest-walkthrough.md").exists())
             self.assertTrue((out / "lab-access-bundle.md").exists())
             self.assertTrue((out / "lab-access-bundle.json").exists())
+            self.assertTrue((out / "human-readiness.md").exists())
+            self.assertTrue((out / "human-readiness.yaml").exists())
+            self.assertTrue((out / "human-readiness.json").exists())
 
             access = (out / "learner-access.md").read_text(encoding="utf-8")
             self.assertIn("Quick Connect", access)
@@ -108,6 +112,10 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(any(handoff.get("carried_evidence") for handoff in access_bundle["stage_handoffs"]))
             self.assertIn("provider_output_dir", access_bundle)
             self.assertIn("solver_plan_json", access_bundle["generated_files"])
+            self.assertIn("human_readiness_report", access_bundle["generated_files"])
+            human_readiness = load_yaml(out / "human-readiness.json")
+            self.assertIn(human_readiness["status"], {"passed", "warning"})
+            self.assertTrue(human_readiness["checks"])
             access_bundle_md = (out / "lab-access-bundle.md").read_text(encoding="utf-8")
             self.assertIn("Lab Access Bundle", access_bundle_md)
             self.assertIn("Browser URLs", access_bundle_md)
@@ -120,6 +128,49 @@ class PlaytestTests(unittest.TestCase):
             hr_portal = compose["services"]["hr-portal"]
             self.assertEqual(hr_portal["environment"]["LABFORGE_STATE_DIR"], "/labforge-state")
             self.assertIn("labforge_state:/labforge-state", hr_portal["volumes"])
+
+    def test_human_readiness_report_flags_thin_guidance(self) -> None:
+        solver_plan = SolverPlan(
+            lab_id="thin-guidance",
+            title="Thin Guidance",
+            provider="docker-compose",
+            profile="protected",
+            status="planned",
+            steps=[
+                SolverPlanStep(
+                    order=1,
+                    step_id="plugin-support-portal-ssti-preview",
+                    title="support-portal: ssti-preview",
+                    service="support-portal",
+                    plugin="ssti-preview",
+                    action_type="vulnerability-behavior",
+                    learner_action="do it",
+                    expected_result="flag",
+                    evidence=[],
+                    discovery_cues=[],
+                    next_step_condition="",
+                )
+            ],
+        )
+        report = SimpleNamespace(
+            lab_id="thin-guidance",
+            title="Thin Guidance",
+            learner_entrypoints=[],
+            attacker_entrypoints=[],
+            final_submission_endpoints=[],
+        )
+        access = SimpleNamespace(
+            first_action="",
+            start_commands=[],
+            plugin_checks=[],
+        )
+
+        readiness = build_human_readiness_report(report, access, solver_plan)
+
+        self.assertEqual(readiness.status, "failed")
+        messages = " ".join(message for check in readiness.checks for message in check.messages)
+        self.assertIn("too thin", messages)
+        self.assertIn("missing plugin evidence check", messages)
 
     def test_plugin_guidance_contains_discovery_cues_and_next_condition(self) -> None:
         guidance = guidance_for_plugin("ssti-preview", "support-portal")

@@ -9,6 +9,8 @@ from labforge.qa import (
     critical_playtest_gap_messages,
     learner_access_plugin_evidence_messages,
     learner_access_stage_handoff_messages,
+    human_readiness_gap_messages,
+    human_readiness_check_count,
     plugin_evidence_check_count,
     stage_handoff_clue_messages,
     stage_handoff_count,
@@ -136,6 +138,54 @@ class QaReleaseGateTests(unittest.TestCase):
             ),
             ["critical=stage-handoff:stage-01->stage-02:learner_clue contains answer-key wording"],
         )
+
+    def test_human_readiness_gap_messages_pass_when_report_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_text(
+                root / "human-readiness.json",
+                dump_yaml(
+                    {
+                        "status": "passed",
+                        "checks": [
+                            {
+                                "check_id": "human-01",
+                                "step_id": "plugin-support-portal-ssti-preview",
+                                "status": "passed",
+                                "messages": ["ready"],
+                            }
+                        ],
+                    }
+                ),
+            )
+
+            self.assertEqual(human_readiness_gap_messages(root), [])
+            self.assertEqual(human_readiness_check_count(root), 1)
+
+    def test_human_readiness_gap_messages_fail_when_report_has_failed_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_text(
+                root / "human-readiness.json",
+                dump_yaml(
+                    {
+                        "status": "failed",
+                        "checks": [
+                            {
+                                "check_id": "human-02",
+                                "step_id": "plugin-release-signed-update-publish",
+                                "status": "failed",
+                                "messages": ["vulnerability step has no discovery_cues."],
+                            }
+                        ],
+                    }
+                ),
+            )
+
+            messages = human_readiness_gap_messages(root)
+
+            self.assertTrue(any("status=failed" in message for message in messages))
+            self.assertTrue(any("no discovery_cues" in message for message in messages))
 
 
 def write_playtest_evidence_files(root: Path, *, plugin_checks: list[dict], access_items: list[dict]) -> None:
