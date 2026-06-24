@@ -107,6 +107,9 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
 
     if len(stages) < 2:
         failures.append("A hands-on lab chain requires at least two stages.")
+    continuity_failures, continuity_warnings = validate_chain_continuity(nodes)
+    failures.extend(continuity_failures)
+    warnings.extend(continuity_warnings)
     orphaned = [node.stage_id for node in nodes[1:] if not node.required_inputs]
     if orphaned:
         warnings.append(f"Stages without required inputs or inferred previous evidence: {', '.join(orphaned)}")
@@ -123,6 +126,41 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
         warnings=warnings,
         failures=failures,
     )
+
+
+def validate_chain_continuity(nodes: list[ChainNode]) -> tuple[list[str], list[str]]:
+    failures: list[str] = []
+    warnings: list[str] = []
+    produced_so_far: set[str] = set()
+    produced_by_stage: dict[str, list[str]] = {}
+    for index, node in enumerate(nodes):
+        missing = sorted([item for item in node.required_inputs if item not in produced_so_far])
+        if missing and index > 0:
+            failures.append(
+                f"{node.stage_id} requires evidence not produced by earlier stages: {', '.join(missing)}"
+            )
+        if index == 0 and node.required_inputs:
+            warnings.append(
+                f"{node.stage_id} is an entry stage but declares required inputs: {', '.join(node.required_inputs)}"
+            )
+        duplicate = sorted([item for item in node.produces if item in produced_so_far])
+        if duplicate:
+            warnings.append(
+                f"{node.stage_id} produces evidence already produced earlier: {', '.join(duplicate)}"
+            )
+        produced_by_stage[node.stage_id] = list(node.produces)
+        produced_so_far.update(node.produces)
+    final_stage_id = nodes[-1].stage_id if nodes else ""
+    unused = sorted(
+        evidence
+        for stage_id, produced in produced_by_stage.items()
+        if stage_id != final_stage_id
+        for evidence in produced
+        if not any(evidence in node.required_inputs for node in nodes if node.stage_id != stage_id)
+    )
+    if unused and len(nodes) > 1:
+        warnings.append(f"Produced evidence not used by another stage: {', '.join(unused[:10])}")
+    return failures, warnings
 
 
 def explicit_or_inferred_next(stage: dict[str, Any], stages: list[dict[str, Any]], index: int) -> str | None:
@@ -142,6 +180,7 @@ def infer_stage_services(stage: dict[str, Any], service_names: list[str]) -> lis
             str(stage.get("procedure", "")),
             " ".join(str(item) for item in stage.get("evidence", []) or []),
             " ".join(str(item) for item in stage.get("required_findings", []) or []),
+            " ".join(str(item) for item in stage.get("infrastructure_touched", []) or []),
         ]
     ).lower()
     matches = []

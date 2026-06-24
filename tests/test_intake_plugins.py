@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from labforge.intake import IntakeStage, ScenarioIntake, vulnerability_plugins_for_service
+from labforge.intake import IntakeStage, ScenarioIntake, stages_from_intake, vulnerability_plugins_for_service
 
 
 def plugin_by_id(plugins: list[dict], plugin_id: str) -> dict:
@@ -13,6 +13,43 @@ def plugin_by_id(plugins: list[dict], plugin_id: str) -> dict:
 
 
 class IntakePluginEvidenceTest(unittest.TestCase):
+    def test_stages_from_intake_uses_previous_evidence_as_required_findings(self) -> None:
+        intake = ScenarioIntake(
+            lab_id="chain-inputs",
+            title="Chain Inputs",
+            target_industry="enterprise",
+            summary="Check chain continuity.",
+            final_objective="Finish.",
+            learner_entrypoint="Public portal.",
+            target_infrastructure=["public-portal", "internal-api"],
+            stages=[
+                IntakeStage(
+                    stage_id="stage-01",
+                    learner_goal="Enter.",
+                    expected_action="Find first evidence.",
+                    evidence=["entry_evidence"],
+                    mitre_tactic="Initial Access",
+                    mitre_techniques=["T1190"],
+                    infrastructure_touched=["public-portal"],
+                ),
+                IntakeStage(
+                    stage_id="stage-02",
+                    learner_goal="Continue.",
+                    expected_action="Use the previous finding.",
+                    evidence=["second_evidence"],
+                    mitre_tactic="Discovery",
+                    mitre_techniques=["T1046"],
+                    infrastructure_touched=["internal-api"],
+                ),
+            ],
+        )
+
+        stages = stages_from_intake(intake)["stages"]
+
+        self.assertEqual(stages[0]["required_findings"], [])
+        self.assertEqual(stages[1]["required_findings"], ["entry_evidence"])
+        self.assertEqual(stages[1]["infrastructure_touched"], ["internal-api"])
+
     def test_public_portal_ssti_plugin_inherits_stage_evidence(self) -> None:
         intake = ScenarioIntake(
             lab_id="evidence-map",

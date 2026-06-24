@@ -26,6 +26,28 @@ class ChainManifestTests(unittest.TestCase):
         self.assertIn("backup-server", services_by_stage["stage-07"])
         self.assertIn("controlled-drop", services_by_stage["stage-10"])
 
+    def test_stage_chain_fails_when_required_evidence_is_unproducible(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="broken-chain",
+            title="Broken Chain",
+            services=[{"name": "portal"}],
+            stage_list=[
+                {"id": "stage-01", "title": "Entry", "procedure": "Start.", "evidence": ["entry_seen"]},
+                {
+                    "id": "stage-02",
+                    "title": "Impossible Next Step",
+                    "procedure": "Continue.",
+                    "required_findings": ["missing_secret"],
+                    "evidence": ["done"],
+                },
+            ],
+        )
+
+        manifest = build_chain_manifest(spec)
+
+        self.assertEqual(manifest.status, "failed")
+        self.assertIn("stage-02 requires evidence not produced by earlier stages: missing_secret", manifest.failures)
+
     def test_service_chain_view_returns_local_and_adjacent_context(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
         manifest = build_chain_manifest(spec)

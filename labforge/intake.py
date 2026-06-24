@@ -553,6 +553,9 @@ def stages_from_intake(intake: ScenarioIntake) -> dict:
         techniques = [parse_technique(item) for item in stage.mitre_techniques] or [
             {"id": "T0000", "name": "MITRE ATT&CK technique to be selected during review"}
         ]
+        required_findings = []
+        if index > 1:
+            required_findings = [str(item) for item in intake.stages[index - 2].evidence]
         stages.append(
             {
                 "id": stage.stage_id or f"stage-{index:02d}",
@@ -563,7 +566,8 @@ def stages_from_intake(intake: ScenarioIntake) -> dict:
                     "tactic": stage.mitre_tactic or "Discovery",
                     "techniques": techniques,
                 },
-                "required_findings": stage.infrastructure_touched,
+                "required_findings": required_findings,
+                "infrastructure_touched": stage.infrastructure_touched,
                 "next_stage": intake.stages[index].stage_id if index < len(intake.stages) else None,
             }
         )
