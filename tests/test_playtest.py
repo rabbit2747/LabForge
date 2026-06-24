@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from labforge.io import load_yaml
 from labforge.playtest import run_playtest
 
 
@@ -34,6 +35,12 @@ class PlaytestTests(unittest.TestCase):
             walkthrough = (out / "playtest-walkthrough.md").read_text(encoding="utf-8")
             self.assertIn("Start the generated provider output", walkthrough)
             self.assertIn("Connect to attacker workstation", walkthrough)
+
+            compose = load_yaml(out / "provider-output" / "docker-compose.yml")
+            self.assertIn("labforge_state", compose.get("volumes", {}))
+            hr_portal = compose["services"]["hr-portal"]
+            self.assertEqual(hr_portal["environment"]["LABFORGE_STATE_DIR"], "/labforge-state")
+            self.assertIn("labforge_state:/labforge-state", hr_portal["volumes"])
 
 
 if __name__ == "__main__":

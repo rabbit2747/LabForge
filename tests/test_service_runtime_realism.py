@@ -41,7 +41,9 @@ class ServiceRuntimeRealismTests(unittest.TestCase):
             self.assertIn("Operational noise", clues)
             self.assertEqual(chain["service"], "hr-portal")
             self.assertGreaterEqual(chain["stage_count"], 1)
-            self.assertEqual(stage_state["service"], "hr-portal")
+            self.assertEqual(stage_state["service"], "lab-wide")
+            self.assertEqual(stage_state["local_service"], "hr-portal")
+            self.assertEqual(stage_state["state_scope"], "shared")
             self.assertTrue(stage_state["evidence_catalog"])
             self.assertIn("business-workflow", noise)
 

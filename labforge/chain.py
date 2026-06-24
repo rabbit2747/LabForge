@@ -254,7 +254,9 @@ def stage_state_seed(manifest: ChainManifest, service: str) -> dict[str, Any]:
         )
     return {
         "lab_id": manifest.lab_id,
-        "service": service,
+        "service": "lab-wide",
+        "local_service": service,
+        "state_scope": "shared",
         "chain_status": manifest.status,
         "acquired_evidence": [],
         "evidence_catalog": evidence_catalog,

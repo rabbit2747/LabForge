@@ -63,7 +63,7 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
     compose: dict[str, Any] = {
         "name": spec.lab_id,
         "networks": {},
-        "volumes": {},
+        "volumes": {"labforge_state": {}},
         "services": {},
     }
     used_host_ports: set[int] = set()
@@ -125,6 +125,12 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
             entry["environment"] = service["environment"]
         if service.get("volumes"):
             entry["volumes"] = service["volumes"]
+        if artifact:
+            add_service_environment(entry, "LABFORGE_STATE_DIR", "/labforge-state")
+            volumes = list(entry.get("volumes", []))
+            if "labforge_state:/labforge-state" not in volumes:
+                volumes.append("labforge_state:/labforge-state")
+            entry["volumes"] = volumes
         if service.get("depends_on"):
             entry["depends_on"] = service["depends_on"]
         if service.get("healthcheck"):
@@ -135,6 +141,22 @@ def render_compose(spec: LabSpec, profile: str = "unprotected") -> str:
         add_security_control_services(spec, compose)
 
     return dump_yaml(compose)
+
+
+def add_service_environment(entry: dict[str, Any], key: str, value: str) -> None:
+    environment = entry.get("environment")
+    if environment is None:
+        entry["environment"] = {key: value}
+        return
+    if isinstance(environment, dict):
+        environment.setdefault(key, value)
+        return
+    if isinstance(environment, list):
+        prefix = f"{key}="
+        if not any(str(item).startswith(prefix) for item in environment):
+            environment.append(f"{key}={value}")
+        return
+    entry["environment"] = {key: value}
 
 
 def normalize_port_mappings(service_name: str, ports: list[Any], used_host_ports: set[int]) -> list[str]:

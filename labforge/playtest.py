@@ -330,8 +330,10 @@ def service_chain_runtime_step(spec: LabSpec, working_lab: Path, chain_manifest)
             continue
         if data.get("service") != service:
             missing.append(f"{service}: seed/chain.json service mismatch")
-        if state.get("service") != service:
-            missing.append(f"{service}: seed/stage-state.json service mismatch")
+        if state.get("state_scope") != "shared":
+            missing.append(f"{service}: seed/stage-state.json is not marked as shared state")
+        if state.get("local_service") != service:
+            missing.append(f"{service}: seed/stage-state.json local_service mismatch")
         if "acquired_evidence" not in state or "stages" not in state:
             missing.append(f"{service}: seed/stage-state.json missing evidence state fields")
         expected_stages = stages_by_service.get(service, 0)
