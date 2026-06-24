@@ -138,6 +138,8 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "REVIEW_ITEMS_PATH": state / "stored-xss-review-items.json",
         "BUILD_JOBS_PATH": state / "build-pipeline-jobs.json",
         "UPDATE_CHANNELS_PATH": state / "signed-update-channels.json",
+        "SIGNED_MANIFESTS_PATH": state / "signed-update-manifests.json",
+        "PUBLISH_AUDIT_PATH": state / "signed-update-publish-audit.json",
         "CUSTOMER_UPDATE_STATE_PATH": state / "customer-update-state.json",
         "SOLR_VELOCITY_STATE_PATH": state / "solr-velocity-state.json",
     }
@@ -450,10 +452,29 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 "build_id": "build-smoke",
                 "artifact": {"name": "smoke.tar", "sha256": "0" * 64, "url": "http://build-server/smoke.tar", "size_bytes": 1},
             }
+            policy = client.get("/labforge/scaffold/signing/policy")
+            validation = client.post("/labforge/scaffold/sign/validate", json={"canonical_manifest": manifest})
             signed = client.post("/labforge/scaffold/sign", json={"canonical_manifest": manifest})
             signed_data = signed.get_json(silent=True) or {}
             published = client.post("/labforge/scaffold/publish", json={"channel": "smoke", "signed_manifest": signed_data.get("signed_manifest")})
-            return assert_condition(service, plugin_id, signed.status_code == 200 and published.status_code == 201, "/labforge/scaffold/sign + /publish", published)
+            audit = client.get("/labforge/scaffold/publish/audit")
+            channel = client.get("/labforge/scaffold/channels/smoke")
+            validation_data = validation.get_json(silent=True) or {}
+            audit_data = audit.get_json(silent=True) or {}
+            return assert_condition(
+                service,
+                plugin_id,
+                policy.status_code == 200
+                and validation.status_code == 200
+                and validation_data.get("allowed") is True
+                and signed.status_code == 200
+                and published.status_code == 201
+                and audit.status_code == 200
+                and audit_data.get("count", 0) >= 1
+                and channel.status_code == 200,
+                "/labforge/scaffold/signing/policy + /sign/validate + /sign + /publish + /publish/audit",
+                published,
+            )
         if plugin_id == "customer-update-callback":
             pre = client.get("/labforge/scaffold/customer/export")
             response = client.post(

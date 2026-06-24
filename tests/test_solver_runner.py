@@ -575,6 +575,59 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_signed_update_publish_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            SignedUpdatePublishSmokeHandler.signed_manifest = {}
+            SignedUpdatePublishSmokeHandler.audit_records = []
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SignedUpdatePublishSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-signed-update",
+                            "title": "Solver Signed Update",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-update-server-signed-update-publish",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "update-server",
+                                    "plugin": "signed-update-publish",
+                                    "evidence": ["/operations/update-channel"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "update-server", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("policy=200", report.steps[0].message)
+                self.assertIn("validation=200", report.steps[0].message)
+                self.assertIn("validation_allowed=True", report.steps[0].message)
+                self.assertIn("signed=200", report.steps[0].message)
+                self.assertIn("published=201", report.steps[0].message)
+                self.assertIn("audit=200", report.steps[0].message)
+                self.assertIn("audit_records=1", report.steps[0].message)
+                self.assertIn("channel=200", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_diagnostic_command_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1070,6 +1123,143 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
                     }
                 ).encode("utf-8")
             )
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
+    signed_manifest: dict = {}
+    audit_records: list[dict] = []
+
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "signed-update-publish"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "update-server",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/update-channel", "feature": "update channel"},
+                            {"method": "GET", "path": "/api/signing/policy", "feature": "update signing"},
+                            {"method": "POST", "path": "/api/sign/validate", "feature": "update signing"},
+                            {"method": "POST", "path": "/api/sign", "feature": "update signing"},
+                            {"method": "POST", "path": "/api/publish", "feature": "update publishing"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "update-server",
+                        "records": [
+                            {
+                                "case_id": "REL-0001",
+                                "workflow": "trusted update channel",
+                                "operator_note": "Release operators validate canonical manifests before signing and publishing.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/update-channel":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Update Channel Console</h1></body></html>")
+            return
+        if self.path == "/api/signing/policy":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "allowed_channels": ["smoke", "training"],
+                        "required_manifest_fields": ["product", "channel", "version", "build_id", "artifact"],
+                        "required_artifact_fields": ["name", "sha256", "url", "size_bytes"],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/publish/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"records": self.audit_records, "count": len(self.audit_records)}).encode("utf-8"))
+            return
+        if self.path == "/api/channels/smoke":
+            if not self.audit_records:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"channel": "smoke", "manifest": self.signed_manifest}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        size = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
+        if self.path == "/api/sign/validate":
+            manifest = payload.get("canonical_manifest") or {}
+            allowed = bool(manifest.get("artifact", {}).get("sha256") and manifest.get("channel") == "smoke")
+            self.send_response(200 if allowed else 400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"allowed": allowed, "errors": [] if allowed else ["invalid manifest"]}).encode("utf-8"))
+            return
+        if self.path == "/api/sign":
+            manifest = payload.get("canonical_manifest") or {}
+            if not manifest:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "canonical_manifest is required"}).encode("utf-8"))
+                return
+            self.signed_manifest = dict(manifest)
+            self.signed_manifest["signature"] = "signed-smoke"
+            self.signed_manifest["signing_identity"] = "release-signing"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"signed_manifest": self.signed_manifest, "source": "request"}).encode("utf-8"))
+            return
+        if self.path == "/api/publish":
+            manifest = payload.get("signed_manifest") or {}
+            if not manifest.get("signature"):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "signature required"}).encode("utf-8"))
+                return
+            self.signed_manifest = manifest
+            self.audit_records.append({"channel": payload.get("channel"), "build_id": manifest.get("build_id")})
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"channel": payload.get("channel"), "manifest": manifest}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()

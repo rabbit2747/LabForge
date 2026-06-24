@@ -896,14 +896,45 @@ def run_plugin_http_sequence(
             "build_id": "build-smoke",
             "artifact": {"name": "smoke.tar", "sha256": "0" * 64, "url": "http://build-server/smoke.tar", "size_bytes": 1},
         }
+        policy_status, policy, _, policy_route = http_json_first("GET", base_url, ["/api/signing/policy", "/labforge/scaffold/signing/policy"], None, timeout_seconds)
+        validation_status, validation, _, validation_route = http_json_first("POST", base_url, ["/api/sign/validate", "/labforge/scaffold/sign/validate"], {}, timeout_seconds)
+        if validation_status == 400:
+            validation_status, validation, _, validation_route = http_json_first("POST", base_url, ["/api/sign/validate", "/labforge/scaffold/sign/validate"], {"canonical_manifest": manifest}, timeout_seconds)
         signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {}, timeout_seconds)
         if signed_status == 400:
             signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {"canonical_manifest": manifest}, timeout_seconds)
         publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {}, timeout_seconds)
         if publish_status == 400:
             publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
-        ok = landing_ok and signed_status == 200 and publish_status == 201
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; sign_route={sign_route}; publish_route={publish_route}; signed={signed_status}; published={publish_status}; signed_source={signed.get('source', '-')}; build_id={published.get('manifest', {}).get('build_id', '-')}")
+        audit_status, audit, _, audit_route = http_json_first("GET", base_url, ["/api/publish/audit", "/labforge/scaffold/publish/audit"], None, timeout_seconds)
+        channel_status, channel_state, _, channel_route = http_json_first("GET", base_url, ["/api/channels/smoke", "/labforge/scaffold/channels/smoke"], None, timeout_seconds)
+        ok = (
+            landing_ok
+            and policy_status == 200
+            and validation_status == 200
+            and validation.get("allowed") is True
+            and signed_status == 200
+            and publish_status == 201
+            and audit_status == 200
+            and audit.get("count", 0) >= 1
+            and channel_status == 200
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; policy_route={policy_route}; validation_route={validation_route}; sign_route={sign_route}; "
+                f"publish_route={publish_route}; audit_route={audit_route}; channel_route={channel_route}; "
+                f"policy={policy_status}; validation={validation_status}; validation_allowed={validation.get('allowed')}; "
+                f"signed={signed_status}; published={publish_status}; audit={audit_status}; audit_records={audit.get('count', 0)}; "
+                f"channel={channel_status}; signed_source={signed.get('source', '-')}; build_id={published.get('manifest', {}).get('build_id', channel_state.get('manifest', {}).get('build_id', '-'))}"
+            ),
+        )
     if plugin == "customer-update-callback":
         pre_status, _, _, pre_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
         manifest = {"product": "product-agent", "channel": "smoke", "build_id": "build-smoke", "artifact": {}, "signature": "smoke"}
