@@ -45,6 +45,14 @@ class SolverRunnerTests(unittest.TestCase):
                                 "expected_result": "Expression is rendered.",
                                 "evidence": ["/labforge/scaffold/ssti-preview"],
                             },
+                            {
+                                "order": 3,
+                                "step_id": "final-01",
+                                "action_type": "final-submission",
+                                "learner_action": "Submit proof.",
+                                "expected_result": "Proof is accepted.",
+                                "evidence": [],
+                            },
                         ],
                     }
                 ),
@@ -59,6 +67,9 @@ class SolverRunnerTests(unittest.TestCase):
                         "attacker_entrypoints": [
                             {"service": "attacker-workstation", "protocol": "ssh", "connect": "ssh attacker@127.0.0.1 -p 2222"}
                         ],
+                        "final_submission_endpoints": [
+                            {"service": "controlled-drop", "protocol": "http", "connect": "http://127.0.0.1:18082/"}
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -69,7 +80,9 @@ class SolverRunnerTests(unittest.TestCase):
             self.assertEqual(report.status, "planned")
             self.assertEqual(report.browser_targets, ["http://127.0.0.1:18081/"])
             self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
-            self.assertEqual([step.status for step in report.steps], ["planned", "planned"])
+            self.assertEqual(report.final_targets, ["http://127.0.0.1:18082/"])
+            self.assertEqual([step.status for step in report.steps], ["planned", "planned", "planned"])
+            self.assertEqual(report.steps[2].target, "http://127.0.0.1:18082/")
             self.assertTrue((root / "solver-run" / "solver-run.md").exists())
             self.assertTrue((root / "solver-run" / "solver-run.yaml").exists())
             self.assertTrue((root / "solver-run" / "solver-run.json").exists())

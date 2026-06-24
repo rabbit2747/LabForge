@@ -46,6 +46,7 @@ class SolverRunReport(SolverRunnerModel):
     steps: list[SolverRunStep] = Field(default_factory=list)
     browser_targets: list[str] = Field(default_factory=list)
     terminal_targets: list[str] = Field(default_factory=list)
+    final_targets: list[str] = Field(default_factory=list)
     service_targets: dict[str, str] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
 
@@ -66,6 +67,7 @@ def run_solver_plan(
     endpoints = load_json_object(endpoint_manifest.resolve()) if endpoint_manifest else {}
     browser_targets = browser_targets_from(plan, access)
     terminal_targets = terminal_targets_from(plan, access)
+    final_targets = final_targets_from(plan, access)
     service_targets = service_targets_from(access, endpoints)
     steps: list[SolverRunStep] = []
     for raw_step in plan.get("steps", []) or []:
@@ -75,6 +77,7 @@ def run_solver_plan(
                     raw_step,
                     browser_targets,
                     terminal_targets,
+                    final_targets,
                     service_targets,
                     execute=execute,
                     timeout_seconds=timeout_seconds,
@@ -93,8 +96,9 @@ def run_solver_plan(
         steps=steps,
         browser_targets=browser_targets,
         terminal_targets=terminal_targets,
+        final_targets=final_targets,
         service_targets=service_targets,
-        next_actions=solver_next_actions(plan, browser_targets, terminal_targets, execute=execute),
+        next_actions=solver_next_actions(plan, browser_targets, terminal_targets, final_targets, execute=execute),
     )
     write_text(out / "solver-run.yaml", dump_yaml(report.model_dump()))
     write_text(out / "solver-run.json", report.model_dump_json(indent=2))
@@ -129,12 +133,21 @@ def terminal_targets_from(plan: dict, access: dict) -> list[str]:
     return targets
 
 
+def final_targets_from(plan: dict, access: dict) -> list[str]:
+    targets: list[str] = []
+    for value in [plan.get("final_submission"), *(item.get("connect") for item in access.get("final_submission_endpoints", []) or [] if isinstance(item, dict))]:
+        target = str(value or "")
+        if target.startswith("http") and target not in targets:
+            targets.append(target)
+    return targets
+
+
 def service_targets_from(access: dict, endpoints: dict) -> dict[str, str]:
     targets: dict[str, str] = {}
     collections = (
         access.get("learner_entrypoints", []) or [],
         access.get("attacker_entrypoints", []) or [],
-        access.get("final_submission", []) or [],
+        access.get("final_submission_endpoints", []) or [],
         endpoints.get("published_endpoints", []) or [],
     )
     for collection in collections:
@@ -156,6 +169,7 @@ def run_solver_step(
     raw_step: dict,
     browser_targets: list[str],
     terminal_targets: list[str],
+    final_targets: list[str],
     service_targets: dict[str, str],
     *,
     execute: bool,
@@ -175,7 +189,7 @@ def run_solver_step(
             service=service,
             plugin=plugin,
             status="planned",
-            target=planned_target(action_type, browser_targets, terminal_targets),
+            target=planned_target(action_type, browser_targets, terminal_targets, final_targets),
             evidence=evidence,
             message="dry-run",
         )
@@ -186,7 +200,7 @@ def run_solver_step(
         if "http" in target:
             target = target.split("http", maxsplit=1)[1]
             target = "http" + target
-        return run_http_probe(order, step_id, action_type, target or planned_target(action_type, browser_targets, terminal_targets), service, plugin, evidence, timeout_seconds=timeout_seconds)
+        return run_http_probe(order, step_id, action_type, target or planned_target(action_type, browser_targets, terminal_targets, final_targets), service, plugin, evidence, timeout_seconds=timeout_seconds)
     if action_type == "vulnerability-behavior":
         return run_plugin_http_sequence(order, step_id, service, plugin, service_targets.get(service, ""), evidence, timeout_seconds=timeout_seconds)
     return SolverRunStep(
@@ -528,8 +542,10 @@ def ssh_batch_argv(command: str) -> list[str]:
     return parts
 
 
-def planned_target(action_type: str, browser_targets: list[str], terminal_targets: list[str]) -> str:
-    if action_type in {"access", "final-submission"} and browser_targets:
+def planned_target(action_type: str, browser_targets: list[str], terminal_targets: list[str], final_targets: list[str] | None = None) -> str:
+    if action_type == "final-submission" and final_targets:
+        return final_targets[0]
+    if action_type == "access" and browser_targets:
         return browser_targets[0]
     if action_type == "access" and terminal_targets:
         return terminal_targets[0]
@@ -546,14 +562,14 @@ def aggregate_solver_status(steps: list[SolverRunStep], *, execute: bool) -> Lit
     return "passed"
 
 
-def solver_next_actions(plan: dict, browser_targets: list[str], terminal_targets: list[str], *, execute: bool) -> list[str]:
+def solver_next_actions(plan: dict, browser_targets: list[str], terminal_targets: list[str], final_targets: list[str], *, execute: bool) -> list[str]:
     actions = []
     if browser_targets:
         actions.append(f"Open learner browser target: {browser_targets[0]}")
     if terminal_targets:
         actions.append(f"Open attacker terminal target: {terminal_targets[0]}")
-    if final_submission := str(plan.get("final_submission", "")).strip():
-        actions.append(f"Use final submission endpoint when proof is collected: {final_submission}")
+    if final_targets:
+        actions.append(f"Use final submission endpoint when proof is collected: {final_targets[0]}")
     if not execute:
         actions.append("Re-run with --execute after provider startup to probe browser and SSH access.")
     return actions
