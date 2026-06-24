@@ -152,6 +152,7 @@ class LabAccessBundle(PlaytestModel):
     final_submission_urls: list[str] = Field(default_factory=list)
     health_commands: list[str] = Field(default_factory=list)
     terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
+    plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
     start_commands: list[dict[str, str]] = Field(default_factory=list)
     status_commands: list[dict[str, str]] = Field(default_factory=list)
     stop_commands: list[dict[str, str]] = Field(default_factory=list)
@@ -482,6 +483,10 @@ def build_lab_access_bundle(
             }
             for sequence in access.terminal_sequences
         ],
+        plugin_checks=plugin_checks_from_solver_plan(
+            solver_plan,
+            service_base_urls=service_base_urls_from_endpoint_manifest(load_endpoint_manifest(provider_out)),
+        ),
         start_commands=[command.model_dump() for command in access.start_commands],
         status_commands=[command.model_dump() for command in access.status_commands],
         stop_commands=[command.model_dump() for command in access.stop_commands],
@@ -493,6 +498,73 @@ def build_lab_access_bundle(
             "Run access-playtest and solver-run reports after deployment to prove the lab is playable.",
         ],
     )
+
+
+def plugin_checks_from_solver_plan(plan: SolverPlan, *, service_base_urls: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    service_base_urls = service_base_urls or {}
+    checks: list[dict[str, Any]] = []
+    for step in plan.steps:
+        if step.action_type != "vulnerability-behavior":
+            continue
+        emitted = expected_evidence_from_step(step)
+        base_url = service_base_urls.get(step.service, "")
+        state_url = f"{base_url}/api/state" if base_url else ""
+        checks.append(
+            {
+                "step_id": step.step_id,
+                "service": step.service,
+                "plugin": step.plugin,
+                "learner_action": step.learner_action,
+                "discovery_cues": step.discovery_cues,
+                "next_step_condition": step.next_step_condition,
+                "expected_evidence": emitted,
+                "state_url": state_url,
+                "state_verification": state_verification_for_plugin_check(state_url, emitted),
+            }
+        )
+    return checks
+
+
+def service_base_urls_from_endpoint_manifest(endpoint_manifest: dict[str, Any]) -> dict[str, str]:
+    urls: dict[str, str] = {}
+    for collection_name in ("published_endpoints", "internal_services"):
+        collection = endpoint_manifest.get(collection_name, [])
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("protocol", "http")).lower() != "http":
+                continue
+            service = str(item.get("service", "")).strip()
+            url = str(item.get("url") or item.get("connect") or "").strip().rstrip("/")
+            if service and url.startswith("http"):
+                urls.setdefault(service, url)
+    return urls
+
+
+def state_verification_for_plugin_check(state_url: str, expected_evidence: list[str]) -> str:
+    if not state_url:
+        if expected_evidence:
+            return "service is not published as HTTP; verify expected evidence through solver-run execution output"
+        return "service is not published as HTTP; no explicit emitted evidence declared"
+    if not expected_evidence:
+        return f"curl -sS {state_url}"
+    expected = ",".join(expected_evidence)
+    return f"curl -sS {state_url} and confirm acquired_evidence contains {expected}"
+
+
+def expected_evidence_from_step(step: SolverPlanStep) -> list[str]:
+    values: list[str] = []
+    for item in step.evidence:
+        text = str(item).strip()
+        if not text.startswith("emitted_evidence="):
+            continue
+        for value in text.split("=", maxsplit=1)[1].split(","):
+            value = value.strip()
+            if value and value not in values:
+                values.append(value)
+    return values
 
 
 def parse_plugin_step_id(step_id: str) -> tuple[str, str]:
@@ -1471,6 +1543,20 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
             lines.append(f"- `{sequence.get('service', '-')}` via `{sequence.get('connect', '-')}`: `{commands}`; expected `{expected}`")
     else:
         lines.append("- No terminal sequences generated.")
+    lines += ["", "## Plugin Evidence Checks", ""]
+    if bundle.plugin_checks:
+        lines += [
+            "| Step | Service | Plugin | Expected Evidence | State Verification |",
+            "|---|---|---|---|---|",
+        ]
+        for check in bundle.plugin_checks:
+            lines.append(
+                f"| `{check.get('step_id', '-')}` | `{check.get('service', '-')}` | `{check.get('plugin', '-')}` | "
+                f"{escape_cell(', '.join(check.get('expected_evidence', []) or ['-']))} | "
+                f"{escape_cell(check.get('state_verification', '-'))} |"
+            )
+    else:
+        lines.append("- No plugin evidence checks generated.")
     lines += ["", "## Status Commands", "", command_table(bundle.status_commands), "", "## Stop Commands", "", command_table(bundle.stop_commands), ""]
     lines += ["## Generated Evidence Files", ""]
     for label, path in bundle.generated_files.items():

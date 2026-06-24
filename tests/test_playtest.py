@@ -9,8 +9,12 @@ from labforge.playtest import (
     endpoint_group,
     guidance_for_plugin,
     plugin_handoff_context,
+    plugin_checks_from_solver_plan,
     plugin_walkthrough_steps,
     run_playtest,
+    service_base_urls_from_endpoint_manifest,
+    SolverPlan,
+    SolverPlanStep,
     stage_implementation_coverage_step,
     trusted_update_handoff_step,
 )
@@ -96,12 +100,14 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(access_bundle["health_commands"])
             self.assertTrue(access_bundle["terminal_sequences"])
             self.assertTrue(access_bundle["solver_ready"])
+            self.assertIn("plugin_checks", access_bundle)
             self.assertIn("provider_output_dir", access_bundle)
             self.assertIn("solver_plan_json", access_bundle["generated_files"])
             access_bundle_md = (out / "lab-access-bundle.md").read_text(encoding="utf-8")
             self.assertIn("Lab Access Bundle", access_bundle_md)
             self.assertIn("Browser URLs", access_bundle_md)
             self.assertIn("Attacker SSH", access_bundle_md)
+            self.assertIn("Plugin Evidence Checks", access_bundle_md)
 
             compose = load_yaml(out / "provider-output" / "docker-compose.yml")
             self.assertIn("labforge_state", compose.get("volumes", {}))
@@ -116,6 +122,57 @@ class PlaytestTests(unittest.TestCase):
         self.assertTrue(guidance["discovery_cues"])
         self.assertIn("normal merge fields", guidance["discovery_cues"][0])
         self.assertIn("Proceed when", guidance["next_step_condition"])
+
+    def test_plugin_checks_from_solver_plan_extracts_expected_evidence(self) -> None:
+        plan = SolverPlan(
+            lab_id="plugin-checks",
+            title="Plugin Checks",
+            provider="docker-compose",
+            profile="protected",
+            status="planned",
+            steps=[
+                SolverPlanStep(
+                    order=1,
+                    step_id="plugin-support-portal-ssti-preview",
+                    title="support-portal: ssti-preview",
+                    service="support-portal",
+                    plugin="ssti-preview",
+                    action_type="vulnerability-behavior",
+                    learner_action="Use preview workflow.",
+                    expected_result="Evidence is emitted.",
+                    evidence=["/operations/preview", "emitted_evidence=template_probe_confirmed,command_execution_confirmed"],
+                    discovery_cues=["Start from normal preview fields."],
+                    next_step_condition="Proceed when evidence is present.",
+                )
+            ],
+        )
+
+        checks = plugin_checks_from_solver_plan(plan, service_base_urls={"support-portal": "http://127.0.0.1:18080"})
+
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]["service"], "support-portal")
+        self.assertEqual(checks[0]["plugin"], "ssti-preview")
+        self.assertEqual(checks[0]["expected_evidence"], ["template_probe_confirmed", "command_execution_confirmed"])
+        self.assertEqual(checks[0]["state_url"], "http://127.0.0.1:18080/api/state")
+        self.assertIn("curl -sS http://127.0.0.1:18080/api/state", checks[0]["state_verification"])
+        self.assertIn("/api/state", checks[0]["state_verification"])
+
+    def test_service_base_urls_from_endpoint_manifest_prefers_published_http_urls(self) -> None:
+        urls = service_base_urls_from_endpoint_manifest(
+            {
+                "published_endpoints": [
+                    {"service": "portal", "protocol": "http", "url": "http://127.0.0.1:18080/"},
+                    {"service": "attacker", "protocol": "ssh", "connect": "ssh attacker@127.0.0.1 -p 2222"},
+                ],
+                "internal_services": [
+                    {"service": "worker", "protocol": "http", "connect": "http://worker:8080"},
+                ],
+            }
+        )
+
+        self.assertEqual(urls["portal"], "http://127.0.0.1:18080")
+        self.assertEqual(urls["worker"], "http://worker:8080")
+        self.assertNotIn("attacker", urls)
 
     def test_trusted_update_handoff_chain_is_detected_across_services(self) -> None:
         spec = SimpleNamespace(
