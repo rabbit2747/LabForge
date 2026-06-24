@@ -34,12 +34,23 @@ class ChainLink(ChainModel):
     status: Literal["explicit", "inferred", "missing"] = "inferred"
 
 
+class EvidenceRuntimeSource(ChainModel):
+    evidence: str
+    producer_stage: str = ""
+    required_by_stages: list[str] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=list)
+    plugin_emitters: list[str] = Field(default_factory=list)
+    runtime_paths: list[str] = Field(default_factory=list)
+    status: Literal["plugin-backed", "runtime-backed", "final-only", "unmapped"] = "unmapped"
+
+
 class ChainManifest(ChainModel):
     lab_id: str
     title: str
     status: Literal["passed", "warning", "failed"]
     nodes: list[ChainNode] = Field(default_factory=list)
     links: list[ChainLink] = Field(default_factory=list)
+    evidence_runtime_sources: list[EvidenceRuntimeSource] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     failures: list[str] = Field(default_factory=list)
 
@@ -110,6 +121,8 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
     continuity_failures, continuity_warnings = validate_chain_continuity(nodes)
     failures.extend(continuity_failures)
     warnings.extend(continuity_warnings)
+    evidence_runtime_sources, runtime_warnings = build_evidence_runtime_sources(spec, nodes)
+    warnings.extend(runtime_warnings)
     clue_failures, clue_warnings = validate_clue_quality(nodes)
     failures.extend(clue_failures)
     warnings.extend(clue_warnings)
@@ -126,6 +139,7 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
         status=status,
         nodes=nodes,
         links=links,
+        evidence_runtime_sources=evidence_runtime_sources,
         warnings=warnings,
         failures=failures,
     )
@@ -164,6 +178,130 @@ def validate_chain_continuity(nodes: list[ChainNode]) -> tuple[list[str], list[s
     if unused and len(nodes) > 1:
         warnings.append(f"Produced evidence not used by another stage: {', '.join(unused[:10])}")
     return failures, warnings
+
+
+def build_evidence_runtime_sources(spec: LabSpec, nodes: list[ChainNode]) -> tuple[list[EvidenceRuntimeSource], list[str]]:
+    produced_by_stage: dict[str, str] = {}
+    required_by_evidence: dict[str, list[str]] = {}
+    services_by_evidence: dict[str, set[str]] = {}
+    for node in nodes:
+        for evidence in node.produces:
+            produced_by_stage.setdefault(evidence, node.stage_id)
+            services_by_evidence.setdefault(evidence, set()).update(node.services)
+        for evidence in node.required_inputs:
+            required_by_evidence.setdefault(evidence, []).append(node.stage_id)
+
+    plugin_emitters = declared_plugin_evidence_emitters(spec)
+    runtime_paths = declared_runtime_evidence_paths(spec)
+    should_warn_unmapped = has_declared_vulnerability_plugins(spec)
+    final_stage = nodes[-1].stage_id if nodes else ""
+    sources: list[EvidenceRuntimeSource] = []
+    warnings: list[str] = []
+    for evidence in sorted(produced_by_stage):
+        emitters = sorted(plugin_emitters.get(evidence, []))
+        paths = sorted(runtime_paths.get(evidence, []))
+        producer_stage = produced_by_stage[evidence]
+        if emitters:
+            status: Literal["plugin-backed", "runtime-backed", "final-only", "unmapped"] = "plugin-backed"
+        elif paths:
+            status = "runtime-backed"
+        elif producer_stage == final_stage:
+            status = "final-only"
+        else:
+            status = "unmapped"
+            if should_warn_unmapped:
+                warnings.append(
+                    f"{producer_stage} evidence `{evidence}` has no declared plugin emitter or explicit runtime evidence path."
+                )
+        sources.append(
+            EvidenceRuntimeSource(
+                evidence=evidence,
+                producer_stage=producer_stage,
+                required_by_stages=sorted(required_by_evidence.get(evidence, [])),
+                services=sorted(services_by_evidence.get(evidence, set())),
+                plugin_emitters=emitters,
+                runtime_paths=paths,
+                status=status,
+            )
+        )
+    return sources, warnings
+
+
+def has_declared_vulnerability_plugins(spec: LabSpec) -> bool:
+    artifacts_model = getattr(spec, "artifacts_model", None)
+    if not artifacts_model:
+        return False
+    for artifact in getattr(artifacts_model, "service_artifacts", []) or []:
+        extra = getattr(artifact, "model_extra", None) or {}
+        plugins = extra.get("vulnerability_plugins") or extra.get("vulnerabilities") or []
+        if plugins:
+            return True
+    return False
+
+
+def declared_plugin_evidence_emitters(spec: LabSpec) -> dict[str, list[str]]:
+    emitters: dict[str, list[str]] = {}
+    artifacts_model = getattr(spec, "artifacts_model", None)
+    if not artifacts_model:
+        return emitters
+    for artifact in getattr(artifacts_model, "service_artifacts", []) or []:
+        service = str(getattr(artifact, "service", ""))
+        extra = getattr(artifact, "model_extra", None) or {}
+        plugins = extra.get("vulnerability_plugins") or extra.get("vulnerabilities") or []
+        if isinstance(plugins, str):
+            plugins = [{"id": plugins}]
+        for plugin in plugins if isinstance(plugins, list) else []:
+            if isinstance(plugin, str):
+                plugin = {"id": plugin}
+            if not isinstance(plugin, dict):
+                continue
+            plugin_id = normalize_plugin_id(str(plugin.get("id", "")))
+            values = plugin.get("emits_evidence") or plugin.get("evidence") or plugin.get("produces") or []
+            if isinstance(values, str):
+                values = [values]
+            for value in values if isinstance(values, list) else []:
+                evidence = str(value).strip()
+                if not evidence:
+                    continue
+                emitter = f"{service}:{plugin_id}" if plugin_id else service
+                emitters.setdefault(evidence, [])
+                if emitter not in emitters[evidence]:
+                    emitters[evidence].append(emitter)
+    return emitters
+
+
+def declared_runtime_evidence_paths(spec: LabSpec) -> dict[str, list[str]]:
+    paths: dict[str, list[str]] = {}
+    artifacts_model = getattr(spec, "artifacts_model", None)
+    if not artifacts_model:
+        return paths
+    for artifact in getattr(artifacts_model, "service_artifacts", []) or []:
+        service = str(getattr(artifact, "service", ""))
+        for path in getattr(artifact, "evidence_logs", []) or []:
+            path_text = str(path).strip()
+            if not path_text:
+                continue
+            for token in evidence_like_tokens(path_text):
+                paths.setdefault(token, [])
+                source = f"{service}:{path_text}"
+                if source not in paths[token]:
+                    paths[token].append(source)
+    return paths
+
+
+def evidence_like_tokens(value: str) -> list[str]:
+    normalized = normalize_clue_text(value).replace(" ", "_")
+    tokens = [normalized] if normalized else []
+    if normalized.endswith("_log"):
+        tokens.append(normalized[:-4])
+    if normalized.endswith("_events"):
+        tokens.append(normalized[:-7])
+    return [token for token in tokens if token]
+
+
+def normalize_plugin_id(value: str) -> str:
+    chars = [ch.lower() if ch.isalnum() else "-" for ch in value.strip()]
+    return "-".join(part for part in "".join(chars).split("-") if part)
 
 
 def validate_clue_quality(nodes: list[ChainNode]) -> tuple[list[str], list[str]]:
@@ -415,6 +553,22 @@ def render_chain_markdown(manifest: ChainManifest) -> str:
     for link in manifest.links:
         lines.append(
             f"| `{link.from_stage}` | `{link.to_stage}` | {escape_cell(', '.join(link.carried_evidence) or '-')} | {link.status} |"
+        )
+    lines += [
+        "",
+        "## Evidence Runtime Sources",
+        "",
+        "| Evidence | Producer Stage | Required By | Services | Runtime Source | Status |",
+        "|---|---|---|---|---|---|",
+    ]
+    if not manifest.evidence_runtime_sources:
+        lines.append("| - | - | - | - | - | - |")
+    for source in manifest.evidence_runtime_sources:
+        runtime_source = ", ".join([*source.plugin_emitters, *source.runtime_paths]) or "-"
+        lines.append(
+            f"| `{source.evidence}` | `{source.producer_stage or '-'}` | "
+            f"{escape_cell(', '.join(source.required_by_stages) or '-')} | "
+            f"{escape_cell(', '.join(source.services) or '-')} | {escape_cell(runtime_source)} | {source.status} |"
         )
     if manifest.failures:
         lines += ["", "## Failures", "", *[f"- {item}" for item in manifest.failures]]

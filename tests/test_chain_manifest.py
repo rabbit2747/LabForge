@@ -25,6 +25,8 @@ class ChainManifestTests(unittest.TestCase):
         self.assertIn("ldap-ad", services_by_stage["stage-04"])
         self.assertIn("backup-server", services_by_stage["stage-07"])
         self.assertIn("controlled-drop", services_by_stage["stage-10"])
+        self.assertTrue(manifest.evidence_runtime_sources)
+        self.assertTrue(any(source.evidence == "template_probe_confirmed" for source in manifest.evidence_runtime_sources))
 
     def test_stage_chain_fails_when_required_evidence_is_unproducible(self) -> None:
         spec = SimpleNamespace(
@@ -120,6 +122,54 @@ class ChainManifestTests(unittest.TestCase):
         self.assertIn("template_probe_confirmed", evidence_map["ssti-preview"])
         self.assertIn("command_execution_confirmed", evidence_map["ssti-preview"])
 
+    def test_stage_chain_marks_plugin_backed_evidence_sources(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="plugin-backed-chain",
+            title="Plugin Backed Chain",
+            services=[{"name": "support-portal"}, {"name": "internal-api"}],
+            stage_list=[
+                {
+                    "id": "stage-01",
+                    "title": "Preview workflow",
+                    "procedure": "Use the support-portal preview workflow to confirm template rendering behavior.",
+                    "evidence": ["template_probe_confirmed"],
+                },
+                {
+                    "id": "stage-02",
+                    "title": "Internal API",
+                    "procedure": "Use template_probe_confirmed to reach internal-api context.",
+                    "required_findings": ["template_probe_confirmed"],
+                    "evidence": ["internal_api_context"],
+                },
+            ],
+            artifacts_model=SimpleNamespace(
+                service_artifacts=[
+                    SimpleNamespace(
+                        service="support-portal",
+                        evidence_logs=["application.log"],
+                        model_extra={
+                            "vulnerability_plugins": [
+                                {"id": "ssti-preview", "emits_evidence": ["template_probe_confirmed"]}
+                            ]
+                        },
+                    ),
+                    SimpleNamespace(service="internal-api", evidence_logs=["internal_api_context.log"], model_extra={}),
+                ]
+            ),
+        )
+
+        manifest = build_chain_manifest(spec)
+        source_by_evidence = {source.evidence: source for source in manifest.evidence_runtime_sources}
+
+        self.assertEqual(manifest.status, "passed")
+        self.assertEqual(source_by_evidence["template_probe_confirmed"].status, "plugin-backed")
+        self.assertEqual(source_by_evidence["template_probe_confirmed"].plugin_emitters, ["support-portal:ssti-preview"])
+        self.assertEqual(source_by_evidence["internal_api_context"].status, "runtime-backed")
+        self.assertNotIn(
+            "stage-01 evidence `template_probe_confirmed` has no declared plugin emitter or explicit runtime evidence path.",
+            manifest.warnings,
+        )
+
     def test_write_chain_manifest_outputs_review_files(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,6 +180,7 @@ class ChainManifestTests(unittest.TestCase):
             self.assertTrue((out / "stage-chain.yaml").exists())
             self.assertTrue((out / "stage-chain.json").exists())
             self.assertIn("Stage Chain", (out / "stage-chain.md").read_text(encoding="utf-8"))
+            self.assertIn("Evidence Runtime Sources", (out / "stage-chain.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
