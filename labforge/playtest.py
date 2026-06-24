@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .access_playtest import run_access_playtest
 from .chain import build_chain_manifest, write_chain_manifest
 from .io import dump_yaml, write_text
 from .model import LabSpec
@@ -153,6 +154,7 @@ def run_playtest(
     write_text(out / "learner-access.json", access_manifest.model_dump_json(indent=2))
     write_text(out / "learner-access.md", render_learner_access_markdown(report))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
+    run_access_playtest(out / "learner-access.json", out / "access-playtest", execute=False)
     return report
 
 

@@ -31,6 +31,8 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue((out / "playtest-report.yaml").exists())
             self.assertTrue((out / "learner-access.md").exists())
             self.assertTrue((out / "learner-access.json").exists())
+            self.assertTrue((out / "access-playtest" / "access-playtest.md").exists())
+            self.assertTrue((out / "access-playtest" / "access-playtest.yaml").exists())
             self.assertTrue((out / "playtest-walkthrough.md").exists())
 
             access = (out / "learner-access.md").read_text(encoding="utf-8")

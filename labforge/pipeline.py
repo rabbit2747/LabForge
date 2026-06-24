@@ -384,6 +384,8 @@ def create_lab_pipeline(
                 artifacts=[
                     str(playtest_dir / "learner-access.md"),
                     str(playtest_dir / "learner-access.json"),
+                    str(playtest_dir / "access-playtest" / "access-playtest.md"),
+                    str(playtest_dir / "access-playtest" / "access-playtest.yaml"),
                     str(playtest_dir / "playtest-report.md"),
                     str(playtest_dir / "playtest-report.yaml"),
                 ],

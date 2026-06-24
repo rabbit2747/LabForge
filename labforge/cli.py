@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from .model import LabSpec
+from .access_playtest import run_access_playtest
 from .adapter_smoke import adapter_smoke_to_json, adapter_smoke_to_markdown, run_adapter_smoke
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .control_selection import apply_control_selection, render_control_catalog
@@ -1107,8 +1108,24 @@ def command_qa_playtest(args: argparse.Namespace) -> int:
     print(f"- {(Path(args.out) / 'playtest-report.md').resolve()}")
     print(f"- {(Path(args.out) / 'playtest-report.yaml').resolve()}")
     print(f"- {(Path(args.out) / 'learner-access.md').resolve()}")
+    print(f"- {(Path(args.out) / 'learner-access.json').resolve()}")
+    print(f"- {(Path(args.out) / 'access-playtest' / 'access-playtest.md').resolve()}")
     print(f"- {(Path(args.out) / 'playtest-walkthrough.md').resolve()}")
     return 0 if report.status in {"passed", "warning"} else 1
+
+
+def command_qa_access_playtest(args: argparse.Namespace) -> int:
+    report = run_access_playtest(
+        Path(args.access_manifest),
+        Path(args.out),
+        execute=args.execute,
+        timeout_seconds=args.timeout,
+    )
+    print(f"Access playtest status: {report.status}")
+    print(f"- {(Path(args.out) / 'access-playtest.md').resolve()}")
+    print(f"- {(Path(args.out) / 'access-playtest.yaml').resolve()}")
+    print(f"- {(Path(args.out) / 'access-playtest.json').resolve()}")
+    return 0 if report.status in {"planned", "passed", "warning"} else 1
 
 
 def command_provider_lifecycle(args: argparse.Namespace) -> int:
@@ -1583,6 +1600,12 @@ def main(argv: list[str] | None = None) -> int:
     qa_playtest_parser.add_argument("--materialize", action="store_true", help="Copy the lab and materialize MVP runtimes before playtesting")
     qa_playtest_parser.add_argument("--force", action="store_true", help="Overwrite generated playtest working files")
     qa_playtest_parser.set_defaults(func=command_qa_playtest)
+    qa_access_playtest_parser = qa_sub.add_parser("access-playtest", help="Plan or execute browser/terminal access checks from learner-access.json")
+    qa_access_playtest_parser.add_argument("access_manifest", help="Path to generated playtest/learner-access.json")
+    qa_access_playtest_parser.add_argument("--out", required=True)
+    qa_access_playtest_parser.add_argument("--execute", action="store_true", help="Actually run curl/ssh access checks. Default is dry-run.")
+    qa_access_playtest_parser.add_argument("--timeout", type=int, default=5, help="Per-check timeout in seconds when --execute is used.")
+    qa_access_playtest_parser.set_defaults(func=command_qa_access_playtest)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)
