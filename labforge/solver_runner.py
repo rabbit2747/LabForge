@@ -452,6 +452,8 @@ def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int)
         return int(exc.code), parse_json_body(body), body
     except URLError as exc:
         return 0, {}, str(exc)
+    except OSError as exc:
+        return 0, {}, str(exc)
 
 
 def http_json_first(method: str, base_url: str, routes: list[str], payload: dict | None, timeout_seconds: int) -> tuple[int, dict, str, str]:
@@ -497,6 +499,8 @@ def http_multipart_upload(url: str, *, field_name: str, filename: str, content: 
         text = exc.read().decode("utf-8", "replace")
         return int(exc.code), parse_json_body(text), text
     except URLError as exc:
+        return 0, {}, str(exc)
+    except OSError as exc:
         return 0, {}, str(exc)
 
 
