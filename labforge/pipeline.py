@@ -383,6 +383,7 @@ def create_lab_pipeline(
                 summary=f"Playtest status: {playtest.status}; steps={len(playtest.steps)}; entrypoints={len(playtest.learner_entrypoints)}.",
                 artifacts=[
                     str(playtest_dir / "learner-access.md"),
+                    str(playtest_dir / "learner-access.json"),
                     str(playtest_dir / "playtest-report.md"),
                     str(playtest_dir / "playtest-report.yaml"),
                 ],
@@ -703,6 +704,7 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
 
     playtest_report_path = workspace / "playtest" / "playtest-report.yaml"
     learner_access_path = workspace / "playtest" / "learner-access.md"
+    learner_access_json_path = workspace / "playtest" / "learner-access.json"
     if playtest_report_path.exists():
         playtest_report = load_yaml(playtest_report_path)
         playtest_status = str(playtest_report.get("status", "failed"))
@@ -718,6 +720,8 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
             playtest_gate_status = "warning"
         else:
             playtest_gate_status = "passed"
+        if not learner_access_path.exists() or not learner_access_json_path.exists():
+            playtest_gate_status = "warning" if playtest_gate_status == "passed" else playtest_gate_status
         items.append(
             PipelineGateItem(
                 name="learner-playtest",
@@ -728,9 +732,10 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                     f"attacker_entrypoints={len(attacker_entrypoints) if isinstance(attacker_entrypoints, list) else 'unknown'}",
                     f"final_submission_endpoints={len(final_endpoints) if isinstance(final_endpoints, list) else 'unknown'}",
                     f"learner_access={'present' if learner_access_path.exists() else 'missing'}",
+                    f"learner_access_json={'present' if learner_access_json_path.exists() else 'missing'}",
                     *[f"advisory={warning}" for warning in playtest_warnings if is_advisory_playtest_warning(warning)][:5],
                 ],
-                required_action="Fix playtest warnings/failures before learner release." if playtest_gate_status != "passed" else "",
+                required_action="Fix playtest warnings/failures and regenerate learner access manifests before learner release." if playtest_gate_status != "passed" else "",
             )
         )
     else:

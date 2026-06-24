@@ -56,6 +56,37 @@ class PlaytestReport(PlaytestModel):
     failures: list[str] = Field(default_factory=list)
 
 
+class LearnerAccessCommand(PlaytestModel):
+    label: str
+    shell: str
+    command: str
+
+
+class LearnerAccessCheck(PlaytestModel):
+    service: str
+    kind: str
+    command: str
+    expected: str
+
+
+class LearnerAccessManifest(PlaytestModel):
+    lab_id: str
+    title: str
+    provider: str
+    profile: str
+    provider_output_dir: str
+    start_commands: list[LearnerAccessCommand] = Field(default_factory=list)
+    status_commands: list[LearnerAccessCommand] = Field(default_factory=list)
+    stop_commands: list[LearnerAccessCommand] = Field(default_factory=list)
+    learner_entrypoints: list[PlaytestEndpoint] = Field(default_factory=list)
+    attacker_entrypoints: list[PlaytestEndpoint] = Field(default_factory=list)
+    final_submission_endpoints: list[PlaytestEndpoint] = Field(default_factory=list)
+    health_checks: list[LearnerAccessCheck] = Field(default_factory=list)
+    terminal_checks: list[LearnerAccessCheck] = Field(default_factory=list)
+    first_action: str = ""
+    notes: list[str] = Field(default_factory=list)
+
+
 def run_playtest(
     lab_root: Path,
     out: Path,
@@ -81,7 +112,7 @@ def run_playtest(
     endpoints = load_endpoint_manifest(provider_out)
     runtime_smoke = run_plugin_runtime_smoke(spec, out / "plugin-runtime-smoke")
 
-    learner_entrypoints = endpoint_group(endpoints, lambda item: bool(item.get("url") or item.get("connect")))
+    learner_entrypoints = endpoint_group(endpoints, is_primary_learner_endpoint)
     attacker_entrypoints = endpoint_group(endpoints, lambda item: "attacker" in str(item.get("service", "")).lower() or "workstation" in str(item.get("service", "")).lower())
     final_submission_endpoints = endpoint_group(endpoints, lambda item: any(token in str(item.get("service", "")).lower() for token in ("drop", "submit", "controlled")))
 
@@ -118,6 +149,8 @@ def run_playtest(
     write_text(out / "playtest-report.yaml", dump_yaml(report.model_dump()))
     write_text(out / "playtest-report.json", report.model_dump_json(indent=2))
     write_text(out / "playtest-report.md", render_playtest_markdown(report))
+    access_manifest = build_learner_access_manifest(report, provider_out)
+    write_text(out / "learner-access.json", access_manifest.model_dump_json(indent=2))
     write_text(out / "learner-access.md", render_learner_access_markdown(report))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
     return report
@@ -154,6 +187,78 @@ def endpoint_group(endpoint_manifest: dict[str, Any], predicate) -> list[Playtes
             )
         )
     return endpoints
+
+
+def is_primary_learner_endpoint(item: dict[str, Any]) -> bool:
+    if not (item.get("url") or item.get("connect")):
+        return False
+    service = str(item.get("service", "")).lower()
+    role = str(item.get("role", "")).lower()
+    if any(token in service for token in ("attacker", "workstation", "drop", "submit", "controlled")):
+        return False
+    if any(token in role for token in ("attacker", "workstation", "drop", "submission")):
+        return False
+    return True
+
+
+def build_learner_access_manifest(report: PlaytestReport, provider_out: Path) -> LearnerAccessManifest:
+    first_action = ""
+    if report.learner_entrypoints:
+        first = report.learner_entrypoints[0]
+        verb = "Connect to" if first.protocol == "ssh" else "Open"
+        first_action = f"{verb} {first.connect}"
+    health_checks = [
+        LearnerAccessCheck(
+            service=endpoint.service,
+            kind="http-health",
+            command=f"curl -i {endpoint.health_url}",
+            expected="HTTP 200 or service-specific healthy response.",
+        )
+        for endpoint in report.learner_entrypoints + report.final_submission_endpoints
+        if endpoint.health_url
+    ]
+    terminal_checks = [
+        LearnerAccessCheck(
+            service=endpoint.service,
+            kind="ssh-connect",
+            command=endpoint.connect,
+            expected="Interactive learner shell prompt appears.",
+        )
+        for endpoint in report.attacker_entrypoints + report.learner_entrypoints
+        if endpoint.protocol == "ssh" and endpoint.connect
+    ]
+    return LearnerAccessManifest(
+        lab_id=report.lab_id,
+        title=report.title,
+        provider=report.provider,
+        profile=report.profile,
+        provider_output_dir=str(provider_out.resolve()),
+        start_commands=[
+            LearnerAccessCommand(label="Windows PowerShell", shell="powershell", command="powershell -ExecutionPolicy Bypass -File .\\scripts\\start.ps1"),
+            LearnerAccessCommand(label="Linux, macOS, or WSL", shell="sh", command="./scripts/start.sh"),
+        ],
+        status_commands=[
+            LearnerAccessCommand(label="Windows PowerShell", shell="powershell", command="powershell -ExecutionPolicy Bypass -File .\\scripts\\status.ps1"),
+            LearnerAccessCommand(label="Windows PowerShell healthcheck", shell="powershell", command="powershell -ExecutionPolicy Bypass -File .\\scripts\\services-healthcheck.ps1"),
+            LearnerAccessCommand(label="Linux, macOS, or WSL", shell="sh", command="./scripts/status.sh"),
+            LearnerAccessCommand(label="Linux, macOS, or WSL healthcheck", shell="sh", command="./scripts/services-healthcheck.sh"),
+        ],
+        stop_commands=[
+            LearnerAccessCommand(label="Windows PowerShell", shell="powershell", command="powershell -ExecutionPolicy Bypass -File .\\scripts\\stop.ps1"),
+            LearnerAccessCommand(label="Linux, macOS, or WSL", shell="sh", command="./scripts/stop.sh"),
+        ],
+        learner_entrypoints=report.learner_entrypoints,
+        attacker_entrypoints=report.attacker_entrypoints,
+        final_submission_endpoints=report.final_submission_endpoints,
+        health_checks=health_checks,
+        terminal_checks=terminal_checks,
+        first_action=first_action,
+        notes=[
+            "Run start commands from the generated provider output directory.",
+            "Use health checks to confirm HTTP services before manual or automated playtest.",
+            "Use terminal checks for attacker workstation or SSH-based learner hosts.",
+        ],
+    )
 
 
 def entrypoint_step(entrypoints: list[PlaytestEndpoint]) -> PlaytestStep:

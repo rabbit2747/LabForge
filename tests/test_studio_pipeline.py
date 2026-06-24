@@ -40,6 +40,7 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(any(report["name"] == "Quickstart" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Endpoint Manifest" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Access" for report in detail["reports"]))
+            self.assertTrue(any(report["name"] == "Learner Access JSON" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Playtest" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Playtest Walkthrough" for report in detail["reports"]))
             self.assertIn(detail["playtest"]["status"], {"passed", "warning"})
