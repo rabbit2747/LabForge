@@ -72,12 +72,15 @@ class StudioPipelineTest(unittest.TestCase):
                     "provider-build": "passed",
                     "learner-experience-strict": "passed",
                     "learner-playtest-evidence": "passed",
+                    "e2e-solver-evidence": "passed",
                 },
             )
             self.assertTrue((workspace / scenario_id / "release-gate" / "learner-playtest" / "solver-run" / "solver-run.yaml").exists())
             self.assertTrue((workspace / scenario_id / "release-gate" / "learner-playtest" / "access-playtest" / "access-playtest.yaml").exists())
             self.assertTrue((workspace / scenario_id / "release-gate" / "vulnerability-coverage" / "vulnerability-coverage.md").exists())
             self.assertTrue((workspace / scenario_id / "release-gate" / "vulnerability-coverage" / "vulnerability-coverage.json").exists())
+            self.assertTrue((workspace / scenario_id / "release-gate" / "e2e-solver" / "e2e-solver.md").exists())
+            self.assertTrue((workspace / scenario_id / "release-gate" / "e2e-solver" / "host-preflight.json").exists())
 
             reread = read_scenario_detail(workspace, scenario_id)
             self.assertEqual(reread["release_gate"]["status"], "passed")

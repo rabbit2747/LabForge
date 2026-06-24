@@ -499,6 +499,15 @@ provider output such as `endpoints.json` and fails release when no learner
 entrypoint, learner-visible URL or SSH command, endpoint health URL, attacker
 workstation, or controlled-drop path is available.
 
+After learner playtest evidence is generated, the strict release gate also
+writes `release-gate/e2e-solver/`. This launch-oriented evidence binds the
+generated provider output, learner access manifest, solver plan, host preflight,
+provider lifecycle plan, browser/terminal access checks, and solver-runner plan
+into one supervisor report. The release gate uses dry-run mode by default; run
+`python -m labforge qa e2e-solver ... --execute` after reviewing the provider
+output when you want LabForge to start the lab and probe reachable browser or
+SSH targets.
+
 `qa playtest` creates learner-path evidence from the generated lab. It builds
 provider output, reads learner-visible URLs and SSH commands, runs supported
 plugin runtime checks, writes a connected stage-chain manifest, verifies that

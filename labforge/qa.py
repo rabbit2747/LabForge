@@ -8,6 +8,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_orchestration import AgentResultSpec
+from .e2e_solver import run_e2e_solver
 from .io import dump_yaml, write_text
 from .io import load_yaml
 from .linting import lint_lab
@@ -241,7 +242,9 @@ def run_release_gate(
         provider_messages.append(str(exc))
     checks.append(QaCheck(name="provider-build", status=provider_status, messages=provider_messages))
     checks.append(learner_experience_check(spec, provider_out, strict=True))
-    checks.append(learner_playtest_release_check(working_lab, out / "learner-playtest", provider=provider, profile=profile))
+    learner_playtest_out = out / "learner-playtest"
+    checks.append(learner_playtest_release_check(working_lab, learner_playtest_out, provider=provider, profile=profile))
+    checks.append(e2e_solver_release_check(provider_out, learner_playtest_out, out / "e2e-solver", provider=provider))
 
     status: Literal["passed", "failed"] = "failed" if any(check.status != "passed" for check in checks) else "passed"
     report = ReleaseGateReport(
@@ -321,6 +324,72 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             f"steps={len(report.steps)}",
             f"report={out / 'playtest-report.yaml'}",
             *advisory,
+        ],
+    )
+
+
+def e2e_solver_release_check(provider_out: Path, learner_playtest_out: Path, out: Path, *, provider: str) -> QaCheck:
+    solver_plan = learner_playtest_out / "solver-plan.json"
+    access_manifest = learner_playtest_out / "learner-access.json"
+    required = [provider_out / "endpoints.json", solver_plan, access_manifest]
+    if provider == "docker-compose":
+        required.append(provider_out / "docker-compose.yml")
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        return QaCheck(
+            name="e2e-solver-evidence",
+            status="failed",
+            messages=[f"missing={path}" for path in missing],
+        )
+    try:
+        report = run_e2e_solver(
+            provider_out,
+            solver_plan,
+            access_manifest,
+            out,
+            provider=provider,
+            execute=False,
+            cleanup=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - release gate should preserve E2E planning failures.
+        return QaCheck(
+            name="e2e-solver-evidence",
+            status="failed",
+            messages=[f"Could not create E2E solver evidence: {exc}"],
+        )
+    required_files = [
+        out / "e2e-solver.md",
+        out / "e2e-solver.yaml",
+        out / "e2e-solver.json",
+        out / "host-preflight.md",
+        out / "host-preflight.json",
+        out / "access-playtest" / "access-playtest.yaml",
+        out / "solver-run" / "solver-run.yaml",
+    ]
+    missing_outputs = [str(path) for path in required_files if not path.exists()]
+    if missing_outputs:
+        return QaCheck(
+            name="e2e-solver-evidence",
+            status="failed",
+            messages=[f"missing_output={path}" for path in missing_outputs],
+        )
+    if report.status not in {"planned", "passed", "warning"}:
+        return QaCheck(
+            name="e2e-solver-evidence",
+            status="failed",
+            messages=[f"status={report.status}", f"report={out / 'e2e-solver.md'}"],
+        )
+    return QaCheck(
+        name="e2e-solver-evidence",
+        status="passed",
+        messages=[
+            f"status={report.status}",
+            f"mode={report.mode}",
+            f"preflight_ready={str(report.preflight_ready).lower()}",
+            f"lifecycle_steps={len(report.lifecycle)}",
+            f"access_status={report.access_playtest.status if report.access_playtest else 'missing'}",
+            f"solver_status={report.solver_run.status if report.solver_run else 'missing'}",
+            f"report={out / 'e2e-solver.md'}",
         ],
     )
 
