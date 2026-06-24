@@ -327,19 +327,27 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "unsafe-file-upload":
             from io import BytesIO
 
+            policy = client.get("/labforge/scaffold/uploads/policy")
             uploaded = client.post(
                 "/labforge/scaffold/uploads",
-                data={"file": (BytesIO(b"labforge upload smoke"), "case-note.txt")},
+                data={"file": (BytesIO(b"labforge upload smoke"), "case-note.bin")},
                 content_type="multipart/form-data",
             )
             data = uploaded.get_json(silent=True) or {}
             filename = data.get("filename", "")
             retrieved = client.get(f"/labforge/scaffold/uploads/{filename}") if filename else uploaded
+            review = client.get("/labforge/scaffold/uploads/review")
+            review_data = review.get_json(silent=True) or {}
+            records = review_data.get("records", [])
             return assert_condition(
                 service,
                 plugin_id,
-                uploaded.status_code == 201 and retrieved.status_code == 200 and b"labforge upload smoke" in retrieved.get_data(),
-                "/labforge/scaffold/uploads",
+                policy.status_code == 200
+                and uploaded.status_code == 201
+                and retrieved.status_code == 200
+                and b"labforge upload smoke" in retrieved.get_data()
+                and any(record.get("filename") == filename and record.get("policy_match") is False for record in records),
+                "/labforge/scaffold/uploads + policy + review",
                 retrieved,
             )
         if plugin_id == "diagnostic-command-injection":

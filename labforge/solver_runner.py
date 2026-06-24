@@ -668,10 +668,17 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "unsafe-file-upload":
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/attachments/policy", "/labforge/scaffold/uploads/policy"],
+            None,
+            timeout_seconds,
+        )
         uploaded_status, uploaded, _ = http_multipart_upload(
             f"{base_url}/attachments",
             field_name="file",
-            filename="case-note.txt",
+            filename="case-note.bin",
             content=b"labforge upload smoke",
             timeout_seconds=timeout_seconds,
         )
@@ -680,7 +687,7 @@ def run_plugin_http_sequence(
             uploaded_status, uploaded, _ = http_multipart_upload(
                 f"{base_url}/labforge/scaffold/uploads",
                 field_name="file",
-                filename="case-note.txt",
+                filename="case-note.bin",
                 content=b"labforge upload smoke",
                 timeout_seconds=timeout_seconds,
             )
@@ -691,8 +698,41 @@ def run_plugin_http_sequence(
             if filename
             else (0, {}, "", "")
         )
-        ok = landing_ok and uploaded_status == 201 and retrieved_status == 200 and "labforge upload smoke" in retrieved_body
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; upload_route={upload_route}; retrieve_route={retrieve_route}; uploaded={uploaded_status}; retrieved={retrieved_status}; filename={filename or '-'}")
+        review_status, review, _, review_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/attachments/review", "/labforge/scaffold/uploads/review"],
+            None,
+            timeout_seconds,
+        )
+        records = review.get("records", []) if isinstance(review, dict) else []
+        review_recorded = any(isinstance(record, dict) and record.get("filename") == filename for record in records)
+        policy_mismatch_recorded = any(isinstance(record, dict) and record.get("filename") == filename and record.get("policy_match") is False for record in records)
+        ok = (
+            landing_ok
+            and policy_status == 200
+            and uploaded_status == 201
+            and retrieved_status == 200
+            and review_status == 200
+            and "labforge upload smoke" in retrieved_body
+            and review_recorded
+            and policy_mismatch_recorded
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; policy_route={policy_route}; upload_route={upload_route}; "
+                f"retrieve_route={retrieve_route}; review_route={review_route}; policy={policy_status}; "
+                f"uploaded={uploaded_status}; retrieved={retrieved_status}; review={review_status}; "
+                f"filename={filename or '-'}; review_recorded={review_recorded}; policy_mismatch_recorded={policy_mismatch_recorded}"
+            ),
+        )
     if plugin == "diagnostic-command-injection":
         info_status, info, _, info_route = http_json_first(
             "GET",
