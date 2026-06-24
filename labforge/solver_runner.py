@@ -826,7 +826,34 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "build-pipeline-abuse":
-        payload = {"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"}
+        context_status, context, _, context_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/build/context", "/labforge/scaffold/build/context"],
+            None,
+            timeout_seconds,
+        )
+        metadata_status, metadata, _, metadata_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/build/release-metadata", "/labforge/scaffold/build/release-metadata"],
+            None,
+            timeout_seconds,
+        )
+        patch_field = str(context.get("patch_ref_field") or metadata.get("required_patch_field") or "support_patch_ref")
+        payload = {
+            "repo": metadata.get("repo") or context.get("repo") or "smoke/product-agent",
+            "ref": metadata.get("ref") or context.get("ref") or "refs/heads/release/smoke",
+            "channel": metadata.get("channel") or context.get("channel") or "smoke",
+            patch_field: "lab://smoke.patch",
+        }
+        policy_status, policy, _, policy_route = http_json_first(
+            "POST",
+            base_url,
+            ["/api/build/policy", "/labforge/scaffold/build/policy"],
+            payload,
+            timeout_seconds,
+        )
         status, data, _, route = http_json_first(
             "POST",
             base_url,
@@ -834,8 +861,33 @@ def run_plugin_http_sequence(
             payload,
             timeout_seconds,
         )
-        ok = landing_ok and status == 201 and data.get("status") == "built" and "canonical_manifest" in data
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; route={route}; http_status={status}; job_id={data.get('job_id', '-')}")
+        manifest = data.get("canonical_manifest", {}) if isinstance(data, dict) else {}
+        artifact = manifest.get("artifact", {}) if isinstance(manifest, dict) else {}
+        ok = (
+            landing_ok
+            and context_status == 200
+            and metadata_status == 200
+            and policy_status == 200
+            and policy.get("allowed") is True
+            and status == 201
+            and data.get("status") == "built"
+            and "canonical_manifest" in data
+            and all(key in artifact for key in ("name", "sha256", "url", "size_bytes"))
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; context_route={context_route}; metadata_route={metadata_route}; policy_route={policy_route}; route={route}; "
+                f"context={context_status}; metadata={metadata_status}; policy={policy_status}; policy_allowed={policy.get('allowed')}; "
+                f"http_status={status}; job_id={data.get('job_id', '-')}; artifact_fields={len(artifact)}"
+            ),
+        )
     if plugin == "signed-update-publish":
         manifest = {
             "product": "product-agent",

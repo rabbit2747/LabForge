@@ -526,6 +526,55 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_build_pipeline_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), BuildPipelineSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-build-pipeline",
+                            "title": "Solver Build Pipeline",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-release-console-build-pipeline-abuse",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "release-console",
+                                    "plugin": "build-pipeline-abuse",
+                                    "evidence": ["/operations/build"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps({"published_endpoints": [{"service": "release-console", "protocol": "http", "url": f"{base_url}/"}]}),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(solver_plan, root / "solver-run", endpoint_manifest=endpoint_manifest, execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("context=200", report.steps[0].message)
+                self.assertIn("metadata=200", report.steps[0].message)
+                self.assertIn("policy=200", report.steps[0].message)
+                self.assertIn("policy_allowed=True", report.steps[0].message)
+                self.assertIn("http_status=201", report.steps[0].message)
+                self.assertIn("artifact_fields=4", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_diagnostic_command_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -891,6 +940,136 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"accepted": True, "returncode": 0, "stdout": "uid=1000(operator)\n"}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "build-pipeline-abuse"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/routes?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "release-console",
+                        "routes": [
+                            {"method": "GET", "path": "/operations/build", "feature": "release build"},
+                            {"method": "POST", "path": "/api/build/jobs", "feature": "release build"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/context?format=json":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "service": "release-console",
+                        "records": [
+                            {
+                                "case_id": "BR-0001",
+                                "workflow": "release build",
+                                "operator_note": "Build jobs must match release metadata and pass policy checks.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/operations/build":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Release Build Console</h1></body></html>")
+            return
+        if self.path == "/api/build/context":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "build_api": "POST /api/build/jobs",
+                        "release_metadata_api": "GET /api/build/release-metadata",
+                        "policy_api": "POST /api/build/policy",
+                        "repo": "smoke/product-agent",
+                        "ref": "refs/heads/release/smoke",
+                        "channel": "smoke",
+                        "patch_ref_field": "support_patch_ref",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/build/release-metadata":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "repo": "smoke/product-agent",
+                        "ref": "refs/heads/release/smoke",
+                        "channel": "smoke",
+                        "version": "lab",
+                        "required_patch_field": "support_patch_ref",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        size = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
+        allowed = bool(payload.get("support_patch_ref"))
+        if self.path == "/api/build/policy":
+            self.send_response(200 if allowed else 400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"allowed": allowed, "checks": [{"name": "patch reference supplied", "passed": allowed}]}).encode("utf-8"))
+            return
+        if self.path == "/api/build/jobs":
+            if not allowed:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "policy rejected"}).encode("utf-8"))
+                return
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "job_id": "build-0001",
+                        "status": "built",
+                        "canonical_manifest": {
+                            "artifact": {
+                                "name": "product-agent-smoke-lab.tar",
+                                "sha256": "0" * 64,
+                                "url": "http://build/product-agent-smoke-lab.tar",
+                                "size_bytes": 24576,
+                            }
+                        },
+                    }
+                ).encode("utf-8")
+            )
             return
         self.send_response(404)
         self.end_headers()

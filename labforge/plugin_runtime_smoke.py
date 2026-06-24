@@ -413,12 +413,35 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 drift_after,
             )
         if plugin_id == "build-pipeline-abuse":
+            context = client.get("/labforge/scaffold/build/context")
+            metadata = client.get("/labforge/scaffold/build/release-metadata")
+            metadata_data = metadata.get_json(silent=True) or {}
+            payload = {
+                "repo": metadata_data.get("repo", "smoke/product-agent"),
+                "ref": metadata_data.get("ref", "refs/heads/release/smoke"),
+                "channel": metadata_data.get("channel", "smoke"),
+                "support_patch_ref": "lab://smoke.patch",
+            }
+            policy = client.post("/labforge/scaffold/build/policy", json=payload)
+            policy_data = policy.get_json(silent=True) or {}
             response = client.post(
                 "/labforge/scaffold/build/jobs",
-                json={"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"},
+                json=payload,
             )
             data = response.get_json(silent=True) or {}
-            return assert_condition(service, plugin_id, response.status_code == 201 and data.get("status") == "built" and "canonical_manifest" in data, "/labforge/scaffold/build/jobs", response)
+            return assert_condition(
+                service,
+                plugin_id,
+                context.status_code == 200
+                and metadata.status_code == 200
+                and policy.status_code == 200
+                and policy_data.get("allowed") is True
+                and response.status_code == 201
+                and data.get("status") == "built"
+                and "canonical_manifest" in data,
+                "/labforge/scaffold/build context + release metadata + policy + jobs",
+                response,
+            )
         if plugin_id == "signed-update-publish":
             manifest = {
                 "product": "product-agent",
