@@ -150,7 +150,7 @@ def seed_runtime_smoke_inputs(module: Any, service_root: Path) -> None:
     if seed_dir is None:
         return
     seed_dir.mkdir(parents=True, exist_ok=True)
-    for filename in ("vulnerability-evidence.json", "stage-state.json"):
+    for filename in ("vulnerability-evidence.json", "vulnerability-discovery.json", "stage-state.json"):
         source = service_root / "seed" / filename
         if source.exists():
             (seed_dir / filename).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")

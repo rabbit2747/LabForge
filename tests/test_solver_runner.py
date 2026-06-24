@@ -136,6 +136,7 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.service_targets["investor-portal"], base_url)
                 self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("discovery=200", report.steps[0].message)
                 self.assertIn("preview=49", report.steps[0].message)
             finally:
                 server.shutdown()
@@ -174,6 +175,16 @@ class SolverRunnerTests(unittest.TestCase):
 
 
 class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/operations/reference":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"items": [{"plugin": "ssti-preview"}]}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def do_POST(self) -> None:
         if self.path == "/labforge/scaffold/ssti-preview":
             self.send_response(200)
