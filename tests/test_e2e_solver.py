@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from labforge.doctor import HostDoctorReport
 from labforge.e2e_solver import run_e2e_solver
 
 
@@ -65,15 +66,36 @@ class E2ESolverTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            report = run_e2e_solver(provider_output, solver_plan, access_manifest, root / "e2e", execute=False)
+            report = run_e2e_solver(
+                provider_output,
+                solver_plan,
+                access_manifest,
+                root / "e2e",
+                execute=False,
+                host_preflight=HostDoctorReport(
+                    host_os="linux",
+                    platform="test",
+                    architecture="x86_64",
+                    shell_hint="sh",
+                    cwd=str(root),
+                    wsl_available=False,
+                    host_docker_cli=True,
+                    host_docker_server=True,
+                    recommended_execution="host",
+                ),
+            )
 
             self.assertEqual(report.status, "planned")
+            self.assertIn("host_os", report.host_preflight)
+            self.assertIn("recommended_execution", report.host_preflight)
             self.assertEqual([item.action for item in report.lifecycle], ["validate", "deploy", "status"])
             self.assertEqual(report.access_playtest.status, "planned")
             self.assertEqual(report.solver_run.status, "planned")
             self.assertTrue((root / "e2e" / "e2e-solver.md").exists())
             self.assertTrue((root / "e2e" / "e2e-solver.yaml").exists())
             self.assertTrue((root / "e2e" / "e2e-solver.json").exists())
+            self.assertTrue((root / "e2e" / "host-preflight.md").exists())
+            self.assertTrue((root / "e2e" / "host-preflight.json").exists())
 
 
 if __name__ == "__main__":

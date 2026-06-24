@@ -521,6 +521,9 @@ the scenario has a multi-stage chain, and writes:
   In dry-run mode it plans provider lifecycle, access checks, and solver probes.
   Add `--execute` to validate/start/status the provider and run supported
   HTTP/SSH probes, and `--cleanup` to stop the provider afterward.
+- `host-preflight.md/json`: E2E solver host readiness evidence, including OS,
+  WSL availability, Docker reachability, and recommended execution path before
+  provider lifecycle commands are executed.
 - `playtest-report.md`: evidence that the generated lab has a reachable start,
   runnable lab-scoped vulnerability behavior, ordered stages, and a completion
   path.
