@@ -152,6 +152,9 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertIn("discovery=200", report.steps[0].message)
                 self.assertIn("route=/operations/preview", report.steps[0].message)
                 self.assertIn("preview=49", report.steps[0].message)
+                self.assertIn("stage_state=200", report.steps[0].message)
+                self.assertIn("acquired_evidence=1", report.steps[0].message)
+                self.assertIn("unlocked_stages=2", report.steps[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -195,6 +198,23 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"items": [{"plugin": "ssti-preview"}]}).encode("utf-8"))
+            return
+        if self.path == "/api/state":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "acquired_evidence": ["template_probe_confirmed"],
+                        "stages": [
+                            {"stage_id": "stage-01", "status": "unlocked"},
+                            {"stage_id": "stage-02", "status": "unlocked"},
+                            {"stage_id": "stage-03", "status": "locked"},
+                        ],
+                    }
+                ).encode("utf-8")
+            )
             return
         self.send_response(404)
         self.end_headers()

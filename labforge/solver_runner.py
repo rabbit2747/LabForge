@@ -413,6 +413,10 @@ def run_plugin_http_sequence(
 
 
 def plugin_step(order: int, step_id: str, service: str, plugin: str, target: str, evidence: list[str], ok: bool, message: str) -> SolverRunStep:
+    if ok:
+        state_note = stage_state_message(target)
+        if state_note:
+            message = f"{message}; {state_note}"
     return SolverRunStep(
         order=order,
         step_id=step_id,
@@ -424,6 +428,28 @@ def plugin_step(order: int, step_id: str, service: str, plugin: str, target: str
         evidence=evidence,
         message=message,
     )
+
+
+def stage_state_message(base_url: str) -> str:
+    if not base_url.startswith("http"):
+        return ""
+    status, data, _ = http_json("GET", f"{base_url}/api/state", None, 3)
+    if status == 404:
+        return "stage_state=not-exposed"
+    if status == 0:
+        return "stage_state=unreachable"
+    if status != 200:
+        return f"stage_state={status}"
+    acquired = data.get("acquired_evidence", []) if isinstance(data, dict) else []
+    stages = data.get("stages", []) if isinstance(data, dict) else []
+    unlocked = [
+        stage
+        for stage in stages
+        if isinstance(stage, dict) and str(stage.get("status", "")).lower() == "unlocked"
+    ]
+    if isinstance(acquired, list) and isinstance(stages, list):
+        return f"stage_state=200; acquired_evidence={len(acquired)}; unlocked_stages={len(unlocked)}"
+    return "stage_state=200; shape=unexpected"
 
 
 def discovery_message(status: int, data: dict) -> str:
