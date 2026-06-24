@@ -176,7 +176,11 @@ control scaffold services with labels, networks, and log volumes. It also emits
 PowerShell and shell runtime scripts for validation, start, status, stop, and reset;
 PowerShell scripts automatically detect whether Docker is available in the
 current shell or in any WSL distro on Windows, then run through the first usable
-runtime. The Docker Compose provider also emits a generated `QUICKSTART.md`
+runtime. The provider lifecycle command now follows the same portability model:
+when a generated output does not contain runtime scripts and Windows cannot
+reach Docker directly, Docker Compose lifecycle commands are wrapped through a
+WSL distro that has a reachable Docker server. The Docker Compose provider also
+emits a generated `QUICKSTART.md`
 and `endpoints.json` so supervisors can see published URLs, SSH connection
 commands, health URLs, internal DNS names, and `LABFORGE_PORT_*` override
 variables without reading `docker-compose.yml` by hand. The provider also

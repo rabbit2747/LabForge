@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .doctor import inspect_host
 
 
 class LifecycleModel(BaseModel):
@@ -63,6 +66,7 @@ def provider_lifecycle(
         )
 
     commands = docker_compose_commands(action, compose_file, remove_volumes=remove_volumes)
+    commands = adapt_docker_commands_for_host(commands, output_dir)
     if not execute:
         return ProviderLifecycleResult(
             provider=provider,
@@ -286,6 +290,47 @@ def docker_compose_commands(
             command.append("-v")
         return [command]
     return [[*compose, "ps"]]
+
+
+def adapt_docker_commands_for_host(commands: list[list[str]], output_dir: Path) -> list[list[str]]:
+    if not commands:
+        return commands
+    if platform.system().lower() != "windows":
+        return commands
+    if any(command and command[0].lower() in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"} for command in commands):
+        return commands
+    if not all(command and command[0] == "docker" for command in commands):
+        return commands
+
+    report = inspect_host()
+    if report.host_docker_server:
+        return commands
+    distro = next((item.name for item in report.wsl_distros if item.docker_server), "")
+    if not distro:
+        return commands
+    return [wrap_command_for_wsl(command, output_dir, distro) for command in commands]
+
+
+def windows_to_wsl_path(path: Path) -> str:
+    resolved = str(path.resolve())
+    if len(resolved) >= 3 and resolved[1:3] == ":\\":
+        drive = resolved[0].lower()
+        rest = resolved[3:].replace("\\", "/")
+        return f"/mnt/{drive}/{rest}"
+    return resolved.replace("\\", "/")
+
+
+def translate_path_arg_for_wsl(value: str) -> str:
+    if len(value) >= 3 and value[1:3] == ":\\":
+        return windows_to_wsl_path(Path(value))
+    return value
+
+
+def wrap_command_for_wsl(command: list[str], output_dir: Path, distro: str) -> list[str]:
+    wsl_cwd = windows_to_wsl_path(output_dir)
+    translated = [translate_path_arg_for_wsl(item) for item in command]
+    inner = "cd " + shlex.quote(wsl_cwd) + " && " + " ".join(shlex.quote(item) for item in translated)
+    return ["wsl.exe", "-d", distro, "--", "bash", "-lc", inner]
 
 
 def lifecycle_script(

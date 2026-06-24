@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from labforge.doctor import HostDoctorReport, WslDistro
 from labforge.provider_lifecycle import provider_lifecycle
 
 
@@ -41,6 +43,44 @@ class ProviderLifecycleTests(unittest.TestCase):
 
             self.assertEqual(result.status, "failed")
             self.assertIn("range-config.yaml", result.message)
+
+    def test_docker_compose_dry_run_delegates_to_wsl_when_windows_host_lacks_docker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "generated"
+            root.mkdir(parents=True)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            report = HostDoctorReport(
+                host_os="windows",
+                platform="Windows",
+                architecture="AMD64",
+                shell_hint="powershell",
+                cwd=str(root),
+                wsl_available=True,
+                wsl_distros=[
+                    WslDistro(
+                        name="Ubuntu-24.04",
+                        state="Running",
+                        version="2",
+                        docker_cli=True,
+                        docker_server=True,
+                        docker_server_version="29.1.3",
+                    )
+                ],
+                host_docker_cli=False,
+                host_docker_server=False,
+                recommended_execution="wsl",
+            )
+
+            with patch("labforge.provider_lifecycle.platform.system", return_value="Windows"), patch(
+                "labforge.provider_lifecycle.inspect_host",
+                return_value=report,
+            ):
+                result = provider_lifecycle(root, provider="docker-compose", action="validate", execute=False)
+
+            self.assertEqual(result.status, "planned")
+            self.assertEqual(result.commands[0][:5], ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash"])
+            self.assertIn("docker compose", result.commands[0][-1])
+            self.assertIn("/docker-compose.yml", result.commands[0][-1])
 
 
 if __name__ == "__main__":
