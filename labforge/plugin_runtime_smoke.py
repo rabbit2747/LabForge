@@ -335,18 +335,23 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "credential-exposure":
             config = client.get("/labforge/scaffold/config")
             log = client.get("/labforge/scaffold/config/startup-log")
+            correlation = client.get("/labforge/scaffold/config/correlation")
             config_data = config.get_json(silent=True) or {}
+            correlation_data = correlation.get_json(silent=True) or {}
             log_body = log.get_data(as_text=True)
             return assert_condition(
                 service,
                 plugin_id,
                 config.status_code == 200
                 and log.status_code == 200
+                and correlation.status_code == 200
                 and config_data.get("secret_value") == "redacted"
+                and correlation_data.get("cache_profile_matches_account") is True
+                and "LabForge-Operator-Training-Secret!" in str(correlation_data.get("recovered_credential", ""))
                 and "vault-cache export" in log_body
                 and "LabForge-Operator-Training-Secret!" in log_body,
-                "/labforge/scaffold/config/startup-log",
-                log,
+                "/labforge/scaffold/config + startup-log + correlation",
+                correlation,
             )
         if plugin_id == "solr-velocity-rce":
             system = client.get("/labforge/scaffold/solr/admin/info/system")

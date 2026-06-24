@@ -705,14 +705,39 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        correlation_status, correlation, _, correlation_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/config/correlation", "/labforge/scaffold/config/correlation"],
+            None,
+            timeout_seconds,
+        )
         ok = (
             landing_ok
             and config_status == 200
             and log_status == 200
+            and correlation_status == 200
             and config.get("secret_value") == "redacted"
+            and correlation.get("secret_reference") == config.get("secret_reference")
+            and correlation.get("cache_profile_matches_account") is True
+            and bool(correlation.get("recovered_credential"))
             and "vault-cache export" in log_body
         )
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; config_route={config_route}; log_route={log_route}; config={config_status}; log={log_status}; secret_value={config.get('secret_value', '-')}")
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; config_route={config_route}; log_route={log_route}; correlation_route={correlation_route}; "
+                f"config={config_status}; log={log_status}; correlation={correlation_status}; "
+                f"secret_value={config.get('secret_value', '-')}; cache_profile_matches_account={correlation.get('cache_profile_matches_account')}; "
+                f"recovered_credential={'present' if correlation.get('recovered_credential') else 'missing'}"
+            ),
+        )
     if plugin == "build-pipeline-abuse":
         payload = {"repo": "smoke/product-agent", "ref": "refs/heads/release/smoke", "channel": "smoke", "support_patch_ref": "lab://smoke.patch"}
         status, data, _, route = http_json_first(

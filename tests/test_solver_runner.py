@@ -512,7 +512,10 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("config=200", report.steps[0].message)
                 self.assertIn("log=200", report.steps[0].message)
+                self.assertIn("correlation=200", report.steps[0].message)
                 self.assertIn("secret_value=redacted", report.steps[0].message)
+                self.assertIn("cache_profile_matches_account=True", report.steps[0].message)
+                self.assertIn("recovered_credential=present", report.steps[0].message)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -883,6 +886,21 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"secret_value": "redacted", "secret_reference": "lab://secret/ref"}).encode("utf-8"))
+            return
+        if self.path == "/api/config/correlation":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "secret_value_in_config": "redacted",
+                        "secret_reference": "lab://secret/ref",
+                        "cache_profile_matches_account": True,
+                        "recovered_credential": "LabForge-Operator-Training-Secret!",
+                    }
+                ).encode("utf-8")
+            )
             return
         if self.path == "/api/config/startup-log":
             self.send_response(200)
