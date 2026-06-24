@@ -782,7 +782,8 @@ def scenario_stage_step(spec: LabSpec, chain_manifest=None) -> PlaytestStep:
 
 def service_realism_step(spec: LabSpec, working_lab: Path) -> PlaytestStep:
     checked = 0
-    missing: list[str] = []
+    failures: list[str] = []
+    warnings: list[str] = []
     for artifact in declared_service_artifacts(spec):
         service = str(artifact.service)
         lower = service.lower()
@@ -793,7 +794,11 @@ def service_realism_step(spec: LabSpec, working_lab: Path) -> PlaytestStep:
         expected = [root / "seed" / "records.json", root / "seed" / "clues.json", root / "noise" / "events.jsonl"]
         absent = [path.relative_to(root).as_posix() for path in expected if not path.exists()]
         if absent:
-            missing.append(f"{service}: missing {', '.join(absent)}")
+            failures.append(f"{service}: missing {', '.join(absent)}")
+            continue
+        result = inspect_business_seed_quality(artifact, root)
+        failures.extend(result["failures"])
+        warnings.extend(result["warnings"])
     if checked == 0:
         return PlaytestStep(
             step_id="realism-01",
@@ -803,23 +808,145 @@ def service_realism_step(spec: LabSpec, working_lab: Path) -> PlaytestStep:
             learner_action="Review generated services manually.",
             expected_result="Business services should include seed records, clues, and operational noise.",
         )
-    if missing:
+    if failures:
         return PlaytestStep(
             step_id="realism-01",
             title="Services include business records, clues, and operational noise",
             status="failed",
-            evidence=missing,
+            evidence=failures,
             learner_action="Do not release the lab until business services include realistic seed/noise artifacts.",
-            expected_result="Every business service has records.json, clues.json, and noise/events.jsonl.",
+            expected_result="Every business service has parseable, non-empty, business-shaped records, clues, and operational noise.",
+        )
+    if warnings:
+        return PlaytestStep(
+            step_id="realism-01",
+            title="Services include business records, clues, and operational noise",
+            status="warning",
+            evidence=warnings,
+            learner_action="Review seed records, clues, and noise so each service feels like a real business system.",
+            expected_result="Business seed data should carry enough context for natural discovery without CTF wording.",
         )
     return PlaytestStep(
         step_id="realism-01",
         title="Services include business records, clues, and operational noise",
         status="passed",
-        evidence=[f"{checked} business services include records, clues, and noise."],
+        evidence=[f"{checked} business services include parseable business records, clues, and operational noise."],
         learner_action="Use visible business records and operational notes to distinguish signal from ordinary company context.",
         expected_result="Generated services feel like business systems rather than empty CTF endpoints.",
     )
+
+
+def inspect_business_seed_quality(artifact: Any, root: Path) -> dict[str, list[str]]:
+    service = str(artifact.service)
+    failures: list[str] = []
+    warnings: list[str] = []
+    records_path = root / "seed" / "records.json"
+    clues_path = root / "seed" / "clues.json"
+    events_path = root / "noise" / "events.jsonl"
+
+    records, record_error = load_seed_items(records_path, key="items")
+    clues, clue_error = load_seed_items(clues_path, key="items")
+    events, event_error = load_jsonl_items(events_path)
+    for label, error in (("records", record_error), ("clues", clue_error), ("events", event_error)):
+        if error:
+            failures.append(f"{service}: {label} seed is invalid: {error}")
+
+    if not record_error and len(records) < 2:
+        failures.append(f"{service}: seed/records.json must contain at least 2 business records")
+    if not clue_error and len(clues) < 2:
+        failures.append(f"{service}: seed/clues.json must contain at least 2 discovery or operating clues")
+    if not event_error and len(events) < 2:
+        failures.append(f"{service}: noise/events.jsonl must contain at least 2 operational events")
+
+    text_by_file = {
+        "seed/records.json": safe_read_text(records_path),
+        "seed/clues.json": safe_read_text(clues_path),
+        "noise/events.jsonl": safe_read_text(events_path),
+    }
+    for filename, text in text_by_file.items():
+        bad_terms = ctf_or_placeholder_terms(text)
+        if bad_terms:
+            failures.append(f"{service}: {filename} contains CTF/placeholder wording: {', '.join(bad_terms)}")
+        if not contains_service_context(text, artifact):
+            warnings.append(f"{service}: {filename} does not clearly reference the service, purpose, seed inputs, or noise inputs")
+
+    clue_text = " ".join(json.dumps(item, ensure_ascii=False) for item in clues)
+    if not any(term in clue_text.lower() for term in ("review", "workflow", "record", "event", "route", "operation", "audit")):
+        warnings.append(f"{service}: clues do not look like natural operating guidance")
+
+    return {"failures": failures, "warnings": warnings}
+
+
+def load_seed_items(path: Path, *, key: str) -> tuple[list[Any], str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [], f"{path.name} is not valid JSON: {exc.msg}"
+    except OSError as exc:
+        return [], str(exc)
+    if isinstance(data, dict):
+        items = data.get(key)
+        if isinstance(items, list):
+            return items, ""
+        return [], f"{path.name} must contain a `{key}` list"
+    if isinstance(data, list):
+        return data, ""
+    return [], f"{path.name} must be a JSON object or list"
+
+
+def load_jsonl_items(path: Path) -> tuple[list[Any], str]:
+    items: list[Any] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [], str(exc)
+    for index, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            items.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            return [], f"{path.name}:{index} is not valid JSON: {exc.msg}"
+    return items, ""
+
+
+def safe_read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def ctf_or_placeholder_terms(text: str) -> list[str]:
+    lowered = text.lower()
+    terms = [
+        "todo",
+        "lorem",
+        "placeholder",
+        "answer key",
+        "copy paste",
+        "copy/paste",
+        "submit flag",
+        "\"flag\"",
+        "ctf",
+        "pwn",
+        "exploit here",
+    ]
+    return [term for term in terms if term in lowered]
+
+
+def contains_service_context(text: str, artifact: Any) -> bool:
+    lowered = text.lower()
+    candidates: list[str] = []
+    candidates.append(str(artifact.service).lower())
+    candidates.extend(str(artifact.service).lower().replace("-", " ").split())
+    candidates.extend(str(artifact.service).lower().split("-"))
+    candidates.extend(str(artifact.purpose).lower().replace("/", " ").split())
+    for value in list(getattr(artifact, "seed_inputs", []) or []) + list(getattr(artifact, "noise_inputs", []) or []):
+        candidates.extend(str(value).lower().replace("-", " ").split())
+        candidates.append(str(value).lower())
+    meaningful = {item.strip(".,:_/") for item in candidates if len(item.strip(".,:_/")) >= 4}
+    return any(term in lowered for term in meaningful)
 
 
 def industry_context_step(spec: LabSpec) -> PlaytestStep:

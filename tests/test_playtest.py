@@ -12,6 +12,7 @@ from labforge.playtest import (
     plugin_checks_from_solver_plan,
     plugin_walkthrough_steps,
     run_playtest,
+    service_realism_step,
     service_base_urls_from_endpoint_manifest,
     SolverPlan,
     SolverPlanStep,
@@ -257,6 +258,41 @@ class PlaytestTests(unittest.TestCase):
 
         self.assertEqual(step.status, "warning")
         self.assertTrue(any("missing=" in item for item in step.evidence))
+
+    def test_service_realism_step_fails_empty_or_ctf_seed_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "services" / "support-portal"
+            (service_root / "seed").mkdir(parents=True)
+            (service_root / "noise").mkdir(parents=True)
+            (service_root / "seed" / "records.json").write_text('{"items":[]}\n', encoding="utf-8")
+            (service_root / "seed" / "clues.json").write_text(
+                '{"items":[{"title":"answer key","detail":"copy paste the flag"}]}\n',
+                encoding="utf-8",
+            )
+            (service_root / "noise" / "events.jsonl").write_text(
+                '{"event":"todo-placeholder"}\n',
+                encoding="utf-8",
+            )
+            spec = SimpleNamespace(
+                artifacts_model=SimpleNamespace(
+                    service_artifacts=[
+                        SimpleNamespace(
+                            service="support-portal",
+                            source_path="services/support-portal",
+                            purpose="Customer support request portal",
+                            seed_inputs=["support-cases"],
+                            noise_inputs=["support-access-noise"],
+                        )
+                    ]
+                )
+            )
+
+            step = service_realism_step(spec, root)
+
+            self.assertEqual(step.status, "failed")
+            self.assertTrue(any("at least 2 business records" in item for item in step.evidence))
+            self.assertTrue(any("CTF/placeholder" in item for item in step.evidence))
 
     def test_stage_implementation_fails_when_required_plugin_evidence_is_unmapped(self) -> None:
         spec = SimpleNamespace(
