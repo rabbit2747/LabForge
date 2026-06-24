@@ -22,6 +22,7 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(report.learner_entrypoints)
             self.assertTrue(report.attacker_entrypoints)
             self.assertTrue(any(step.step_id == "realism-01" for step in report.steps))
+            self.assertTrue(any(step.step_id == "chain-runtime-01" for step in report.steps))
             self.assertTrue((out / "playtest-report.md").exists())
             self.assertTrue((out / "playtest-report.yaml").exists())
             self.assertTrue((out / "learner-access.md").exists())

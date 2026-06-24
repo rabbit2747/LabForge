@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .chain import build_chain_manifest, service_chain_view
 from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_blueprints import create_service_blueprints, write_service_blueprint_files
@@ -210,6 +211,7 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
     written.extend(write_service_blueprint_files(spec, force=force))
     blueprint_by_service = {blueprint.service: blueprint for blueprint in create_service_blueprints(spec).blueprints}
     services_by_name = {str(service.get("name")): service for service in spec.services}
+    chain_manifest = build_chain_manifest(spec)
     for artifact in declared_service_artifacts(spec):
         service_root = spec.root / artifact.source_path
         service_root.mkdir(parents=True, exist_ok=True)
@@ -228,6 +230,10 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             files.setdefault("tests/test_smoke.py", render_runtime_smoke_test())
         files.update(render_vulnerability_plugin_contracts(artifact))
         files.update(render_vulnerability_scaffold_files(artifact, files))
+        files.setdefault(
+            "seed/chain.json",
+            json.dumps(service_chain_view(chain_manifest, artifact.service), ensure_ascii=False, indent=2) + "\n",
+        )
         for filename, content in files.items():
             path = service_root / filename
             if path.exists() and not force:

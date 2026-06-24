@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from labforge.chain import build_chain_manifest, write_chain_manifest
+from labforge.chain import build_chain_manifest, service_chain_view, write_chain_manifest
 from labforge.model import LabSpec
 
 
@@ -23,6 +23,16 @@ class ChainManifestTests(unittest.TestCase):
         self.assertIn("ldap-ad", services_by_stage["stage-04"])
         self.assertIn("backup-server", services_by_stage["stage-07"])
         self.assertIn("controlled-drop", services_by_stage["stage-10"])
+
+    def test_service_chain_view_returns_local_and_adjacent_context(self) -> None:
+        spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
+        manifest = build_chain_manifest(spec)
+        view = service_chain_view(manifest, "hr-portal")
+
+        self.assertEqual(view["service"], "hr-portal")
+        self.assertGreaterEqual(view["stage_count"], 1)
+        self.assertTrue(any(stage["stage_id"] == "stage-02" for stage in view["stages"]))
+        self.assertTrue(view["incoming"] or view["outgoing"])
 
     def test_write_chain_manifest_outputs_review_files(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))

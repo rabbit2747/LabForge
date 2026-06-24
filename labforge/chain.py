@@ -206,6 +206,34 @@ def write_chain_manifest(spec: LabSpec, out: Path) -> ChainManifest:
     return manifest
 
 
+def service_chain_view(manifest: ChainManifest, service: str) -> dict[str, Any]:
+    """Return the part of a stage chain that is relevant to one service runtime."""
+    stage_ids = {node.stage_id for node in manifest.nodes if service in node.services}
+    incoming = [link for link in manifest.links if link.to_stage in stage_ids]
+    outgoing = [link for link in manifest.links if link.from_stage in stage_ids]
+    adjacent_ids = {
+        *stage_ids,
+        *[link.from_stage for link in incoming],
+        *[link.to_stage for link in outgoing],
+    }
+    stage_by_id = {node.stage_id: node for node in manifest.nodes}
+    adjacent = [stage_by_id[stage_id] for stage_id in sorted(adjacent_ids) if stage_id in stage_by_id and stage_id not in stage_ids]
+    stages = [node for node in manifest.nodes if node.stage_id in stage_ids]
+    return {
+        "lab_id": manifest.lab_id,
+        "title": manifest.title,
+        "service": service,
+        "chain_status": manifest.status,
+        "stage_count": len(stages),
+        "stages": [node.model_dump() for node in stages],
+        "adjacent_stages": [node.model_dump() for node in adjacent],
+        "incoming": [link.model_dump() for link in incoming],
+        "outgoing": [link.model_dump() for link in outgoing],
+        "warnings": manifest.warnings,
+        "failures": manifest.failures,
+    }
+
+
 def render_chain_markdown(manifest: ChainManifest) -> str:
     lines = [
         f"# Stage Chain - {manifest.title}",

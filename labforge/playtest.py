@@ -90,6 +90,7 @@ def run_playtest(
         attacker_step(attacker_entrypoints),
         vulnerability_runtime_step(runtime_smoke),
         service_realism_step(spec, working_lab),
+        service_chain_runtime_step(spec, working_lab, chain_manifest),
         scenario_stage_step(spec, chain_manifest),
         final_submission_step(final_submission_endpoints),
     ]
@@ -294,6 +295,77 @@ def service_realism_step(spec: LabSpec, working_lab: Path) -> PlaytestStep:
         evidence=[f"{checked} business services include records, clues, and noise."],
         learner_action="Use visible business records and operational notes to distinguish signal from ordinary company context.",
         expected_result="Generated services feel like business systems rather than empty CTF endpoints.",
+    )
+
+
+def service_chain_runtime_step(spec: LabSpec, working_lab: Path, chain_manifest) -> PlaytestStep:
+    checked = 0
+    missing: list[str] = []
+    weak: list[str] = []
+    stages_by_service: dict[str, int] = {}
+    for node in chain_manifest.nodes:
+        for service in node.services:
+            stages_by_service[service] = stages_by_service.get(service, 0) + 1
+
+    for artifact in declared_service_artifacts(spec):
+        service = str(artifact.service)
+        lower = service.lower()
+        if any(token in lower for token in ("attacker", "workstation")):
+            continue
+        checked += 1
+        root = working_lab / artifact.source_path
+        path = root / "seed" / "chain.json"
+        if not path.exists():
+            missing.append(f"{service}: missing seed/chain.json")
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            missing.append(f"{service}: seed/chain.json is not valid JSON")
+            continue
+        if data.get("service") != service:
+            missing.append(f"{service}: seed/chain.json service mismatch")
+        expected_stages = stages_by_service.get(service, 0)
+        actual_stages = int(data.get("stage_count") or 0)
+        if expected_stages and actual_stages < expected_stages:
+            weak.append(f"{service}: expected {expected_stages} related stages, found {actual_stages}")
+        if expected_stages and not data.get("stages"):
+            weak.append(f"{service}: related stages are empty")
+
+    if checked == 0:
+        return PlaytestStep(
+            step_id="chain-runtime-01",
+            title="Service runtimes carry stage-chain context",
+            status="warning",
+            evidence=["No service artifacts were eligible for chain runtime checks."],
+            learner_action="Review generated service runtimes manually.",
+            expected_result="Generated services should carry local stage-chain context for natural learner discovery.",
+        )
+    if missing:
+        return PlaytestStep(
+            step_id="chain-runtime-01",
+            title="Service runtimes carry stage-chain context",
+            status="failed",
+            evidence=missing,
+            learner_action="Regenerate or materialize service runtimes before release.",
+            expected_result="Every generated runtime has seed/chain.json.",
+        )
+    if weak:
+        return PlaytestStep(
+            step_id="chain-runtime-01",
+            title="Service runtimes carry stage-chain context",
+            status="warning",
+            evidence=weak,
+            learner_action="Review stage-to-service mapping and service chain seed files.",
+            expected_result="Services touched by scenario stages should expose related workflow context.",
+        )
+    return PlaytestStep(
+        step_id="chain-runtime-01",
+        title="Service runtimes carry stage-chain context",
+        status="passed",
+        evidence=[f"{checked} services include seed/chain.json with service-specific context."],
+        learner_action="Use each service's Chain Context endpoint or UI panel to understand related workflow evidence.",
+        expected_result="Learners can discover how evidence from one service leads to the next stage without reading source code.",
     )
 
 

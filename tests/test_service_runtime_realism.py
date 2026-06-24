@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,14 +25,18 @@ class ServiceRuntimeRealismTests(unittest.TestCase):
             self.assertIn("Operational Summary", app)
             self.assertTrue((service_root / "seed" / "records.json").exists())
             self.assertTrue((service_root / "seed" / "clues.json").exists())
+            self.assertTrue((service_root / "seed" / "chain.json").exists())
             self.assertTrue((service_root / "noise" / "events.jsonl").exists())
 
             records = (service_root / "seed" / "records.json").read_text(encoding="utf-8")
             clues = (service_root / "seed" / "clues.json").read_text(encoding="utf-8")
+            chain = json.loads((service_root / "seed" / "chain.json").read_text(encoding="utf-8"))
             noise = (service_root / "noise" / "events.jsonl").read_text(encoding="utf-8")
 
             self.assertIn("synthetic-training-data", records)
             self.assertIn("Operational noise", clues)
+            self.assertEqual(chain["service"], "hr-portal")
+            self.assertGreaterEqual(chain["stage_count"], 1)
             self.assertIn("business-workflow", noise)
 
 
