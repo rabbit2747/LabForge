@@ -315,6 +315,8 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
         out / "solver-plan.json",
         out / "solver-run" / "solver-run.yaml",
         out / "playtest-walkthrough.md",
+        out / "lab-access-bundle.md",
+        out / "lab-access-bundle.json",
         out / "playtest-report.yaml",
     ]
     missing = [str(path) for path in required_files if not path.exists()]
@@ -342,6 +344,7 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             f"final_submission_endpoints={len(report.final_submission_endpoints)}",
             f"steps={len(report.steps)}",
             f"report={out / 'playtest-report.yaml'}",
+            f"access_bundle={out / 'lab-access-bundle.json'}",
             *advisory,
         ],
     )

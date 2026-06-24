@@ -141,6 +141,25 @@ class SolverPlan(PlaytestModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class LabAccessBundle(PlaytestModel):
+    lab_id: str
+    title: str
+    provider: str
+    profile: str
+    provider_output_dir: str
+    learner_urls: list[str] = Field(default_factory=list)
+    attacker_ssh: list[str] = Field(default_factory=list)
+    final_submission_urls: list[str] = Field(default_factory=list)
+    health_commands: list[str] = Field(default_factory=list)
+    terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
+    start_commands: list[dict[str, str]] = Field(default_factory=list)
+    status_commands: list[dict[str, str]] = Field(default_factory=list)
+    stop_commands: list[dict[str, str]] = Field(default_factory=list)
+    generated_files: dict[str, str] = Field(default_factory=dict)
+    solver_ready: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
 def run_playtest(
     lab_root: Path,
     out: Path,
@@ -213,6 +232,9 @@ def run_playtest(
     write_text(out / "solver-plan.json", solver_plan.model_dump_json(indent=2))
     write_text(out / "solver-plan.md", render_solver_plan_markdown(solver_plan))
     write_text(out / "playtest-walkthrough.md", render_playtest_walkthrough_markdown(report))
+    access_bundle = build_lab_access_bundle(report, access_manifest, solver_plan, provider_out, out)
+    write_text(out / "lab-access-bundle.json", access_bundle.model_dump_json(indent=2))
+    write_text(out / "lab-access-bundle.md", render_lab_access_bundle_markdown(access_bundle))
     run_access_playtest(out / "learner-access.json", out / "access-playtest", execute=False)
     run_solver_plan(out / "solver-plan.json", out / "solver-run", access_manifest=out / "learner-access.json", execute=False)
     return report
@@ -420,6 +442,56 @@ def build_solver_plan(report: PlaytestReport) -> SolverPlan:
         final_submission=final_submission,
         steps=steps,
         warnings=warnings,
+    )
+
+
+def build_lab_access_bundle(
+    report: PlaytestReport,
+    access: LearnerAccessManifest,
+    solver_plan: SolverPlan,
+    provider_out: Path,
+    playtest_out: Path,
+) -> LabAccessBundle:
+    generated_files = {
+        "provider_quickstart": str((provider_out / "QUICKSTART.md").resolve()),
+        "provider_endpoints": str((provider_out / "endpoints.json").resolve()),
+        "learner_access_markdown": str((playtest_out / "learner-access.md").resolve()),
+        "learner_access_json": str((playtest_out / "learner-access.json").resolve()),
+        "solver_plan_markdown": str((playtest_out / "solver-plan.md").resolve()),
+        "solver_plan_json": str((playtest_out / "solver-plan.json").resolve()),
+        "access_playtest_report": str((playtest_out / "access-playtest" / "access-playtest.md").resolve()),
+        "solver_run_report": str((playtest_out / "solver-run" / "solver-run.md").resolve()),
+        "walkthrough": str((playtest_out / "playtest-walkthrough.md").resolve()),
+    }
+    return LabAccessBundle(
+        lab_id=report.lab_id,
+        title=report.title,
+        provider=report.provider,
+        profile=report.profile,
+        provider_output_dir=str(provider_out.resolve()),
+        learner_urls=[endpoint.connect for endpoint in report.learner_entrypoints if endpoint.protocol == "http" and endpoint.connect],
+        attacker_ssh=[endpoint.connect for endpoint in report.attacker_entrypoints if endpoint.protocol == "ssh" and endpoint.connect],
+        final_submission_urls=[endpoint.connect for endpoint in report.final_submission_endpoints if endpoint.protocol == "http" and endpoint.connect],
+        health_commands=[check.command for check in access.health_checks],
+        terminal_sequences=[
+            {
+                "service": sequence.service,
+                "connect": sequence.connect,
+                "commands": sequence.commands,
+                "expected_texts": sequence.expected_texts,
+            }
+            for sequence in access.terminal_sequences
+        ],
+        start_commands=[command.model_dump() for command in access.start_commands],
+        status_commands=[command.model_dump() for command in access.status_commands],
+        stop_commands=[command.model_dump() for command in access.stop_commands],
+        generated_files=generated_files,
+        solver_ready=bool(solver_plan.steps and (solver_plan.learner_start or solver_plan.attacker_shell or solver_plan.final_submission)),
+        notes=[
+            "Run start commands from provider_output_dir before opening learner URLs.",
+            "Use learner_urls for browser playtest and attacker_ssh for terminal playtest.",
+            "Run access-playtest and solver-run reports after deployment to prove the lab is playable.",
+        ],
     )
 
 
@@ -1302,6 +1374,63 @@ def render_playtest_walkthrough_markdown(report: PlaytestReport) -> str:
     else:
         lines.append("- No final submission endpoint was generated. Treat this as a release blocker for unguided labs.")
     lines += ["", "## 6. Stop or reset", "", "```powershell", "powershell -ExecutionPolicy Bypass -File .\\scripts\\stop.ps1", "```", "", "```sh", "./scripts/stop.sh", "```", ""]
+    return "\n".join(lines)
+
+
+def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
+    lines = [
+        f"# Lab Access Bundle - {bundle.title}",
+        "",
+        "This supervisor-facing bundle is the compact handoff for starting, accessing, and playtesting the generated lab.",
+        "",
+        "## Summary",
+        "",
+        f"- Lab ID: `{bundle.lab_id}`",
+        f"- Provider: `{bundle.provider}`",
+        f"- Profile: `{bundle.profile}`",
+        f"- Provider output: `{bundle.provider_output_dir}`",
+        f"- Solver ready: `{str(bundle.solver_ready).lower()}`",
+        "",
+        "## Start Commands",
+        "",
+        command_table(bundle.start_commands),
+        "",
+        "## Access",
+        "",
+        "### Browser URLs",
+        "",
+    ]
+    lines.extend(f"- `{url}`" for url in bundle.learner_urls or ["-"])
+    lines += ["", "### Attacker SSH", ""]
+    lines.extend(f"- `{command}`" for command in bundle.attacker_ssh or ["-"])
+    lines += ["", "### Final Submission URLs", ""]
+    lines.extend(f"- `{url}`" for url in bundle.final_submission_urls or ["-"])
+    lines += ["", "## Health Commands", ""]
+    lines.extend(f"- `{command}`" for command in bundle.health_commands or ["-"])
+    lines += ["", "## Terminal Sequences", ""]
+    if bundle.terminal_sequences:
+        for sequence in bundle.terminal_sequences:
+            commands = " && ".join(sequence.get("commands", []))
+            expected = ", ".join(sequence.get("expected_texts", [])) or "-"
+            lines.append(f"- `{sequence.get('service', '-')}` via `{sequence.get('connect', '-')}`: `{commands}`; expected `{expected}`")
+    else:
+        lines.append("- No terminal sequences generated.")
+    lines += ["", "## Status Commands", "", command_table(bundle.status_commands), "", "## Stop Commands", "", command_table(bundle.stop_commands), ""]
+    lines += ["## Generated Evidence Files", ""]
+    for label, path in bundle.generated_files.items():
+        lines.append(f"- `{label}`: `{path}`")
+    lines += ["", "## Notes", ""]
+    lines.extend(f"- {note}" for note in bundle.notes)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def command_table(commands: list[dict[str, str]]) -> str:
+    if not commands:
+        return "No commands generated."
+    lines = ["| Label | Shell | Command |", "|---|---|---|"]
+    for command in commands:
+        lines.append(f"| {escape_cell(command.get('label', '-'))} | `{command.get('shell', '-')}` | `{command.get('command', '-')}` |")
     return "\n".join(lines)
 
 

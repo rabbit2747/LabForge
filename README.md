@@ -222,6 +222,10 @@ Generated vulnerability services now expose a learner-readable
 machine-readable `/operations/reference` endpoint. Solver checks include this
 runbook so generated labs are pushed toward natural business clues instead of
 JSON-only puzzle hints.
+Learner playtest now also emits `lab-access-bundle.md` and
+`lab-access-bundle.json`, a compact handoff that collects provider start
+commands, browser URLs, SSH commands, final submission URLs, health checks,
+terminal readiness sequences, and links to solver/access evidence files.
 Playtest also recognizes trusted-update supply-chain handoffs across
 `build-pipeline-abuse`, `signed-update-publish`, and
 `customer-update-callback` plugins. When these plugins are declared together,
