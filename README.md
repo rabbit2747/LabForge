@@ -213,6 +213,11 @@ The solver runner also exercises final controlled-drop behavior by POSTing a
 synthetic proof to `/submit` and verifying that it is recorded through
 `/submissions`, instead of treating a reachable landing page as sufficient
 completion evidence.
+Generated vulnerability services now expose a learner-readable
+`/operations/runbook` page derived from the same discovery seed used by the
+machine-readable `/operations/reference` endpoint. Solver checks include this
+runbook so generated labs are pushed toward natural business clues instead of
+JSON-only puzzle hints.
 LabForge does not yet generate full scenario-specific vulnerable service source
 code, production VM infrastructure, complete Ansible roles, complete Terraform
 modules, or production-grade enforcement logic for WAF, IDS, SIEM, or EDR

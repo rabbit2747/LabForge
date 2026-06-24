@@ -7,9 +7,10 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import URLError
 from unittest.mock import patch
 
-from labforge.solver_runner import run_solver_plan, ssh_batch_argv, ssh_command_sequence_argv
+from labforge.solver_runner import http_json, run_solver_plan, ssh_batch_argv, ssh_command_sequence_argv
 
 
 class SolverRunnerTests(unittest.TestCase):
@@ -156,6 +157,35 @@ class SolverRunnerTests(unittest.TestCase):
         self.assertIn("BatchMode=yes", argv)
         self.assertEqual(argv[-1], "echo ready && pwd")
 
+    def test_http_json_retries_transient_connection_errors(self) -> None:
+        calls = {"count": 0}
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self, _size: int) -> bytes:
+                return b'{"ok": true}'
+
+        def flaky_urlopen(_request, timeout: int):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise URLError("connection refused")
+            return FakeResponse()
+
+        with patch("labforge.solver_runner.urlopen", side_effect=flaky_urlopen), patch("labforge.solver_runner.time.sleep"):
+            status, data, body = http_json("GET", "http://127.0.0.1:1/", None, 1)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["ok"], True)
+        self.assertEqual(body, '{"ok": true}')
+        self.assertEqual(calls["count"], 2)
+
     def test_solver_runner_executes_supported_plugin_http_sequence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -211,6 +241,7 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.service_targets["investor-portal"], base_url)
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("discovery=200", report.steps[0].message)
+                self.assertIn("runbook=200", report.steps[0].message)
                 self.assertIn("landing=200", report.steps[0].message)
                 self.assertIn("landing_route=/operations/preview", report.steps[0].message)
                 self.assertIn("route=/operations/preview", report.steps[0].message)
@@ -488,6 +519,12 @@ class SolverRunnerSmokeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"items": [{"plugin": "ssti-preview"}]}).encode("utf-8"))
+            return
+        if self.path == "/operations/runbook":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Operations Runbook</h1><p>Response Preview workflow notes</p></body></html>")
             return
         if self.path == "/operations/preview":
             self.send_response(200)

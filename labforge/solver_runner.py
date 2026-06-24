@@ -4,6 +4,7 @@ import json
 import shlex
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Literal
 from urllib.error import HTTPError, URLError
@@ -420,8 +421,10 @@ def run_plugin_http_sequence(
         )
     discovery_status, discovery_data, _ = http_json("GET", f"{base_url}/operations/reference", None, timeout_seconds)
     discovery_note = discovery_message(discovery_status, discovery_data)
+    runbook_status, runbook_body, runbook_route = http_text_first("GET", base_url, ["/operations/runbook"], timeout_seconds)
+    runbook_note = runbook_message(runbook_status, runbook_body, runbook_route)
     landing_ok, landing_note = plugin_landing_probe(base_url, plugin, timeout_seconds)
-    context_note = f"{discovery_note}; {landing_note}"
+    context_note = f"{discovery_note}; {runbook_note}; {landing_note}"
     if plugin == "ssti-preview":
         status, data, body, route = http_json_first(
             "POST",
@@ -699,6 +702,16 @@ def discovery_message(status: int, data: dict) -> str:
     return f"discovery={status}"
 
 
+def runbook_message(status: int, body: str, route: str) -> str:
+    if status == 200 and "Operations Runbook" in body:
+        return f"runbook=200; runbook_route={route}"
+    if status == 404:
+        return f"runbook=missing; runbook_route={route}"
+    if status == 0:
+        return "runbook=unreachable"
+    return f"runbook={status}; runbook_route={route}"
+
+
 def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int) -> tuple[int, dict, str]:
     data = None
     headers = {"User-Agent": "LabForge-SolverRunner/1.0"}
@@ -706,20 +719,23 @@ def http_json(method: str, url: str, payload: dict | None, timeout_seconds: int)
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = Request(url, data=data, headers=headers, method=method)
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            body = response.read(8192).decode("utf-8", "replace")
-            return int(response.status), parse_json_body(body), body
-    except HTTPError as exc:
+    last_error = ""
+    for attempt in range(3):
         try:
-            body = exc.read().decode("utf-8", "replace")
-        finally:
-            exc.close()
-        return int(exc.code), parse_json_body(body), body
-    except URLError as exc:
-        return 0, {}, str(exc)
-    except OSError as exc:
-        return 0, {}, str(exc)
+            with urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read(8192).decode("utf-8", "replace")
+                return int(response.status), parse_json_body(body), body
+        except HTTPError as exc:
+            try:
+                body = exc.read().decode("utf-8", "replace")
+            finally:
+                exc.close()
+            return int(exc.code), parse_json_body(body), body
+        except (URLError, OSError) as exc:
+            last_error = str(exc)
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+    return 0, {}, last_error
 
 
 def http_json_first(method: str, base_url: str, routes: list[str], payload: dict | None, timeout_seconds: int) -> tuple[int, dict, str, str]:
@@ -749,19 +765,22 @@ def http_text_first(method: str, base_url: str, routes: list[str], timeout_secon
 
 def http_text(method: str, url: str, timeout_seconds: int) -> tuple[int, str]:
     request = Request(url, headers={"User-Agent": "LabForge-SolverRunner/1.0"}, method=method)
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            return int(response.status), response.read(8192).decode("utf-8", "replace")
-    except HTTPError as exc:
+    last_error = ""
+    for attempt in range(3):
         try:
-            body = exc.read().decode("utf-8", "replace")
-        finally:
-            exc.close()
-        return int(exc.code), body
-    except URLError as exc:
-        return 0, str(exc)
-    except OSError as exc:
-        return 0, str(exc)
+            with urlopen(request, timeout=timeout_seconds) as response:
+                return int(response.status), response.read(8192).decode("utf-8", "replace")
+        except HTTPError as exc:
+            try:
+                body = exc.read().decode("utf-8", "replace")
+            finally:
+                exc.close()
+            return int(exc.code), body
+        except (URLError, OSError) as exc:
+            last_error = str(exc)
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+    return 0, last_error
 
 
 def http_multipart_upload(url: str, *, field_name: str, filename: str, content: bytes, timeout_seconds: int) -> tuple[int, dict, str]:
