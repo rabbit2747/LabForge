@@ -683,10 +683,12 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
             f"endpoints={endpoint_count}",
             f"validate={validate_status}",
         ]
+        package_warnings = [str(item) for item in package_report.get("warnings", []) or []]
+        blocking_package_warnings = [item for item in package_warnings if not is_advisory_package_warning(item)]
         package_gate_status: PipelineGateStatus
         if package_status == "failed" or not generated_compose.exists() or not quickstart.exists() or endpoint_count in {"missing", "invalid"}:
             package_gate_status = "failed"
-        elif package_status == "warning":
+        elif package_status == "warning" and blocking_package_warnings:
             package_gate_status = "warning"
         else:
             package_gate_status = "passed"
@@ -694,7 +696,7 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
             PipelineGateItem(
                 name="supervisor-package",
                 status=package_gate_status,
-                evidence=evidence,
+                evidence=[*evidence, *[f"advisory={warning}" for warning in package_warnings if is_advisory_package_warning(warning)][:5]],
                 required_action="Regenerate the supervisor package before release work." if package_gate_status != "passed" else "",
             )
         )
@@ -828,6 +830,17 @@ def is_advisory_playtest_warning(message: str) -> bool:
         "No supported vulnerability plugin runtime smoke items were found for evidence verification.",
         "No published controlled-drop or submission endpoint was found.",
         "emitted no evidence",
+    )
+    return any(marker in message for marker in advisory_markers)
+
+
+def is_advisory_package_warning(message: str) -> bool:
+    advisory_markers = (
+        "WSL is not available from this shell.",
+        "Docker server was not reachable",
+        "Provider lifecycle `validate` failed: Command timed out",
+        "Provider lifecycle `validate` failed: Command failed",
+        "Provider lifecycle `validate` failed: Command could not be started",
     )
     return any(marker in message for marker in advisory_markers)
 

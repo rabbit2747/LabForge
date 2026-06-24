@@ -9,6 +9,7 @@ from .adapter_smoke import adapter_smoke_to_json, adapter_smoke_to_markdown, run
 from .agent_adapters import AgentAdapterError, get_agent_adapter, render_agent_adapter_list
 from .control_selection import apply_control_selection, render_control_catalog
 from .doctor import inspect_host, report_to_json, report_to_markdown
+from .e2e_solver import run_e2e_solver
 from .design import (
     apply_design_fix_results,
     create_design_fix_tasks,
@@ -1147,6 +1148,24 @@ def command_qa_solver_run(args: argparse.Namespace) -> int:
     return 0 if report.status in {"planned", "passed", "warning"} else 1
 
 
+def command_qa_e2e_solver(args: argparse.Namespace) -> int:
+    report = run_e2e_solver(
+        Path(args.provider_output),
+        Path(args.solver_plan),
+        Path(args.access_manifest),
+        Path(args.out),
+        provider=args.provider,
+        execute=args.execute,
+        cleanup=args.cleanup,
+        timeout_seconds=args.timeout,
+    )
+    print(f"E2E solver status: {report.status}")
+    print(f"- {(Path(args.out) / 'e2e-solver.md').resolve()}")
+    print(f"- {(Path(args.out) / 'e2e-solver.yaml').resolve()}")
+    print(f"- {(Path(args.out) / 'e2e-solver.json').resolve()}")
+    return 0 if report.status in {"planned", "passed", "warning"} else 1
+
+
 def command_provider_lifecycle(args: argparse.Namespace) -> int:
     result = provider_lifecycle(
         Path(args.output),
@@ -1632,6 +1651,16 @@ def main(argv: list[str] | None = None) -> int:
     qa_solver_run_parser.add_argument("--execute", action="store_true", help="Probe browser/SSH access where supported. Default is dry-run.")
     qa_solver_run_parser.add_argument("--timeout", type=int, default=5, help="Per-check timeout in seconds when --execute is used.")
     qa_solver_run_parser.set_defaults(func=command_qa_solver_run)
+    qa_e2e_solver_parser = qa_sub.add_parser("e2e-solver", help="Validate/start provider output and run access plus solver probes")
+    qa_e2e_solver_parser.add_argument("provider_output", help="Generated provider output directory")
+    qa_e2e_solver_parser.add_argument("--solver-plan", required=True, help="Path to generated playtest/solver-plan.json")
+    qa_e2e_solver_parser.add_argument("--access-manifest", required=True, help="Path to generated playtest/learner-access.json")
+    qa_e2e_solver_parser.add_argument("--out", required=True)
+    qa_e2e_solver_parser.add_argument("--provider", default="docker-compose", choices=list_providers())
+    qa_e2e_solver_parser.add_argument("--execute", action="store_true", help="Actually run provider lifecycle and access probes. Default is dry-run.")
+    qa_e2e_solver_parser.add_argument("--cleanup", action="store_true", help="Stop provider output after solver probes.")
+    qa_e2e_solver_parser.add_argument("--timeout", type=int, default=60, help="Provider lifecycle timeout in seconds when --execute is used.")
+    qa_e2e_solver_parser.set_defaults(func=command_qa_e2e_solver)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")
     provider_sub = provider_parser.add_subparsers(dest="provider_command", required=True)
