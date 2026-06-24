@@ -174,6 +174,22 @@ def enrich_smoke_item_with_stage_state(item: PluginRuntimeSmokeItem, module: Any
     before_evidence = set(str(value) for value in before.get("acquired_evidence", []) or [])
     after_evidence = set(str(value) for value in after.get("acquired_evidence", []) or [])
     emitted = sorted(after_evidence - before_evidence)
+    before_event_count = len(before.get("events", []) or [])
+    new_events = (after.get("events", []) or [])[before_event_count:]
+    event_evidence: list[str] = []
+    for event in new_events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("event") != "evidence.emitted":
+            continue
+        if str(event.get("plugin", "")) != item.plugin:
+            continue
+        if str(event.get("service", "")) != item.service:
+            continue
+        for value in event.get("evidence", []) or []:
+            evidence = str(value)
+            if evidence and evidence not in event_evidence:
+                event_evidence.append(evidence)
     before_unlocked = {
         str(stage.get("stage_id"))
         for stage in before.get("stages", []) or []
@@ -184,7 +200,7 @@ def enrich_smoke_item_with_stage_state(item: PluginRuntimeSmokeItem, module: Any
         for stage in after.get("stages", []) or []
         if isinstance(stage, dict) and stage.get("status") == "unlocked"
     }
-    item.emitted_evidence = emitted
+    item.emitted_evidence = sorted(set([*emitted, *event_evidence]))
     item.unlocked_stages = sorted(after_unlocked - before_unlocked)
     return item
 
@@ -206,9 +222,43 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             data = response.get_json(silent=True) or {}
             return assert_condition(service, plugin_id, response.status_code == 200 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", "")), "/labforge/scaffold/objects/obj-9001", response)
         if plugin_id == "ssrf-internal-fetch":
-            response = client.get("/labforge/scaffold/fetch?url=http://169.254.169.254/latest")
-            data = response.get_json(silent=True) or {}
-            return assert_condition(service, plugin_id, response.status_code == 400 and data.get("allowed") is False, "/labforge/scaffold/fetch", response)
+            blocked = client.get("/labforge/scaffold/fetch?url=http://169.254.169.254/latest")
+            import urllib.request
+
+            original_urlopen = urllib.request.urlopen
+
+            class FakeResponse:
+                status = 200
+
+                def __enter__(self) -> "FakeResponse":
+                    return self
+
+                def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+                    return None
+
+                def read(self, _size: int) -> bytes:
+                    return b'{"service":"metadata-service","scope":"lab-internal"}'
+
+            def fake_urlopen(_request: Any, timeout: int = 3) -> FakeResponse:
+                return FakeResponse()
+
+            urllib.request.urlopen = fake_urlopen
+            try:
+                allowed = client.get("/labforge/scaffold/fetch?url=http://metadata-service:8080/metadata")
+            finally:
+                urllib.request.urlopen = original_urlopen
+            blocked_data = blocked.get_json(silent=True) or {}
+            allowed_data = allowed.get_json(silent=True) or {}
+            return assert_condition(
+                service,
+                plugin_id,
+                blocked.status_code == 400
+                and blocked_data.get("allowed") is False
+                and allowed.status_code == 200
+                and allowed_data.get("allowed") is True,
+                "/labforge/scaffold/fetch",
+                allowed,
+            )
         if plugin_id == "path-traversal-download":
             public = client.get("/labforge/scaffold/documents/download?name=welcome.txt")
             traversed = client.get("/labforge/scaffold/documents/download?name=../restricted/audit-export.txt")

@@ -636,6 +636,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "template_engine": "jinja2",
                     "execution_boundary": "isolated generated lab service",
                     "post_exploitation_objective": "obtain a bounded service foothold or internal clue for the next stage",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "ssti-preview"),
                 }
             )
 
@@ -650,6 +651,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "reviewer_role": "privileged reviewer",
                     "review_surface": "internal review queue",
                     "callback_scope": "lab-internal learner callback",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "stored-xss-review"),
                 }
             )
 
@@ -662,6 +664,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "allowed_url_policy": "lab-internal HTTP targets only",
                     "internal_targets": ["http://metadata-service:8080/metadata", "http://internal-portal:8080/metadata"],
                     "blocked_targets": ["http://169.254.169.254/", "https://example.com/"],
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "ssrf-internal-fetch"),
                 }
             )
 
@@ -674,6 +677,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "authorization_rule": "owner is checked on list views but not consistently checked on direct object reads",
                     "reference_discovery": "object identifiers are discoverable through normal metadata or logs",
                     "target_dataset": "scenario-defined synthetic final object",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "idor-object-access"),
                 }
             )
 
@@ -686,6 +690,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "public_document_root": "/state/documents/public",
                     "restricted_document": "restricted/audit-export.txt",
                     "safe_file_boundary": "synthetic service document root only",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "path-traversal-download"),
                 }
             )
 
@@ -698,6 +703,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "accepted_extensions": [".txt", ".pdf", ".csv"],
                     "storage_scope": "/state/uploads",
                     "post_upload_effect": "uploaded file becomes available to the lab-scoped review or retrieval workflow",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "unsafe-file-upload"),
                 }
             )
 
@@ -710,6 +716,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "injection_field": "diagnostic target or argument",
                     "command_boundary": "isolated generated lab container",
                     "observable_outputs": ["stdout", "stderr", "service event log"],
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "diagnostic-command-injection"),
                 }
             )
 
@@ -740,6 +747,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "ref": "refs/heads/release/lab",
                     "channel": "training",
                     "patch_ref_field": "support_patch_ref",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "build-pipeline-abuse"),
                 }
             )
         if any(word in service_text for word in ["sign", "update", "release-console", "release", "publish"]):
@@ -749,6 +757,7 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "channel": "training",
                     "signing_identity": "lab-release-signing",
                     "manifest_contract": ["product", "channel", "version", "build_id", "artifact", "signature"],
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "signed-update-publish"),
                 }
             )
         if any(word in service_text for word in ["customer", "agent", "app", "api"]):
@@ -758,10 +767,63 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                     "channel": "training",
                     "final_dataset": "LABFORGE_SYNTHETIC_SUPPLY_CHAIN_EXPORT",
                     "callback_scope": "lab-internal learner callback",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "customer-update-callback"),
                 }
             )
 
-    return plugins
+    return [plugin for plugin in plugins if plugin.get("emits_evidence")]
+
+
+def evidence_for_service_plugin(intake: ScenarioIntake, service_name: str, plugin_id: str) -> list[str]:
+    service_key = normalize_service_name(service_name)
+    plugin_terms = plugin_stage_terms(plugin_id)
+    scored: list[tuple[int, int, list[str]]] = []
+    for index, stage in enumerate(intake.stages):
+        touched = {normalize_service_name(value) for value in stage.infrastructure_touched}
+        stage_blob = " ".join(
+            [
+                stage.stage_id,
+                stage.learner_goal,
+                stage.expected_action,
+                stage.mitre_tactic,
+                " ".join(stage.mitre_techniques),
+                " ".join(stage.infrastructure_touched),
+            ]
+        ).lower()
+        score = 0
+        if service_key in touched:
+            score += 5
+        if service_key and service_key.replace("-", " ") in stage_blob:
+            score += 2
+        if any(term in stage_blob for term in plugin_terms):
+            score += 3
+        if score and stage.evidence:
+            scored.append((score, index, [str(item) for item in stage.evidence if str(item).strip()]))
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    evidence: list[str] = []
+    for _, _, values in scored[:2]:
+        for value in values:
+            if value not in evidence:
+                evidence.append(value)
+    return evidence
+
+
+def plugin_stage_terms(plugin_id: str) -> tuple[str, ...]:
+    terms = {
+        "ssti-preview": ("template", "preview", "render", "public-facing", "initial access"),
+        "stored-xss-review": ("xss", "review", "approval", "privileged", "session", "manager", "bot"),
+        "ssrf-internal-fetch": ("ssrf", "server-side", "fetch", "webhook", "metadata", "internal"),
+        "idor-object-access": ("idor", "object", "export", "direct object", "authorization", "record"),
+        "path-traversal-download": ("path traversal", "directory traversal", "download", "file read", "document"),
+        "unsafe-file-upload": ("upload", "attachment", "file upload", "review"),
+        "diagnostic-command-injection": ("command", "diagnostic", "shell", "foothold", "execution", "rce"),
+        "build-pipeline-abuse": ("build", "pipeline", "artifact", "patch"),
+        "signed-update-publish": ("signed", "signing", "publish", "manifest", "update channel"),
+        "customer-update-callback": ("customer", "callback", "agent", "update", "poll"),
+    }
+    return terms.get(plugin_id, (plugin_id.replace("-", " "),))
 
 
 def scenario_search_text(intake: ScenarioIntake) -> str:
