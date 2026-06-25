@@ -21,6 +21,7 @@ from labforge.playtest import (
     SolverPlanStep,
     InternalAccessTarget,
     PlaytestEndpoint,
+    stage_chain_checks_from_stage_handoffs,
     stage_handoffs_from_chain_manifest,
     stage_implementation_coverage_step,
     tunnel_commands_for_internal_targets,
@@ -332,6 +333,27 @@ class PlaytestTests(unittest.TestCase):
         self.assertEqual(handoffs[0]["carried_evidence"], ["template_probe_confirmed"])
         self.assertEqual(handoffs[0]["learner_clue"], "Use template evidence to find wiki context.")
         self.assertEqual(handoffs[0]["to_services"], ["internal-wiki"])
+
+    def test_stage_chain_checks_from_handoffs_publish_runtime_context_probes(self) -> None:
+        checks = stage_chain_checks_from_stage_handoffs(
+            [
+                {
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "to_services": ["internal-wiki", "unpublished-service"],
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Use template evidence to find wiki context.",
+                }
+            ],
+            service_base_urls={"internal-wiki": "http://127.0.0.1:18080"},
+        )
+
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]["service"], "internal-wiki")
+        self.assertEqual(checks[0]["chain_url"], "http://127.0.0.1:18080/api/chain")
+        self.assertEqual(checks[0]["expected_stage"], "stage-02")
+        self.assertEqual(checks[0]["expected_evidence"], ["template_probe_confirmed"])
+        self.assertEqual(checks[0]["expected_clue"], "Use template evidence to find wiki context.")
 
     def test_stage_handoffs_from_chain_manifest_prefers_evidence_handoffs(self) -> None:
         manifest = SimpleNamespace(

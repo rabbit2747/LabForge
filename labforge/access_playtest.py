@@ -120,6 +120,9 @@ def run_access_playtest(
     for index, check in enumerate(data.get("plugin_checks", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_plugin_evidence_check(f"plugin-evidence-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
+    for index, check in enumerate(data.get("stage_chain_checks", []) or [], start=1):
+        if isinstance(check, dict):
+            items.append(run_stage_chain_check(f"stage-chain-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
 
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
     status = aggregate_status(items, execute=execute)
@@ -155,6 +158,7 @@ def load_access_manifest(path: Path) -> dict:
         "terminal_sequences",
         "tunnel_commands",
         "plugin_checks",
+        "stage_chain_checks",
     ):
         data.setdefault(key, [])
     return data
@@ -1024,6 +1028,96 @@ def run_plugin_evidence_check(check_id: str, check: dict, *, execute: bool, time
         expected=expected,
         stdout=body[:500],
         message=f"expected_evidence_present={len(expected_evidence)}; acquired_evidence={len(acquired_text)}; plugin={plugin}",
+    )
+
+
+def run_stage_chain_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:
+    service = str(check.get("service", ""))
+    chain_url = str(check.get("chain_url", "")).strip()
+    expected_stage = str(check.get("expected_stage", "")).strip()
+    expected_clue = str(check.get("expected_clue", "")).strip()
+    expected_evidence = [str(item).strip() for item in check.get("expected_evidence", []) or [] if str(item).strip()]
+    command = f"GET {chain_url}" if chain_url else "GET /api/chain"
+    expected_parts = []
+    if expected_stage:
+        expected_parts.append(f"stage={expected_stage}")
+    if expected_evidence:
+        expected_parts.append(f"evidence={','.join(expected_evidence)}")
+    if expected_clue:
+        expected_parts.append("learner_clue present")
+    expected = "; ".join(expected_parts) or "stage chain context is reachable"
+    if not chain_url:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="stage-chain",
+            command=command,
+            status="skipped" if execute else "planned",
+            expected=expected,
+            message="stage-chain check has no published HTTP chain URL",
+        )
+    if not execute:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="stage-chain",
+            command=command,
+            status="planned",
+            expected=expected,
+            message="dry-run",
+        )
+    status, data, body = http_json_get(chain_url, timeout_seconds)
+    if status == 0:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="stage-chain",
+            command=command,
+            status="failed",
+            expected=expected,
+            stderr=body,
+            message="stage-chain URL unreachable",
+        )
+    if status != 200:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="stage-chain",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=body[:500],
+            message=f"stage-chain HTTP status={status}",
+        )
+    haystack = json.dumps(data, ensure_ascii=False)
+    missing: list[str] = []
+    if expected_stage and expected_stage not in haystack:
+        missing.append(f"stage:{expected_stage}")
+    for evidence in expected_evidence:
+        if evidence not in haystack:
+            missing.append(f"evidence:{evidence}")
+    if expected_clue and expected_clue not in haystack:
+        missing.append("learner_clue")
+    if missing:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="stage-chain",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=body[:500],
+            message=f"missing_chain_context={','.join(missing)}",
+        )
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="stage-chain",
+        command=command,
+        status="passed",
+        expected=expected,
+        stdout=body[:500],
+        message=f"stage_chain_context_present; evidence={len(expected_evidence)}",
     )
 
 

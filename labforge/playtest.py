@@ -136,6 +136,7 @@ class LearnerAccessManifest(PlaytestModel):
     terminal_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_sequences: list[LearnerTerminalSequence] = Field(default_factory=list)
     plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
+    stage_chain_checks: list[dict[str, Any]] = Field(default_factory=list)
     first_action: str = ""
     notes: list[str] = Field(default_factory=list)
 
@@ -186,6 +187,7 @@ class LabAccessBundle(PlaytestModel):
     health_commands: list[str] = Field(default_factory=list)
     terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
     plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
+    stage_chain_checks: list[dict[str, Any]] = Field(default_factory=list)
     stage_handoffs: list[dict[str, Any]] = Field(default_factory=list)
     start_commands: list[dict[str, str]] = Field(default_factory=list)
     status_commands: list[dict[str, str]] = Field(default_factory=list)
@@ -520,6 +522,15 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *,
         for endpoint in report.attacker_entrypoints + report.learner_entrypoints
         if endpoint.protocol == "ssh" and endpoint.connect
     ]
+    service_base_urls = service_base_urls_from_endpoint_manifest(endpoint_manifest)
+    plugin_checks = (
+        plugin_checks_from_solver_plan(
+            solver_plan,
+            service_base_urls=service_base_urls,
+        )
+        if solver_plan
+        else []
+    )
     return LearnerAccessManifest(
         lab_id=report.lab_id,
         title=report.title,
@@ -548,12 +559,8 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *,
         health_checks=health_checks,
         terminal_checks=terminal_checks,
         terminal_sequences=terminal_sequences,
-        plugin_checks=plugin_checks_from_solver_plan(
-            solver_plan,
-            service_base_urls=service_base_urls_from_endpoint_manifest(endpoint_manifest),
-        )
-        if solver_plan
-        else [],
+        plugin_checks=plugin_checks,
+        stage_chain_checks=[],
         first_action=first_action,
         notes=[
             "Run start commands from the generated provider output directory.",
@@ -667,11 +674,13 @@ def build_lab_access_bundle(
         report.attacker_entrypoints,
         [*report.learner_entrypoints, *report.final_submission_endpoints],
     )
+    service_base_urls = service_base_urls_from_endpoint_manifest(endpoint_manifest)
     plugin_checks = plugin_checks_from_solver_plan(
         solver_plan,
-        service_base_urls=service_base_urls_from_endpoint_manifest(endpoint_manifest),
+        service_base_urls=service_base_urls,
     )
     stage_handoffs = stage_handoffs_from_chain_manifest(chain_manifest)
+    stage_chain_checks = stage_chain_checks_from_stage_handoffs(stage_handoffs, service_base_urls)
     readiness_findings = lab_access_solver_readiness_findings(
         report=report,
         access=access,
@@ -707,6 +716,7 @@ def build_lab_access_bundle(
             for sequence in access.terminal_sequences
         ],
         plugin_checks=plugin_checks,
+        stage_chain_checks=stage_chain_checks,
         stage_handoffs=stage_handoffs,
         start_commands=[command.model_dump() for command in access.start_commands],
         status_commands=[command.model_dump() for command in access.status_commands],
@@ -977,6 +987,41 @@ def plugin_checks_from_solver_plan(plan: SolverPlan, *, service_base_urls: dict[
                 "state_verification": state_verification_for_plugin_check(state_url, emitted),
             }
         )
+    return checks
+
+
+def stage_chain_checks_from_stage_handoffs(
+    stage_handoffs: list[dict[str, Any]], service_base_urls: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    service_base_urls = service_base_urls or {}
+    checks: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for handoff in stage_handoffs:
+        from_stage = str(handoff.get("from_stage", "")).strip()
+        to_stage = str(handoff.get("to_stage", "")).strip()
+        carried = [str(item).strip() for item in handoff.get("carried_evidence", []) or [] if str(item).strip()]
+        clue = str(handoff.get("learner_clue", "")).strip()
+        for service in handoff.get("to_services", []) or []:
+            service_name = str(service).strip()
+            base_url = service_base_urls.get(service_name, "").rstrip("/")
+            if not service_name or not base_url:
+                continue
+            key = (service_name, from_stage, to_stage)
+            if key in seen:
+                continue
+            seen.add(key)
+            checks.append(
+                {
+                    "service": service_name,
+                    "from_stage": from_stage,
+                    "to_stage": to_stage,
+                    "chain_url": f"{base_url}/api/chain",
+                    "expected_evidence": carried,
+                    "expected_clue": clue,
+                    "expected_stage": to_stage,
+                    "learner_action": f"Read {service_name} chain context and confirm the handoff into {to_stage}.",
+                }
+            )
     return checks
 
 
@@ -2301,6 +2346,20 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
             )
     else:
         lines.append("- No stage handoffs generated.")
+    lines += ["", "## Stage Chain Runtime Checks", ""]
+    if bundle.stage_chain_checks:
+        lines += [
+            "| Service | Chain URL | Stage | Expected Evidence | Expected Clue |",
+            "|---|---|---|---|---|",
+        ]
+        for check in bundle.stage_chain_checks:
+            lines.append(
+                f"| `{check.get('service', '-')}` | `{check.get('chain_url', '-')}` | `{check.get('expected_stage', '-')}` | "
+                f"{escape_cell(', '.join(check.get('expected_evidence', []) or ['-']))} | "
+                f"{escape_cell(check.get('expected_clue', '-') or '-')} |"
+            )
+    else:
+        lines.append("- No published stage-chain runtime checks generated.")
     lines += ["", "## Plugin Evidence Checks", ""]
     if bundle.plugin_checks:
         lines += [

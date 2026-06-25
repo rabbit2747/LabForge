@@ -93,6 +93,15 @@ class AccessPlaytestTests(unittest.TestCase):
                                 "expected_evidence": ["template_probe_confirmed"],
                             }
                         ],
+                        "stage_chain_checks": [
+                            {
+                                "service": "investor-portal",
+                                "chain_url": "http://127.0.0.1:18081/api/chain",
+                                "expected_stage": "stage-02",
+                                "expected_evidence": ["template_probe_confirmed"],
+                                "expected_clue": "Use template evidence.",
+                            }
+                        ],
                         "first_action": "Open http://127.0.0.1:18081/",
                     }
                 ),
@@ -104,15 +113,58 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertEqual(report.status, "planned")
             self.assertEqual(report.browser_targets, ["http://127.0.0.1:18081/"])
             self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
-            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned", "planned", "planned"])
+            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned", "planned", "planned", "planned"])
             self.assertEqual(report.items[0].kind, "browser-http")
             self.assertEqual(report.items[1].kind, "final-http")
-            self.assertEqual(report.items[-3].kind, "ssh-command-sequence")
-            self.assertEqual(report.items[-2].kind, "ssh-local-forward")
-            self.assertEqual(report.items[-1].kind, "plugin-evidence")
+            self.assertEqual(report.items[-4].kind, "ssh-command-sequence")
+            self.assertEqual(report.items[-3].kind, "ssh-local-forward")
+            self.assertEqual(report.items[-2].kind, "plugin-evidence")
+            self.assertEqual(report.items[-1].kind, "stage-chain")
             self.assertTrue((root / "access-playtest" / "access-playtest.md").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.yaml").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.json").exists())
+
+    def test_access_playtest_executes_stage_chain_context_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), ChainContextHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                manifest = root / "learner-access.json"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "chain-context-smoke",
+                            "title": "Chain Context Smoke",
+                            "learner_entrypoints": [],
+                            "attacker_entrypoints": [],
+                            "final_submission_endpoints": [],
+                            "stage_chain_checks": [
+                                {
+                                    "service": "internal-wiki",
+                                    "chain_url": f"{base_url}/api/chain",
+                                    "expected_stage": "stage-02",
+                                    "expected_evidence": ["template_probe_confirmed"],
+                                    "expected_clue": "Use template evidence to find wiki context.",
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.items[0].kind, "stage-chain")
+                self.assertEqual(report.items[0].status, "passed")
+                self.assertIn("stage_chain_context_present", report.items[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
 
     def test_access_playtest_executes_browser_http_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -711,6 +763,30 @@ class StateSmokeHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({"acquired_evidence": ["template_probe_confirmed"], "stages": []}).encode("utf-8"))
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+class ChainContextHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(
+            json.dumps(
+                {
+                    "service": "internal-wiki",
+                    "stages": [
+                        {
+                            "stage_id": "stage-02",
+                            "required_inputs": ["template_probe_confirmed"],
+                            "learner_clue": "Use template evidence to find wiki context.",
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+        )
 
     def log_message(self, format: str, *args: object) -> None:
         return
