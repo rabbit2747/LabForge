@@ -1232,14 +1232,51 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "customer-update-callback":
+        policy_status, policy, _, policy_route = http_json_first("GET", base_url, ["/api/customer/update-policy", "/labforge/scaffold/customer/update-policy"], None, timeout_seconds)
         pre_status, _, _, pre_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
-        manifest = {"product": "product-agent", "channel": "smoke", "build_id": "build-smoke", "artifact": {}, "signature": "smoke"}
+        manifest = {
+            "product": "product-agent",
+            "channel": "smoke",
+            "build_id": "build-smoke",
+            "artifact": {"name": "product-agent-smoke.tar", "sha256": "0" * 64, "url": "http://update/product-agent-smoke.tar"},
+            "signature": "smoke",
+        }
         poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"channel": "smoke"}, timeout_seconds)
         if poll_status == 400:
             poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"manifest": manifest}, timeout_seconds)
         export_status, export, _, export_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
-        ok = landing_ok and pre_status == 403 and poll_status == 202 and export_status == 200 and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
-        return plugin_step(order, step_id, service, plugin, base_url, evidence, ok, f"{context_note}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; pre={pre_status}; poll={poll_status}; export={export_status}; build_id={poll.get('build_id', '-')}")
+        audit_status, audit, _, audit_route = http_json_first("GET", base_url, ["/api/customer/audit", "/labforge/scaffold/customer/audit"], None, timeout_seconds)
+        records = audit.get("records", []) if isinstance(audit, dict) else []
+        poll_recorded = any(isinstance(item, dict) and item.get("action") == "poll" and item.get("accepted") is True for item in records)
+        apply_recorded = any(isinstance(item, dict) and item.get("action") == "update-applied" and item.get("accepted") is True for item in records)
+        export_recorded = any(isinstance(item, dict) and item.get("action") == "export-read" and item.get("accepted") is True for item in records)
+        ok = (
+            landing_ok
+            and policy_status == 200
+            and policy.get("audit_api") == "GET /api/customer/audit"
+            and pre_status == 403
+            and poll_status == 202
+            and export_status == 200
+            and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
+            and audit_status == 200
+            and poll_recorded
+            and apply_recorded
+            and export_recorded
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; policy_route={policy_route}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; audit_route={audit_route}; "
+                f"policy={policy_status}; pre={pre_status}; poll={poll_status}; export={export_status}; audit={audit_status}; "
+                f"poll_recorded={poll_recorded}; apply_recorded={apply_recorded}; export_recorded={export_recorded}; build_id={poll.get('build_id', '-')}"
+            ),
+        )
     return SolverRunStep(
         order=order,
         step_id=step_id,

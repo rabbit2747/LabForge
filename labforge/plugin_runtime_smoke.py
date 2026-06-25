@@ -143,6 +143,7 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "SIGNING_AUDIT_PATH": state / "signed-update-signing-audit.json",
         "PUBLISH_AUDIT_PATH": state / "signed-update-publish-audit.json",
         "CUSTOMER_UPDATE_STATE_PATH": state / "customer-update-state.json",
+        "CUSTOMER_UPDATE_AUDIT_PATH": state / "customer-update-audit.json",
         "SOLR_VELOCITY_STATE_PATH": state / "solr-velocity-state.json",
         "SOLR_VELOCITY_AUDIT_PATH": state / "solr-velocity-audit.json",
     }
@@ -593,14 +594,40 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 sign_audit,
             )
         if plugin_id == "customer-update-callback":
+            policy = client.get("/labforge/scaffold/customer/update-policy")
             pre = client.get("/labforge/scaffold/customer/export")
             response = client.post(
                 "/labforge/scaffold/customer/poll",
-                json={"manifest": {"product": "product-agent", "channel": "smoke", "build_id": "build-smoke", "artifact": {}, "signature": "smoke"}},
+                json={
+                    "manifest": {
+                        "product": "product-agent",
+                        "channel": "smoke",
+                        "build_id": "build-smoke",
+                        "artifact": {"name": "product-agent-smoke.tar", "sha256": "0" * 64, "url": "http://update/product-agent-smoke.tar"},
+                        "signature": "smoke",
+                    }
+                },
             )
             export = client.get("/labforge/scaffold/customer/export")
+            audit = client.get("/labforge/scaffold/customer/audit")
             data = export.get_json(silent=True) or {}
-            return assert_condition(service, plugin_id, pre.status_code == 403 and response.status_code == 202 and export.status_code == 200 and data.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT", "/labforge/scaffold/customer/poll", export)
+            audit_data = audit.get_json(silent=True) or {}
+            records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
+            return assert_condition(
+                service,
+                plugin_id,
+                policy.status_code == 200
+                and pre.status_code == 403
+                and response.status_code == 202
+                and export.status_code == 200
+                and data.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
+                and audit.status_code == 200
+                and any(record.get("action") == "poll" and record.get("accepted") is True for record in records)
+                and any(record.get("action") == "update-applied" and record.get("accepted") is True for record in records)
+                and any(record.get("action") == "export-read" and record.get("accepted") is True for record in records),
+                "/labforge/scaffold/customer/update-policy + /poll + /audit + /export",
+                audit,
+            )
     except Exception as exc:  # noqa: BLE001 - smoke report should preserve route failures.
         return PluginRuntimeSmokeItem(service=service, plugin=plugin_id, status="failed", message=str(exc))
     return PluginRuntimeSmokeItem(service=service, plugin=plugin_id, status="skipped", message="no runtime smoke is defined for this plugin")
