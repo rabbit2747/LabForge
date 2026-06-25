@@ -741,6 +741,22 @@ def run_live_tunnel_probe(check_id: str, check: dict, parsed: dict[str, str], ex
         )
         local_port = int(parsed["local_port"])
         if wait_for_tcp_port("127.0.0.1", local_port, timeout_seconds):
+            url = str(check.get("url", "")).strip()
+            if url.startswith("http"):
+                http_item = probe_tunnel_http_url(check_id, check, parsed, expected, url, timeout_seconds=timeout_seconds)
+                if http_item.status != "passed":
+                    return http_item
+                message = (
+                    "tunnel_open=true; "
+                    f"local={parsed['local_port']}; target={parsed['target_host']}:{parsed['target_port']}; "
+                    f"tunnel_url_status=passed; {http_item.message}; terminated_after_probe=true"
+                )
+            else:
+                message = (
+                    "tunnel_open=true; "
+                    f"local={parsed['local_port']}; target={parsed['target_host']}:{parsed['target_port']}; "
+                    "terminated_after_probe=true"
+                )
             return AccessPlaytestItem(
                 check_id=check_id,
                 service=service,
@@ -748,11 +764,8 @@ def run_live_tunnel_probe(check_id: str, check: dict, parsed: dict[str, str], ex
                 command=command,
                 status="passed",
                 expected=expected,
-                message=(
-                    "tunnel_open=true; "
-                    f"local={parsed['local_port']}; target={parsed['target_host']}:{parsed['target_port']}; "
-                    "terminated_after_probe=true"
-                ),
+                stdout=http_item.stdout if url.startswith("http") else "",
+                message=message,
             )
         stdout, stderr = collect_process_output(process)
         return AccessPlaytestItem(
@@ -783,6 +796,68 @@ def run_live_tunnel_probe(check_id: str, check: dict, parsed: dict[str, str], ex
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 process.kill()
+
+
+def probe_tunnel_http_url(check_id: str, check: dict, parsed: dict[str, str], expected: str, url: str, *, timeout_seconds: int) -> AccessPlaytestItem:
+    service = str(check.get("service", ""))
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "LabForgeAccessPlaytest/1.0 (+ssh-tunnel-http-probe)",
+            "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310 - lab-contained generated target.
+            status_code = int(response.status)
+            content_type = str(response.headers.get("Content-Type", ""))
+            body = response.read(16384).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        content_type = str(exc.headers.get("Content-Type", ""))
+        body = exc.read(4096).decode("utf-8", "replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=str(check.get("command", "")),
+            status="failed",
+            expected=expected,
+            stderr=str(exc),
+            message=f"tunnel URL unreachable after local forward opened: {exc}",
+        )
+    expected_texts = normalize_expected_texts(check)
+    missing_texts = [text for text in expected_texts if text not in body]
+    body_sample = body[:500].strip()
+    if 200 <= status_code < 500 and not missing_texts:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=str(check.get("command", "")),
+            status="passed",
+            expected=expected,
+            stdout=body_sample,
+            message=(
+                f"tunnel_url={url}; http_status={status_code}; content_type={content_type or 'unknown'}; "
+                f"matched_expected_text={len(expected_texts)}"
+            ),
+        )
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="ssh-local-forward",
+        command=str(check.get("command", "")),
+        status="failed",
+        expected=expected,
+        stdout=body_sample,
+        message=(
+            f"tunnel_url={url}; http_status={status_code}; "
+            f"missing_expected_text={','.join(missing_texts) if missing_texts else '-'}"
+        ),
+    )
 
 
 def ssh_tunnel_argv(command: str) -> list[str]:

@@ -539,6 +539,114 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertIn("-N", argv)
             self.assertIn("ExitOnForwardFailure=yes", argv)
 
+    def test_access_playtest_probes_tunnel_url_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), BrowserSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                local_port = server.server_port
+                manifest = root / "learner-access.json"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "tunnel-url-smoke",
+                            "title": "Tunnel URL Smoke",
+                            "learner_entrypoints": [],
+                            "attacker_entrypoints": [],
+                            "health_checks": [],
+                            "terminal_checks": [],
+                            "tunnel_commands": [
+                                {
+                                    "service": "wiki",
+                                    "dns": "wiki",
+                                    "internal_port": "6000",
+                                    "local_port": local_port,
+                                    "command": f"ssh -L {local_port}:wiki:6000 attacker@127.0.0.1 -p 2222",
+                                    "url": f"http://127.0.0.1:{local_port}/",
+                                    "expected_texts": ["Operational Summary"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                process = FakeTunnelProcess()
+
+                with patch("labforge.access_playtest.shutil.which", return_value="ssh"), patch(
+                    "labforge.access_playtest.subprocess.Popen",
+                    return_value=process,
+                ), patch("labforge.access_playtest.wait_for_tcp_port", return_value=True):
+                    report = run_access_playtest(
+                        manifest,
+                        root / "access-playtest",
+                        execute=True,
+                        execute_tunnels=True,
+                    )
+
+                self.assertEqual(report.status, "passed")
+                self.assertIn("tunnel_url_status=passed", report.items[0].message)
+                self.assertIn("matched_expected_text=1", report.items[0].message)
+                self.assertIn("Operational Summary", report.items[0].stdout)
+                self.assertTrue(process.terminated)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_access_playtest_fails_tunnel_url_when_expected_text_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), BrowserSmokeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                local_port = server.server_port
+                manifest = root / "learner-access.json"
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "tunnel-url-missing-text",
+                            "title": "Tunnel URL Missing Text",
+                            "learner_entrypoints": [],
+                            "attacker_entrypoints": [],
+                            "health_checks": [],
+                            "terminal_checks": [],
+                            "tunnel_commands": [
+                                {
+                                    "service": "wiki",
+                                    "dns": "wiki",
+                                    "internal_port": "6000",
+                                    "local_port": local_port,
+                                    "command": f"ssh -L {local_port}:wiki:6000 attacker@127.0.0.1 -p 2222",
+                                    "url": f"http://127.0.0.1:{local_port}/",
+                                    "expected_text": "Internal Wiki",
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                with patch("labforge.access_playtest.shutil.which", return_value="ssh"), patch(
+                    "labforge.access_playtest.subprocess.Popen",
+                    return_value=FakeTunnelProcess(),
+                ), patch("labforge.access_playtest.wait_for_tcp_port", return_value=True):
+                    report = run_access_playtest(
+                        manifest,
+                        root / "access-playtest",
+                        execute=True,
+                        execute_tunnels=True,
+                    )
+
+                self.assertEqual(report.status, "failed")
+                self.assertIn("missing_expected_text=Internal Wiki", report.items[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_access_playtest_fails_tunnel_command_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
