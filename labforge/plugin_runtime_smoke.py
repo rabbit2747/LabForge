@@ -455,6 +455,10 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             info_data = info.get_json(silent=True) or {}
             policy = client.get("/labforge/scaffold/diagnostics/policy")
             policy_data = policy.get_json(silent=True) or {}
+            targets = info_data.get("targets", []) if isinstance(info_data, dict) else []
+            target_name = targets[0].get("name") if targets and isinstance(targets[0], dict) else "localhost"
+            target_detail = client.get(f"/labforge/scaffold/diagnostics/targets/{target_name}")
+            target_detail_data = target_detail.get_json(silent=True) or {}
             response = client.post("/labforge/scaffold/diagnostics/run", json={"preset": "runtime-identity", "target": "localhost"})
             data = response.get_json(silent=True) or {}
             blocked = client.post("/labforge/scaffold/diagnostics/run", json={"command": "docker ps", "target": "localhost"})
@@ -462,6 +466,8 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             audit = client.get("/labforge/scaffold/diagnostics/audit")
             audit_data = audit.get_json(silent=True) or {}
             records = audit_data.get("records", [])
+            accepted_decision = data.get("policy_decision", {}) if isinstance(data, dict) else {}
+            blocked_decision = blocked_data.get("policy_decision", {}) if isinstance(blocked_data, dict) else {}
             return assert_condition(
                 service,
                 plugin_id,
@@ -470,14 +476,19 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and isinstance(info_data.get("targets"), list)
                 and policy.status_code == 200
                 and "docker" in policy_data.get("blocked_tokens", [])
+                and target_detail.status_code == 200
+                and target_detail_data.get("target", {}).get("name") == target_name
                 and response.status_code == 200
                 and data.get("accepted") is True
+                and accepted_decision.get("decision") == "allow"
+                and bool(data.get("output_fingerprint"))
                 and blocked.status_code == 400
                 and blocked_data.get("accepted") is False
+                and blocked_decision.get("decision") == "deny"
                 and audit.status_code == 200
-                and any(record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in records)
-                and any(record.get("accepted") is False and record.get("blocked_token_matched") is True for record in records),
-                "/api/diagnostics + policy + run preset + blocked audit",
+                and any(record.get("preset") == "runtime-identity" and record.get("accepted") is True and record.get("policy_decision", {}).get("decision") == "allow" and record.get("output_fingerprint") for record in records)
+                and any(record.get("accepted") is False and record.get("blocked_token_matched") is True and record.get("policy_decision", {}).get("decision") == "deny" for record in records),
+                "/api/diagnostics + target detail + policy + run provenance + blocked audit",
                 audit,
             )
         if plugin_id == "credential-exposure":

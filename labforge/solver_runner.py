@@ -942,6 +942,17 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        targets = info.get("targets", []) if isinstance(info, dict) else []
+        target_name = "localhost"
+        if targets and isinstance(targets[0], dict) and targets[0].get("name"):
+            target_name = str(targets[0]["name"])
+        target_status, target_detail, _, target_route = http_json_first(
+            "GET",
+            base_url,
+            [f"/api/diagnostics/targets/{target_name}", f"/labforge/scaffold/diagnostics/targets/{target_name}"],
+            None,
+            timeout_seconds,
+        )
         status, data, _, route = http_json_first(
             "POST",
             base_url,
@@ -964,8 +975,23 @@ def run_plugin_http_sequence(
             timeout_seconds,
         )
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
-        accepted_recorded = any(isinstance(record, dict) and record.get("preset") == "runtime-identity" and record.get("accepted") is True for record in audit_records)
-        blocked_recorded = any(isinstance(record, dict) and record.get("accepted") is False and record.get("blocked_token_matched") is True for record in audit_records)
+        accepted_decision = data.get("policy_decision", {}) if isinstance(data, dict) else {}
+        blocked_decision = blocked_data.get("policy_decision", {}) if isinstance(blocked_data, dict) else {}
+        accepted_recorded = any(
+            isinstance(record, dict)
+            and record.get("preset") == "runtime-identity"
+            and record.get("accepted") is True
+            and record.get("policy_decision", {}).get("decision") == "allow"
+            and bool(record.get("output_fingerprint"))
+            for record in audit_records
+        )
+        blocked_recorded = any(
+            isinstance(record, dict)
+            and record.get("accepted") is False
+            and record.get("blocked_token_matched") is True
+            and record.get("policy_decision", {}).get("decision") == "deny"
+            for record in audit_records
+        )
         ok = (
             landing_ok
             and info_status == 200
@@ -973,10 +999,14 @@ def run_plugin_http_sequence(
             and isinstance(info.get("targets"), list)
             and policy_status == 200
             and "docker" in policy.get("blocked_tokens", [])
+            and target_status == 200
             and status == 200
             and data.get("accepted") is True
+            and accepted_decision.get("decision") == "allow"
+            and bool(data.get("output_fingerprint"))
             and blocked_status == 400
             and blocked_data.get("accepted") is False
+            and blocked_decision.get("decision") == "deny"
             and audit_status == 200
             and accepted_recorded
             and blocked_recorded
@@ -990,13 +1020,15 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; info_route={info_route}; policy_route={policy_route}; route={route}; "
+                f"{context_note}; info_route={info_route}; policy_route={policy_route}; target_route={target_route}; route={route}; "
                 f"blocked_route={blocked_route}; audit_route={audit_route}; info={info_status}; policy={policy_status}; "
+                f"target={target_status}/{target_name}; "
                 f"presets={len(info.get('presets', [])) if isinstance(info, dict) else 0}; "
                 f"targets={len(info.get('targets', [])) if isinstance(info, dict) else 0}; "
                 f"http_status={status}; accepted={data.get('accepted')}; blocked={blocked_status}; "
                 f"blocked_accepted={blocked_data.get('accepted')}; audit={audit_status}; audit_records={len(audit_records)}; "
-                f"accepted_recorded={accepted_recorded}; blocked_recorded={blocked_recorded}"
+                f"accepted_recorded={accepted_recorded}; blocked_recorded={blocked_recorded}; "
+                f"accepted_decision={accepted_decision.get('decision')}; blocked_decision={blocked_decision.get('decision')}"
             ),
         )
     if plugin == "solr-velocity-rce":

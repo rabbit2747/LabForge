@@ -1024,7 +1024,21 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
                 json.dumps(
                     {
                         "presets": [{"id": "runtime-identity", "command": "id"}],
-                        "targets": [{"name": "localhost", "status": "approved"}],
+                        "targets": [{"id": "target-localhost", "name": "localhost", "status": "approved", "zone": "service-runtime"}],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/diagnostics/targets/localhost":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "target": {"id": "target-localhost", "name": "localhost", "status": "approved", "zone": "service-runtime"},
+                        "run_hint": {"preset": "runtime-identity", "target": "localhost"},
+                        "expected_policy_result": "allow",
                     }
                 ).encode("utf-8")
             )
@@ -1041,6 +1055,8 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
                         "approved_targets": ["localhost"],
                         "run_api": "POST /operations/diagnostics/run",
                         "audit_api": "/api/diagnostics/audit",
+                        "target_detail_api": "/api/diagnostics/targets/<target>",
+                        "audit_provenance_fields": ["decision", "target_registered", "target_id", "command_source", "output_fingerprint"],
                     }
                 ).encode("utf-8")
             )
@@ -1059,17 +1075,19 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
         if self.path == "/operations/diagnostics/run":
             if payload.get("command") == "docker ps":
-                self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": False, "blocked_token_matched": True})
+                decision = {"decision": "deny", "target_registered": True, "target_id": "target-localhost"}
+                self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": False, "blocked_token_matched": True, "policy_decision": decision})
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"accepted": False, "reason": "blocked by lab boundary"}).encode("utf-8"))
+                self.wfile.write(json.dumps({"accepted": False, "reason": "blocked by lab boundary", "policy_decision": decision}).encode("utf-8"))
                 return
-            self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": True, "returncode": 0})
+            decision = {"decision": "allow", "target_registered": True, "target_id": "target-localhost"}
+            self.records.append({"preset": payload.get("preset"), "target": payload.get("target"), "accepted": True, "returncode": 0, "policy_decision": decision, "output_fingerprint": "diag123"})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"accepted": True, "returncode": 0, "stdout": "uid=1000(operator)\n"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"accepted": True, "returncode": 0, "stdout": "uid=1000(operator)\n", "policy_decision": decision, "output_fingerprint": "diag123"}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()
