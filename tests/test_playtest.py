@@ -78,6 +78,11 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(access_manifest["stop_commands"])
             self.assertTrue(access_manifest["learner_entrypoints"])
             self.assertTrue(access_manifest["attacker_entrypoints"])
+            self.assertEqual(access_manifest["learner_entrypoints"][0]["host"], "127.0.0.1")
+            self.assertEqual(access_manifest["learner_entrypoints"][0]["default_host_port"], 8080)
+            self.assertEqual(access_manifest["learner_entrypoints"][0]["container_port"], "8080")
+            self.assertEqual(access_manifest["learner_entrypoints"][0]["override_env"], "LABFORGE_PORT_EDGE_PROXY_8080")
+            self.assertEqual(access_manifest["attacker_entrypoints"][0]["default_host_port"], 2222)
             self.assertEqual(len(access_manifest["final_submission_endpoints"]), len(report.final_submission_endpoints))
             self.assertTrue(access_manifest["health_checks"])
             self.assertTrue(access_manifest["terminal_checks"])
@@ -107,6 +112,8 @@ class PlaytestTests(unittest.TestCase):
             self.assertEqual(access_bundle["lab_id"], report.lab_id)
             self.assertTrue(access_bundle["learner_urls"])
             self.assertTrue(access_bundle["attacker_ssh"])
+            self.assertTrue(access_bundle["published_endpoints"])
+            self.assertTrue(any(endpoint["override_env"] == "LABFORGE_PORT_EDGE_PROXY_8080" for endpoint in access_bundle["published_endpoints"]))
             self.assertTrue(access_bundle["health_commands"])
             self.assertTrue(access_bundle["terminal_sequences"])
             self.assertTrue(access_bundle["internal_targets"])
@@ -126,9 +133,13 @@ class PlaytestTests(unittest.TestCase):
             self.assertIn("Lab Access Bundle", access_bundle_md)
             self.assertIn("Browser URLs", access_bundle_md)
             self.assertIn("Attacker SSH", access_bundle_md)
+            self.assertIn("Published Endpoint Matrix", access_bundle_md)
             self.assertIn("Internal Targets", access_bundle_md)
             self.assertIn("Stage Handoffs", access_bundle_md)
             self.assertIn("Plugin Evidence Checks", access_bundle_md)
+            playtest_md = (out / "playtest-report.md").read_text(encoding="utf-8")
+            self.assertIn("Host Port", playtest_md)
+            self.assertIn("LABFORGE_PORT_EDGE_PROXY_8080", playtest_md)
 
             compose = load_yaml(out / "provider-output" / "docker-compose.yml")
             self.assertIn("labforge_state", compose.get("volumes", {}))
@@ -608,6 +619,9 @@ class PlaytestTests(unittest.TestCase):
                         "role": "learner-entry",
                         "protocol": "http",
                         "connect": "http://127.0.0.1:18080/",
+                        "default_host_port": 18080,
+                        "container_port": "8080",
+                        "override_env": "LABFORGE_PORT_DOCUMENT_PORTAL_8080",
                         "expected_text": "Document Library",
                         "expected_texts": ["Published Documents", "Document Library"],
                         "expected_selector": "main",
@@ -620,6 +634,10 @@ class PlaytestTests(unittest.TestCase):
 
         self.assertEqual(endpoints[0].expected_texts, ["Document Library", "Published Documents"])
         self.assertEqual(endpoints[0].expected_selectors, ["main", "form"])
+        self.assertEqual(endpoints[0].host, "127.0.0.1")
+        self.assertEqual(endpoints[0].default_host_port, 18080)
+        self.assertEqual(endpoints[0].container_port, "8080")
+        self.assertEqual(endpoints[0].override_env, "LABFORGE_PORT_DOCUMENT_PORTAL_8080")
 
     def test_docker_provider_derives_expected_texts_from_artifact_plugins(self) -> None:
         artifact = SimpleNamespace(

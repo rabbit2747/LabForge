@@ -58,6 +58,24 @@ class E2ESolverTests(unittest.TestCase):
                         "learner_urls": ["http://127.0.0.1:18081/"],
                         "attacker_ssh": ["ssh attacker@127.0.0.1 -p 2222"],
                         "final_submission_urls": [],
+                        "published_endpoints": [
+                            {
+                                "service": "portal",
+                                "protocol": "http",
+                                "connect": "http://127.0.0.1:18081/",
+                                "default_host_port": None,
+                                "container_port": "",
+                                "override_env": "",
+                            },
+                            {
+                                "service": "attacker-workstation",
+                                "protocol": "ssh",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                                "default_host_port": None,
+                                "container_port": "",
+                                "override_env": "",
+                            },
+                        ],
                         "generated_files": {
                             "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
                             "learner_access_json": str(access_manifest.resolve()),
@@ -215,6 +233,7 @@ class E2ESolverTests(unittest.TestCase):
                         "learner_urls": [],
                         "attacker_ssh": [],
                         "final_submission_urls": [],
+                        "published_endpoints": [],
                         "generated_files": {
                             "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
                             "learner_access_json": str(access_manifest.resolve()),
@@ -366,6 +385,16 @@ class E2ESolverTests(unittest.TestCase):
                         "learner_urls": ["http://127.0.0.1:18081/"],
                         "attacker_ssh": [],
                         "final_submission_urls": [],
+                        "published_endpoints": [
+                            {
+                                "service": "portal",
+                                "protocol": "http",
+                                "connect": "http://127.0.0.1:18081/",
+                                "default_host_port": None,
+                                "container_port": "",
+                                "override_env": "",
+                            },
+                        ],
                         "generated_files": {
                             "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
                             "learner_access_json": str(access_manifest.resolve()),
@@ -581,6 +610,7 @@ class E2ESolverTests(unittest.TestCase):
                         "learner_urls": [],
                         "attacker_ssh": [],
                         "final_submission_urls": [],
+                        "published_endpoints": [],
                         "internal_targets": [
                             {"service": "wiki", "dns": "wiki", "expose": ["6001"]},
                         ],

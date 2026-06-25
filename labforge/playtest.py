@@ -39,6 +39,10 @@ class PlaytestEndpoint(PlaytestModel):
     protocol: str = ""
     connect: str = ""
     health_url: str = ""
+    host: str = ""
+    default_host_port: int | None = None
+    container_port: str = ""
+    override_env: str = ""
     networks: list[str] = Field(default_factory=list)
     expected_texts: list[str] = Field(default_factory=list)
     expected_selectors: list[str] = Field(default_factory=list)
@@ -163,6 +167,7 @@ class LabAccessBundle(PlaytestModel):
     learner_urls: list[str] = Field(default_factory=list)
     attacker_ssh: list[str] = Field(default_factory=list)
     final_submission_urls: list[str] = Field(default_factory=list)
+    published_endpoints: list[dict[str, Any]] = Field(default_factory=list)
     internal_targets: list[dict[str, Any]] = Field(default_factory=list)
     health_commands: list[str] = Field(default_factory=list)
     terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
@@ -302,12 +307,38 @@ def endpoint_group(endpoint_manifest: dict[str, Any], predicate) -> list[Playtes
                 protocol=str(item.get("protocol", "")),
                 connect=str(item.get("connect") or item.get("url") or ""),
                 health_url=str(item.get("health_url", "")),
+                host=endpoint_host(item),
+                default_host_port=endpoint_host_port(item),
+                container_port=str(item.get("container_port", "")),
+                override_env=str(item.get("override_env", "")),
                 networks=[str(network) for network in item.get("networks", [])],
                 expected_texts=normalize_endpoint_expected_texts(item),
                 expected_selectors=normalize_endpoint_expected_selectors(item),
             )
         )
     return endpoints
+
+
+def endpoint_host(item: dict[str, Any]) -> str:
+    connect = str(item.get("connect") or item.get("url") or "")
+    if "127.0.0.1" in connect:
+        return "127.0.0.1"
+    if "localhost" in connect:
+        return "localhost"
+    if connect.startswith("http://"):
+        without_scheme = connect.removeprefix("http://")
+        return without_scheme.split("/", maxsplit=1)[0].split(":", maxsplit=1)[0]
+    return ""
+
+
+def endpoint_host_port(item: dict[str, Any]) -> int | None:
+    value = item.get("default_host_port")
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def internal_targets_from_endpoint_manifest(endpoint_manifest: dict[str, Any]) -> list[InternalAccessTarget]:
@@ -563,6 +594,10 @@ def build_lab_access_bundle(
         learner_urls=[endpoint.connect for endpoint in report.learner_entrypoints if endpoint.protocol == "http" and endpoint.connect],
         attacker_ssh=[endpoint.connect for endpoint in report.attacker_entrypoints if endpoint.protocol == "ssh" and endpoint.connect],
         final_submission_urls=[endpoint.connect for endpoint in report.final_submission_endpoints if endpoint.protocol == "http" and endpoint.connect],
+        published_endpoints=[
+            endpoint.model_dump()
+            for endpoint in [*report.learner_entrypoints, *report.attacker_entrypoints, *report.final_submission_endpoints]
+        ],
         internal_targets=[target.model_dump() for target in internal_targets_from_endpoint_manifest(endpoint_manifest)],
         health_commands=[check.command for check in access.health_checks],
         terminal_sequences=[
@@ -2016,6 +2051,11 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
     lines.extend(f"- `{command}`" for command in bundle.attacker_ssh or ["-"])
     lines += ["", "### Final Submission URLs", ""]
     lines.extend(f"- `{url}`" for url in bundle.final_submission_urls or ["-"])
+    lines += ["", "### Published Endpoint Matrix", ""]
+    if bundle.published_endpoints:
+        lines.append(endpoint_table([PlaytestEndpoint.model_validate(item) for item in bundle.published_endpoints]))
+    else:
+        lines.append("No published endpoints declared.")
     lines += ["", "### Internal Targets", ""]
     if bundle.internal_targets:
         lines += [
@@ -2086,11 +2126,12 @@ def command_table(commands: list[dict[str, str]]) -> str:
 def endpoint_table(endpoints: list[PlaytestEndpoint]) -> str:
     if not endpoints:
         return "No endpoint was published."
-    lines = ["| Service | Role | Protocol | Connect | Health |", "|---|---|---|---|---|"]
+    lines = ["| Service | Role | Protocol | Host | Host Port | Container Port | Connect | Health | Override |", "|---|---|---|---|---|---|---|---|---|"]
     for endpoint in endpoints:
         lines.append(
             f"| `{endpoint.service}` | {escape_cell(endpoint.role or '-')} | `{endpoint.protocol or '-'}` | "
-            f"`{endpoint.connect or '-'}` | `{endpoint.health_url or '-'}` |"
+            f"`{endpoint.host or '-'}` | `{endpoint.default_host_port or '-'}` | `{endpoint.container_port or '-'}` | "
+            f"`{endpoint.connect or '-'}` | `{endpoint.health_url or '-'}` | `{endpoint.override_env or '-'}` |"
         )
     return "\n".join(lines)
 

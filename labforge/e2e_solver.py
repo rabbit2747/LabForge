@@ -313,6 +313,7 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
         for item in access.get("final_submission_endpoints", []) or []
         if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
     ]
+    published_endpoints = compact_published_endpoints(access)
     internal_targets = [
         {
             "service": str(item.get("service", "")).strip(),
@@ -325,6 +326,7 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
     compare_bundle_list(findings, data, "learner_urls", learner_urls)
     compare_bundle_list(findings, data, "attacker_ssh", attacker_ssh)
     compare_bundle_list(findings, data, "final_submission_urls", final_urls)
+    compare_bundle_targets(findings, data, "published_endpoints", published_endpoints)
     compare_bundle_targets(findings, data, "internal_targets", internal_targets)
     if not data.get("solver_ready"):
         findings.append("missing=solver_ready")
@@ -346,17 +348,48 @@ def compare_bundle_list(findings: list[str], bundle: dict, key: str, expected: l
 
 
 def compare_bundle_targets(findings: list[str], bundle: dict, key: str, expected: list[dict]) -> None:
-    actual = [
-        {
-            "service": str(item.get("service", "")).strip(),
-            "dns": str(item.get("dns", "")).strip(),
-            "expose": [str(port) for port in item.get("expose", []) or []],
-        }
-        for item in bundle.get(key, []) or []
-        if isinstance(item, dict) and (str(item.get("service", "")).strip() or str(item.get("dns", "")).strip())
-    ]
-    if actual != expected:
-        findings.append(f"mismatch={key}:expected={expected}:actual={actual}")
+    fields = sorted({field for item in expected for field in item.keys()})
+    actual = [compact_record(item, fields) for item in bundle.get(key, []) or [] if isinstance(item, dict)]
+    expected_compact = [compact_record(item, fields) for item in expected]
+    actual = [item for item in actual if any(value not in ("", [], None) for value in item.values())]
+    if actual != expected_compact:
+        findings.append(f"mismatch={key}:expected={expected_compact}:actual={actual}")
+
+
+def compact_record(item: dict, fields: list[str]) -> dict:
+    record: dict = {}
+    for field in fields:
+        value = item.get(field)
+        if field == "expose":
+            record[field] = [str(port) for port in value or []]
+        elif field == "default_host_port":
+            record[field] = value
+        else:
+            record[field] = str(value or "").strip()
+    return record
+
+
+def compact_published_endpoints(access: dict) -> list[dict]:
+    values: list[dict] = []
+    for key in ("learner_entrypoints", "attacker_entrypoints", "final_submission_endpoints"):
+        for item in access.get(key, []) or []:
+            if not isinstance(item, dict):
+                continue
+            service = str(item.get("service", "")).strip()
+            connect = str(item.get("connect", "")).strip()
+            if not service and not connect:
+                continue
+            values.append(
+                {
+                    "service": service,
+                    "protocol": str(item.get("protocol", "")).strip(),
+                    "connect": connect,
+                    "default_host_port": item.get("default_host_port"),
+                    "container_port": str(item.get("container_port", "")).strip(),
+                    "override_env": str(item.get("override_env", "")).strip(),
+                }
+            )
+    return values
 
 
 def host_preflight_to_dict(report: HostDoctorReport) -> dict:
