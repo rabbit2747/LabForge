@@ -14,6 +14,7 @@ from labforge.qa import (
     plugin_evidence_check_count,
     stage_handoff_clue_messages,
     stage_handoff_count,
+    stage_handoff_solver_coverage_messages,
 )
 from labforge.io import write_text, dump_yaml
 
@@ -115,6 +116,63 @@ class QaReleaseGateTests(unittest.TestCase):
 
             self.assertTrue(any("no stage_handoffs" in message for message in messages))
 
+    def test_stage_handoff_solver_coverage_messages_pass_when_plugin_checks_verify_evidence(self) -> None:
+        solver_plan = {
+            "steps": [
+                {"step_id": "chain-01", "action_type": "stage-chain"},
+                {"step_id": "plugin-support-portal-ssti-preview", "action_type": "vulnerability-behavior"},
+            ]
+        }
+        access_bundle = {
+            "stage_handoffs": [
+                {
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Use template_probe_confirmed from the support workflow to review internal notes.",
+                }
+            ],
+            "plugin_checks": [
+                {
+                    "service": "support-portal",
+                    "plugin": "ssti-preview",
+                    "expected_evidence": ["template_probe_confirmed"],
+                }
+            ],
+        }
+
+        self.assertEqual(stage_handoff_solver_coverage_messages(solver_plan, access_bundle), [])
+
+    def test_stage_handoff_solver_coverage_messages_fail_when_handoff_evidence_is_not_verified(self) -> None:
+        solver_plan = {
+            "steps": [
+                {
+                    "step_id": "chain-01",
+                    "action_type": "stage-chain",
+                    "evidence": ["stage chain exists"],
+                    "learner_action": "Review normal business notes.",
+                }
+            ]
+        }
+        access_bundle = {
+            "stage_handoffs": [
+                {
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Use template_probe_confirmed from the support workflow to review internal notes.",
+                }
+            ],
+            "plugin_checks": [],
+        }
+
+        messages = stage_handoff_solver_coverage_messages(solver_plan, access_bundle)
+
+        self.assertEqual(
+            messages,
+            ["critical=stage-handoff:solver plan does not verify carried evidence: template_probe_confirmed"],
+        )
+
     def test_stage_handoff_clue_messages_fail_on_thin_or_answer_key_clues(self) -> None:
         self.assertEqual(
             stage_handoff_clue_messages(
@@ -211,6 +269,14 @@ def write_playtest_evidence_files(root: Path, *, plugin_checks: list[dict], acce
 
 
 def write_stage_handoff_files(root: Path, *, stage_handoffs: list[dict]) -> None:
+    expected_evidence = sorted(
+        {
+            str(evidence)
+            for handoff in stage_handoffs
+            for evidence in handoff.get("carried_evidence", []) or []
+            if str(evidence).strip()
+        }
+    )
     write_text(
         root / "solver-plan.json",
         dump_yaml(
@@ -222,7 +288,14 @@ def write_stage_handoff_files(root: Path, *, stage_handoffs: list[dict]) -> None
             }
         ),
     )
-    write_text(root / "lab-access-bundle.json", dump_yaml({"stage_handoffs": stage_handoffs}))
+    plugin_checks = [
+        {
+            "service": "support-portal",
+            "plugin": "stage-evidence-check",
+            "expected_evidence": expected_evidence,
+        }
+    ] if expected_evidence else []
+    write_text(root / "lab-access-bundle.json", dump_yaml({"stage_handoffs": stage_handoffs, "plugin_checks": plugin_checks}))
 
 
 if __name__ == "__main__":

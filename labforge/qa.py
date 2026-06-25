@@ -460,7 +460,87 @@ def learner_access_stage_handoff_messages(out: Path) -> list[str]:
     clue_messages: list[str] = []
     for item in handoffs:
         clue_messages.extend(stage_handoff_clue_messages(item))
-    return clue_messages
+    coverage_messages = stage_handoff_solver_coverage_messages(solver_plan, access_bundle)
+    return [*clue_messages, *coverage_messages]
+
+
+def stage_handoff_solver_coverage_messages(solver_plan: dict, access_bundle: dict) -> list[str]:
+    handoffs = [item for item in access_bundle.get("stage_handoffs", []) if isinstance(item, dict)]
+    expected = sorted(
+        {
+            str(evidence).strip()
+            for handoff in handoffs
+            for evidence in handoff.get("carried_evidence", []) or []
+            if str(evidence).strip()
+        }
+    )
+    if not expected:
+        return []
+    covered = solver_plan_evidence_tokens(solver_plan)
+    covered.update(access_bundle_plugin_evidence_tokens(access_bundle))
+    missing = [evidence for evidence in expected if evidence not in covered]
+    if not missing:
+        return []
+    return [
+        "critical=stage-handoff:solver plan does not verify carried evidence: "
+        + ", ".join(missing[:10])
+    ]
+
+
+def solver_plan_evidence_tokens(solver_plan: dict) -> set[str]:
+    tokens: set[str] = set()
+    for step in solver_plan.get("steps", []) or []:
+        if not isinstance(step, dict):
+            continue
+        for field in ("evidence", "expected_texts", "discovery_cues"):
+            values = step.get(field, [])
+            if isinstance(values, str):
+                values = [values]
+            if isinstance(values, list):
+                tokens.update(str(item).strip() for item in values if str(item).strip())
+        for field in ("learner_action", "expected_result", "next_step_condition", "automation_hint"):
+            text = str(step.get(field, "")).strip()
+            if text:
+                tokens.update(extract_evidence_tokens_from_text(text))
+    return tokens
+
+
+def access_bundle_plugin_evidence_tokens(access_bundle: dict) -> set[str]:
+    tokens: set[str] = set()
+    for check in access_bundle.get("plugin_checks", []) or []:
+        if not isinstance(check, dict):
+            continue
+        expected = check.get("expected_evidence", [])
+        if isinstance(expected, str):
+            expected = [expected]
+        if isinstance(expected, list):
+            tokens.update(str(item).strip() for item in expected if str(item).strip())
+    return tokens
+
+
+def extract_evidence_tokens_from_text(text: str) -> set[str]:
+    tokens: set[str] = set()
+    current: list[str] = []
+    for ch in text:
+        if ch.isalnum() or ch in {"_", "-", "."}:
+            current.append(ch)
+        else:
+            if current:
+                token = "".join(current).strip()
+                if looks_like_evidence_token(token):
+                    tokens.add(token)
+                current = []
+    if current:
+        token = "".join(current).strip()
+        if looks_like_evidence_token(token):
+            tokens.add(token)
+    return tokens
+
+
+def looks_like_evidence_token(value: str) -> bool:
+    if len(value) < 3:
+        return False
+    return "_" in value or "-" in value or "." in value
 
 
 def stage_handoff_clue_messages(handoff: dict) -> list[str]:
