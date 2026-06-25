@@ -432,7 +432,41 @@ def validate_clue_quality(nodes: list[ChainNode]) -> tuple[list[str], list[str]]
         thin_clue = len(clue) < 32
         if thin_clue and not (clue_references_any(clue, node.required_inputs) or clue_references_any(clue, node.services)):
             warnings.append(f"{node.stage_id} learner clue is short and lacks an evidence or service anchor.")
+        if len(nodes) > 1 and not clue_references_any(clue, stage_clue_anchor_values(node)):
+            warnings.append(f"{node.stage_id} learner clue does not reference evidence, service, or stage context.")
     return failures, warnings
+
+
+def stage_clue_anchor_values(node: ChainNode) -> list[str]:
+    values = [
+        *node.required_inputs,
+        *node.produces,
+        *node.services,
+        node.title,
+        node.tactic,
+        *node.techniques,
+    ]
+    return [value for value in values if not is_generic_clue_anchor(value)]
+
+
+def is_generic_clue_anchor(value: str) -> bool:
+    normalized = normalize_clue_text(value)
+    if not normalized:
+        return True
+    return normalized in GENERIC_CLUE_ANCHORS
+
+
+GENERIC_CLUE_ANCHORS = {
+    "entry",
+    "next",
+    "stage",
+    "step",
+    "review",
+    "internal workflow",
+    "external workflow",
+    "final",
+    "finish",
+}
 
 
 def clue_references_any(clue: str, values: list[str]) -> bool:

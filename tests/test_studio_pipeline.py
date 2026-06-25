@@ -50,6 +50,10 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(detail["pipeline_gate"]["decision"], "release-candidate")
             self.assertTrue(detail["pipeline_gate"]["ready_for_supervisor"])
             self.assertTrue(detail["pipeline_gate"]["ready_for_release_gate"])
+            self.assertEqual(
+                {item["name"]: item["status"] for item in detail["pipeline_gate"]["items"]}.get("human-playability"),
+                "passed",
+            )
             self.assertTrue(detail["pipeline_gate"]["next_commands"])
             solver_plan_path = workspace / scenario_id / "playtest" / "solver-plan.json"
             self.assertTrue(solver_plan_path.exists())

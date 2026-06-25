@@ -156,6 +156,34 @@ class ChainManifestTests(unittest.TestCase):
         self.assertEqual(manifest.status, "warning")
         self.assertIn("stage-01 learner clue contains CTF or answer-key wording.", manifest.warnings)
 
+    def test_stage_chain_warns_when_clue_lacks_evidence_service_or_stage_anchor(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="unanchored-clue",
+            title="Unanchored Clue",
+            services=[{"name": "support-portal"}, {"name": "wiki"}],
+            stage_list=[
+                {
+                    "id": "stage-01",
+                    "title": "Support Preview",
+                    "procedure": "Review ordinary operating material and decide what should happen next.",
+                    "evidence": ["template_probe_confirmed"],
+                },
+                {
+                    "id": "stage-02",
+                    "title": "Wiki Review",
+                    "procedure": "Use template_probe_confirmed in wiki notes to continue the business review.",
+                    "required_findings": ["template_probe_confirmed"],
+                    "evidence": ["wiki_context"],
+                },
+            ],
+        )
+
+        manifest = build_chain_manifest(spec)
+
+        self.assertEqual(manifest.status, "warning")
+        self.assertIn("stage-01 learner clue does not reference evidence, service, or stage context.", manifest.warnings)
+        self.assertFalse(any("stage-02 learner clue does not reference" in warning for warning in manifest.warnings))
+
     def test_service_chain_view_returns_local_and_adjacent_context(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
         manifest = build_chain_manifest(spec)

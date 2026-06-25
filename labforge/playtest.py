@@ -830,6 +830,10 @@ def human_solver_step_readiness_check(
     for cue in step.discovery_cues:
         if contains_answer_key_language(cue):
             messages.append("discovery_cues contain answer-key or CTF-style wording.")
+    if step.action_type not in {"access", "final-submission", "command-sequence"}:
+        has_human_anchor = bool(step.discovery_cues or step.evidence or step.commands or step.automation_hint)
+        if not has_human_anchor:
+            messages.append("step lacks evidence, discovery cues, commands, or automation guidance for a human solver.")
     if step.action_type == "vulnerability-behavior":
         if not step.discovery_cues:
             messages.append("vulnerability step has no discovery_cues.")

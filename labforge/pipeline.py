@@ -726,6 +726,7 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
     playtest_report_path = workspace / "playtest" / "playtest-report.yaml"
     learner_access_path = workspace / "playtest" / "learner-access.md"
     learner_access_json_path = workspace / "playtest" / "learner-access.json"
+    human_readiness_path = workspace / "playtest" / "human-readiness.json"
     if playtest_report_path.exists():
         playtest_report = load_yaml(playtest_report_path)
         playtest_status = str(playtest_report.get("status", "failed"))
@@ -759,6 +760,42 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                 required_action="Fix playtest warnings/failures and regenerate learner access manifests before learner release." if playtest_gate_status != "passed" else "",
             )
         )
+        if human_readiness_path.exists():
+            human_readiness = load_yaml(human_readiness_path)
+            human_status = str(human_readiness.get("status", "failed"))
+            summary = human_readiness.get("summary", {})
+            checks = human_readiness.get("checks", [])
+            failed_checks = [
+                item
+                for item in checks
+                if isinstance(item, dict) and str(item.get("status", "")) == "failed"
+            ] if isinstance(checks, list) else []
+            items.append(
+                PipelineGateItem(
+                    name="human-playability",
+                    status="passed" if human_status == "passed" else ("failed" if human_status == "failed" else "warning"),
+                    evidence=[
+                        f"status={human_status}",
+                        f"checks={summary.get('checks', len(checks) if isinstance(checks, list) else 'unknown') if isinstance(summary, dict) else 'unknown'}",
+                        f"failed={summary.get('failed', len(failed_checks)) if isinstance(summary, dict) else len(failed_checks)}",
+                        *[
+                            f"{item.get('check_id', '-')}/{item.get('step_id', '-')}: "
+                            f"{'; '.join(str(message) for message in (item.get('messages', []) or [])[:2])}"
+                            for item in failed_checks[:5]
+                        ],
+                    ],
+                    required_action="Fix human-readiness failures before learner release." if human_status != "passed" else "",
+                )
+            )
+        else:
+            items.append(
+                PipelineGateItem(
+                    name="human-playability",
+                    status="missing",
+                    evidence=[str(human_readiness_path)],
+                    required_action="Regenerate learner playtest so human-readiness evidence is produced.",
+                )
+            )
     else:
         items.append(
             PipelineGateItem(
@@ -766,6 +803,14 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                 status="missing",
                 evidence=[str(playtest_report_path)],
                 required_action="Run `python -m labforge qa playtest <lab> --out <workspace>/playtest --provider docker-compose --profile protected --materialize --force`.",
+            )
+        )
+        items.append(
+            PipelineGateItem(
+                name="human-playability",
+                status="missing",
+                evidence=[str(human_readiness_path)],
+                required_action="Run learner playtest to generate human-readiness evidence.",
             )
         )
 
