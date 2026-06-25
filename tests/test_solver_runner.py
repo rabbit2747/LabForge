@@ -1078,6 +1078,8 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
 
 
 class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
+    audit_records: list[dict[str, object]] = []
+
     def do_GET(self) -> None:
         if self.path == "/operations/reference":
             self.send_response(200)
@@ -1136,6 +1138,8 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
                         "build_api": "POST /api/build/jobs",
                         "release_metadata_api": "GET /api/build/release-metadata",
                         "policy_api": "POST /api/build/policy",
+                        "audit_api": "GET /api/build/audit",
+                        "provenance_api": "GET /api/build/jobs/<job_id>/provenance",
                         "repo": "smoke/product-agent",
                         "ref": "refs/heads/release/smoke",
                         "channel": "smoke",
@@ -1160,6 +1164,33 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
             )
             return
+        if self.path == "/api/build/jobs/build-0001/provenance":
+            self.audit_records.append({"action": "provenance-read", "accepted": True, "job_id": "build-0001"})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "job_id": "build-0001",
+                        "provenance": {
+                            "repo": "smoke/product-agent",
+                            "ref": "refs/heads/release/smoke",
+                            "channel": "smoke",
+                            "patch_ref": "lab://smoke.patch",
+                            "artifact_sha256": "0" * 64,
+                        },
+                        "artifact": {"sha256": "0" * 64},
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/build/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"records": self.audit_records, "count": len(self.audit_records)}).encode("utf-8"))
+            return
         self.send_response(404)
         self.end_headers()
 
@@ -1168,6 +1199,7 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
         allowed = bool(payload.get("support_patch_ref"))
         if self.path == "/api/build/policy":
+            self.audit_records.append({"action": "policy-check", "accepted": allowed})
             self.send_response(200 if allowed else 400)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1175,11 +1207,13 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/build/jobs":
             if not allowed:
+                self.audit_records.append({"action": "job-create", "accepted": False})
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "policy rejected"}).encode("utf-8"))
                 return
+            self.audit_records.append({"action": "job-create", "accepted": True})
             self.send_response(201)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

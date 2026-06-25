@@ -523,6 +523,12 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 json=payload,
             )
             data = response.get_json(silent=True) or {}
+            job_id = str(data.get("job_id") or "")
+            provenance = client.get(f"/labforge/scaffold/build/jobs/{job_id}/provenance") if job_id else None
+            provenance_data = provenance.get_json(silent=True) if provenance is not None else {}
+            audit = client.get("/labforge/scaffold/build/audit")
+            audit_data = audit.get_json(silent=True) or {}
+            audit_records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
             return assert_condition(
                 service,
                 plugin_id,
@@ -532,9 +538,15 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and policy_data.get("allowed") is True
                 and response.status_code == 201
                 and data.get("status") == "built"
-                and "canonical_manifest" in data,
-                "/labforge/scaffold/build context + release metadata + policy + jobs",
-                response,
+                and "canonical_manifest" in data
+                and provenance is not None
+                and provenance.status_code == 200
+                and provenance_data.get("provenance", {}).get("artifact_sha256") == data.get("artifact", {}).get("sha256")
+                and audit.status_code == 200
+                and any(record.get("action") == "policy-check" and record.get("accepted") is True for record in audit_records)
+                and any(record.get("action") == "job-create" and record.get("accepted") is True for record in audit_records),
+                "/labforge/scaffold/build context + release metadata + policy + jobs + provenance + audit",
+                audit,
             )
         if plugin_id == "signed-update-publish":
             manifest = {

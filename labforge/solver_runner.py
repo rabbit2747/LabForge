@@ -1120,8 +1120,27 @@ def run_plugin_http_sequence(
             payload,
             timeout_seconds,
         )
+        job_id = str(data.get("job_id") or "")
+        provenance_status, provenance, _, provenance_route = http_json_first(
+            "GET",
+            base_url,
+            [f"/api/build/jobs/{job_id}/provenance", f"/labforge/scaffold/build/jobs/{job_id}/provenance"] if job_id else [],
+            None,
+            timeout_seconds,
+        )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/build/audit", "/labforge/scaffold/build/audit"],
+            None,
+            timeout_seconds,
+        )
         manifest = data.get("canonical_manifest", {}) if isinstance(data, dict) else {}
         artifact = manifest.get("artifact", {}) if isinstance(manifest, dict) else {}
+        provenance_payload = provenance.get("provenance", {}) if isinstance(provenance, dict) else {}
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        policy_recorded = any(isinstance(item, dict) and item.get("action") == "policy-check" and item.get("accepted") is True for item in audit_records)
+        job_recorded = any(isinstance(item, dict) and item.get("action") == "job-create" and item.get("accepted") is True for item in audit_records)
         ok = (
             landing_ok
             and context_status == 200
@@ -1132,6 +1151,11 @@ def run_plugin_http_sequence(
             and data.get("status") == "built"
             and "canonical_manifest" in data
             and all(key in artifact for key in ("name", "sha256", "url", "size_bytes"))
+            and provenance_status == 200
+            and provenance_payload.get("artifact_sha256") == artifact.get("sha256")
+            and audit_status == 200
+            and policy_recorded
+            and job_recorded
         )
         return plugin_step(
             order,
@@ -1143,8 +1167,10 @@ def run_plugin_http_sequence(
             ok,
             (
                 f"{context_note}; context_route={context_route}; metadata_route={metadata_route}; policy_route={policy_route}; route={route}; "
+                f"provenance_route={provenance_route}; audit_route={audit_route}; "
                 f"context={context_status}; metadata={metadata_status}; policy={policy_status}; policy_allowed={policy.get('allowed')}; "
-                f"http_status={status}; job_id={data.get('job_id', '-')}; artifact_fields={len(artifact)}"
+                f"http_status={status}; job_id={data.get('job_id', '-')}; artifact_fields={len(artifact)}; "
+                f"provenance={provenance_status}; audit={audit_status}; policy_recorded={policy_recorded}; job_recorded={job_recorded}"
             ),
         )
     if plugin == "signed-update-publish":
