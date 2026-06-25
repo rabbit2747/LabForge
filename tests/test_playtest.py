@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -384,6 +385,126 @@ class PlaytestTests(unittest.TestCase):
             self.assertEqual(step.status, "failed")
             self.assertTrue(any("at least 2 business records" in item for item in step.evidence))
             self.assertTrue(any("CTF/placeholder" in item for item in step.evidence))
+
+    def test_service_realism_step_fails_thin_non_business_record_shapes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "services" / "support-portal"
+            (service_root / "seed").mkdir(parents=True)
+            (service_root / "noise").mkdir(parents=True)
+            (service_root / "seed" / "records.json").write_text(
+                '{"items":[{"name":"one"},{"name":"two"}]}\n',
+                encoding="utf-8",
+            )
+            (service_root / "seed" / "clues.json").write_text(
+                '{"items":[{"title":"Runbook","detail":"Use support workflow records before testing edge cases."},{"title":"Queue","detail":"Review support case routing and routine customer notes."}]}\n',
+                encoding="utf-8",
+            )
+            (service_root / "noise" / "events.jsonl").write_text(
+                '{"service":"support-portal","message":"started"}\n{"service":"support-portal","message":"polled"}\n',
+                encoding="utf-8",
+            )
+            spec = SimpleNamespace(
+                artifacts_model=SimpleNamespace(
+                    service_artifacts=[
+                        SimpleNamespace(
+                            service="support-portal",
+                            source_path="services/support-portal",
+                            purpose="Customer support request portal",
+                            seed_inputs=["support-cases"],
+                            noise_inputs=["support-access-noise"],
+                        )
+                    ]
+                )
+            )
+
+            step = service_realism_step(spec, root)
+
+            self.assertEqual(step.status, "failed")
+            self.assertTrue(any("records are too thin" in item for item in step.evidence))
+            self.assertTrue(any("lack an event/action/workflow field" in item for item in step.evidence))
+
+    def test_service_realism_step_accepts_business_shaped_records_and_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_root = root / "services" / "support-portal"
+            (service_root / "seed").mkdir(parents=True)
+            (service_root / "noise").mkdir(parents=True)
+            (service_root / "seed" / "records.json").write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "classification": "synthetic-training-data",
+                                "source_service": "support-portal",
+                                "id": "CASE-1001",
+                                "type": "support-case",
+                                "status": "triage",
+                                "owner": "l1-support",
+                                "updated_at": "2026-05-18T08:22:15Z",
+                            },
+                            {
+                                "classification": "synthetic-training-data",
+                                "source_service": "support-portal",
+                                "id": "CASE-1002",
+                                "type": "billing-case",
+                                "status": "waiting-customer",
+                                "owner": "billing-support",
+                                "updated_at": "2026-05-18T09:22:15Z",
+                            },
+                            {
+                                "classification": "synthetic-training-data",
+                                "source_service": "support-portal",
+                                "id": "CASE-1003",
+                                "type": "support-case",
+                                "status": "closed",
+                                "owner": "l2-support",
+                                "updated_at": "2026-05-18T10:22:15Z",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (service_root / "seed" / "clues.json").write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {"title": "Queue review", "detail": "Review support case records and route metadata before testing preview behavior."},
+                            {"title": "Audit posture", "detail": "Correlate customer workflow notes with routine support access events."},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (service_root / "noise" / "events.jsonl").write_text(
+                '\n'.join(
+                    [
+                        '{"service":"support-portal","event":"case.updated","severity":"info","source":"business-workflow"}',
+                        '{"service":"support-portal","event":"queue.polled","severity":"info","source":"operations-job"}',
+                        '{"service":"support-portal","event":"audit.reviewed","severity":"warning","source":"monitoring"}',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            spec = SimpleNamespace(
+                artifacts_model=SimpleNamespace(
+                    service_artifacts=[
+                        SimpleNamespace(
+                            service="support-portal",
+                            source_path="services/support-portal",
+                            purpose="Customer support request portal",
+                            seed_inputs=["support-cases"],
+                            noise_inputs=["support-access-noise"],
+                        )
+                    ]
+                )
+            )
+
+            step = service_realism_step(spec, root)
+
+            self.assertEqual(step.status, "passed")
 
     def test_stage_implementation_fails_when_required_plugin_evidence_is_unmapped(self) -> None:
         spec = SimpleNamespace(

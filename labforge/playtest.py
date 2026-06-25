@@ -1014,10 +1014,22 @@ def inspect_business_seed_quality(artifact: Any, root: Path) -> dict[str, list[s
 
     if not record_error and len(records) < 2:
         failures.append(f"{service}: seed/records.json must contain at least 2 business records")
+    if not record_error:
+        shape = business_record_shape_findings(service, records)
+        failures.extend(shape["failures"])
+        warnings.extend(shape["warnings"])
     if not clue_error and len(clues) < 2:
         failures.append(f"{service}: seed/clues.json must contain at least 2 discovery or operating clues")
+    if not clue_error:
+        shape = clue_record_shape_findings(service, clues)
+        failures.extend(shape["failures"])
+        warnings.extend(shape["warnings"])
     if not event_error and len(events) < 2:
         failures.append(f"{service}: noise/events.jsonl must contain at least 2 operational events")
+    if not event_error:
+        shape = noise_event_shape_findings(service, events)
+        failures.extend(shape["failures"])
+        warnings.extend(shape["warnings"])
 
     text_by_file = {
         "seed/records.json": safe_read_text(records_path),
@@ -1036,6 +1048,73 @@ def inspect_business_seed_quality(artifact: Any, root: Path) -> dict[str, list[s
         warnings.append(f"{service}: clues do not look like natural operating guidance")
 
     return {"failures": failures, "warnings": warnings}
+
+
+def business_record_shape_findings(service: str, records: list[Any]) -> dict[str, list[str]]:
+    failures: list[str] = []
+    warnings: list[str] = []
+    dict_records = [item for item in records if isinstance(item, dict)]
+    if len(dict_records) != len(records):
+        failures.append(f"{service}: seed/records.json business records must be JSON objects")
+        return {"failures": failures, "warnings": warnings}
+    if not dict_records:
+        return {"failures": failures, "warnings": warnings}
+    key_union = {str(key) for item in dict_records for key in item}
+    if len(key_union) < 5:
+        failures.append(f"{service}: seed/records.json records are too thin; expected at least 5 business fields")
+    if not any(key in key_union for key in ("id", "record_id", "case_id", "ticket_id", "object_key", "name", "title")):
+        failures.append(f"{service}: seed/records.json records lack an identifier field")
+    if not any(key in key_union for key in ("type", "category", "workflow", "dataset", "event")):
+        warnings.append(f"{service}: seed/records.json records lack a type/category/workflow field")
+    if not any(key in key_union for key in ("status", "state", "severity", "decision")):
+        warnings.append(f"{service}: seed/records.json records lack a status/state/severity field")
+    if not any(key in key_union for key in ("owner", "team", "assignee", "source", "source_service")):
+        warnings.append(f"{service}: seed/records.json records lack an owner/team/source field")
+    if len(dict_records) >= 3 and not has_record_value_variety(dict_records, ("type", "category", "status", "state", "owner", "team")):
+        warnings.append(f"{service}: seed/records.json records have low business value variety")
+    return {"failures": failures, "warnings": warnings}
+
+
+def clue_record_shape_findings(service: str, clues: list[Any]) -> dict[str, list[str]]:
+    failures: list[str] = []
+    warnings: list[str] = []
+    dict_clues = [item for item in clues if isinstance(item, dict)]
+    if len(dict_clues) != len(clues):
+        failures.append(f"{service}: seed/clues.json clue records must be JSON objects")
+        return {"failures": failures, "warnings": warnings}
+    for index, clue in enumerate(dict_clues, start=1):
+        title = str(clue.get("title") or clue.get("name") or "").strip()
+        detail = str(clue.get("detail") or clue.get("description") or clue.get("operator_note") or "").strip()
+        if not title or len(detail) < 24:
+            warnings.append(f"{service}: seed/clues.json item {index} should include a title and detailed operating clue")
+    return {"failures": failures, "warnings": warnings}
+
+
+def noise_event_shape_findings(service: str, events: list[Any]) -> dict[str, list[str]]:
+    failures: list[str] = []
+    warnings: list[str] = []
+    dict_events = [item for item in events if isinstance(item, dict)]
+    if len(dict_events) != len(events):
+        failures.append(f"{service}: noise/events.jsonl events must be JSON objects")
+        return {"failures": failures, "warnings": warnings}
+    key_union = {str(key) for item in dict_events for key in item}
+    if dict_events and not any(key in key_union for key in ("event", "action", "workflow")):
+        failures.append(f"{service}: noise/events.jsonl events lack an event/action/workflow field")
+    if dict_events and not any(key in key_union for key in ("severity", "level", "status")):
+        warnings.append(f"{service}: noise/events.jsonl events lack severity/level/status context")
+    if len(dict_events) >= 3 and not has_record_value_variety(dict_events, ("event", "action", "severity", "source")):
+        warnings.append(f"{service}: noise/events.jsonl events have low operational variety")
+    return {"failures": failures, "warnings": warnings}
+
+
+def has_record_value_variety(records: list[dict], fields: tuple[str, ...]) -> bool:
+    values: set[str] = set()
+    for record in records:
+        for field in fields:
+            value = str(record.get(field, "")).strip()
+            if value:
+                values.add(f"{field}:{value}")
+    return len(values) >= 3
 
 
 def load_seed_items(path: Path, *, key: str) -> tuple[list[Any], str]:
