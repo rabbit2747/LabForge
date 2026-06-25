@@ -137,11 +137,14 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "LOG_PATH": logs / "service-events.jsonl",
         "REVIEW_ITEMS_PATH": state / "stored-xss-review-items.json",
         "BUILD_JOBS_PATH": state / "build-pipeline-jobs.json",
+        "BUILD_AUDIT_PATH": state / "build-pipeline-audit.json",
         "UPDATE_CHANNELS_PATH": state / "signed-update-channels.json",
         "SIGNED_MANIFESTS_PATH": state / "signed-update-manifests.json",
+        "SIGNING_AUDIT_PATH": state / "signed-update-signing-audit.json",
         "PUBLISH_AUDIT_PATH": state / "signed-update-publish-audit.json",
         "CUSTOMER_UPDATE_STATE_PATH": state / "customer-update-state.json",
         "SOLR_VELOCITY_STATE_PATH": state / "solr-velocity-state.json",
+        "SOLR_VELOCITY_AUDIT_PATH": state / "solr-velocity-audit.json",
     }
     for name, value in patches.items():
         if hasattr(module, name):
@@ -560,10 +563,15 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             validation = client.post("/labforge/scaffold/sign/validate", json={"canonical_manifest": manifest})
             signed = client.post("/labforge/scaffold/sign", json={"canonical_manifest": manifest})
             signed_data = signed.get_json(silent=True) or {}
+            sign_audit = client.get("/labforge/scaffold/sign/audit")
+            inventory = client.get("/labforge/scaffold/signed-manifests")
             published = client.post("/labforge/scaffold/publish", json={"channel": "smoke", "signed_manifest": signed_data.get("signed_manifest")})
             audit = client.get("/labforge/scaffold/publish/audit")
             channel = client.get("/labforge/scaffold/channels/smoke")
             validation_data = validation.get_json(silent=True) or {}
+            sign_audit_data = sign_audit.get_json(silent=True) or {}
+            sign_records = sign_audit_data.get("records", []) if isinstance(sign_audit_data, dict) else []
+            inventory_data = inventory.get_json(silent=True) or {}
             audit_data = audit.get_json(silent=True) or {}
             return assert_condition(
                 service,
@@ -572,12 +580,17 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and validation.status_code == 200
                 and validation_data.get("allowed") is True
                 and signed.status_code == 200
+                and sign_audit.status_code == 200
+                and any(record.get("action") == "manifest-validate" and record.get("accepted") is True for record in sign_records)
+                and any(record.get("action") == "manifest-sign" and record.get("accepted") is True for record in sign_records)
+                and inventory.status_code == 200
+                and inventory_data.get("count", 0) >= 1
                 and published.status_code == 201
                 and audit.status_code == 200
                 and audit_data.get("count", 0) >= 1
                 and channel.status_code == 200,
-                "/labforge/scaffold/signing/policy + /sign/validate + /sign + /publish + /publish/audit",
-                published,
+                "/labforge/scaffold/signing/policy + /sign/validate + /sign + /sign/audit + /signed-manifests + /publish + /publish/audit",
+                sign_audit,
             )
         if plugin_id == "customer-update-callback":
             pre = client.get("/labforge/scaffold/customer/export")

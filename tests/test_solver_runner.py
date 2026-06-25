@@ -588,6 +588,7 @@ class SolverRunnerTests(unittest.TestCase):
             root = Path(tmp)
             SignedUpdatePublishSmokeHandler.signed_manifest = {}
             SignedUpdatePublishSmokeHandler.audit_records = []
+            SignedUpdatePublishSmokeHandler.sign_audit_records = []
             server = ThreadingHTTPServer(("127.0.0.1", 0), SignedUpdatePublishSmokeHandler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1244,6 +1245,7 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
 class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
     signed_manifest: dict = {}
     audit_records: list[dict] = []
+    sign_audit_records: list[dict] = []
 
     def do_GET(self) -> None:
         if self.path == "/operations/reference":
@@ -1306,9 +1308,24 @@ class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
                         "allowed_channels": ["smoke", "training"],
                         "required_manifest_fields": ["product", "channel", "version", "build_id", "artifact"],
                         "required_artifact_fields": ["name", "sha256", "url", "size_bytes"],
+                        "sign_audit_api": "GET /api/sign/audit",
+                        "signed_manifest_inventory_api": "GET /api/signed-manifests",
                     }
                 ).encode("utf-8")
             )
+            return
+        if self.path == "/api/sign/audit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"records": self.sign_audit_records, "count": len(self.sign_audit_records)}).encode("utf-8"))
+            return
+        if self.path == "/api/signed-manifests":
+            manifests = [self.signed_manifest] if self.signed_manifest else []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"signed_manifests": manifests, "count": len(manifests)}).encode("utf-8"))
             return
         if self.path == "/api/publish/audit":
             self.send_response(200)
@@ -1335,6 +1352,7 @@ class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
         if self.path == "/api/sign/validate":
             manifest = payload.get("canonical_manifest") or {}
             allowed = bool(manifest.get("artifact", {}).get("sha256") and manifest.get("channel") == "smoke")
+            self.sign_audit_records.append({"action": "manifest-validate", "accepted": allowed})
             self.send_response(200 if allowed else 400)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1348,13 +1366,14 @@ class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "canonical_manifest is required"}).encode("utf-8"))
                 return
-            self.signed_manifest = dict(manifest)
-            self.signed_manifest["signature"] = "signed-smoke"
-            self.signed_manifest["signing_identity"] = "release-signing"
+            type(self).signed_manifest = dict(manifest)
+            type(self).signed_manifest["signature"] = "signed-smoke"
+            type(self).signed_manifest["signing_identity"] = "release-signing"
+            self.sign_audit_records.append({"action": "manifest-sign", "accepted": True})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"signed_manifest": self.signed_manifest, "source": "request"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"signed_manifest": type(self).signed_manifest, "source": "request"}).encode("utf-8"))
             return
         if self.path == "/api/publish":
             manifest = payload.get("signed_manifest") or {}
@@ -1364,7 +1383,7 @@ class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "signature required"}).encode("utf-8"))
                 return
-            self.signed_manifest = manifest
+            type(self).signed_manifest = manifest
             self.audit_records.append({"channel": payload.get("channel"), "build_id": manifest.get("build_id")})
             self.send_response(201)
             self.send_header("Content-Type", "application/json")

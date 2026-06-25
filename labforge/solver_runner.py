@@ -1188,17 +1188,27 @@ def run_plugin_http_sequence(
         signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {}, timeout_seconds)
         if signed_status == 400:
             signed_status, signed, _, sign_route = http_json_first("POST", base_url, ["/api/sign", "/labforge/scaffold/sign"], {"canonical_manifest": manifest}, timeout_seconds)
+        sign_audit_status, sign_audit, _, sign_audit_route = http_json_first("GET", base_url, ["/api/sign/audit", "/labforge/scaffold/sign/audit"], None, timeout_seconds)
+        inventory_status, inventory, _, inventory_route = http_json_first("GET", base_url, ["/api/signed-manifests", "/labforge/scaffold/signed-manifests"], None, timeout_seconds)
         publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {}, timeout_seconds)
         if publish_status == 400:
             publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
         audit_status, audit, _, audit_route = http_json_first("GET", base_url, ["/api/publish/audit", "/labforge/scaffold/publish/audit"], None, timeout_seconds)
         channel_status, channel_state, _, channel_route = http_json_first("GET", base_url, ["/api/channels/smoke", "/labforge/scaffold/channels/smoke"], None, timeout_seconds)
+        sign_records = sign_audit.get("records", []) if isinstance(sign_audit, dict) else []
+        validation_recorded = any(isinstance(item, dict) and item.get("action") == "manifest-validate" and item.get("accepted") is True for item in sign_records)
+        sign_recorded = any(isinstance(item, dict) and item.get("action") == "manifest-sign" and item.get("accepted") is True for item in sign_records)
         ok = (
             landing_ok
             and policy_status == 200
             and validation_status == 200
             and validation.get("allowed") is True
             and signed_status == 200
+            and sign_audit_status == 200
+            and validation_recorded
+            and sign_recorded
+            and inventory_status == 200
+            and inventory.get("count", 0) >= 1
             and publish_status == 201
             and audit_status == 200
             and audit.get("count", 0) >= 1
@@ -1214,9 +1224,10 @@ def run_plugin_http_sequence(
             ok,
             (
                 f"{context_note}; policy_route={policy_route}; validation_route={validation_route}; sign_route={sign_route}; "
-                f"publish_route={publish_route}; audit_route={audit_route}; channel_route={channel_route}; "
+                f"sign_audit_route={sign_audit_route}; inventory_route={inventory_route}; publish_route={publish_route}; audit_route={audit_route}; channel_route={channel_route}; "
                 f"policy={policy_status}; validation={validation_status}; validation_allowed={validation.get('allowed')}; "
-                f"signed={signed_status}; published={publish_status}; audit={audit_status}; audit_records={audit.get('count', 0)}; "
+                f"signed={signed_status}; sign_audit={sign_audit_status}; validation_recorded={validation_recorded}; sign_recorded={sign_recorded}; "
+                f"signed_inventory={inventory_status}; signed_count={inventory.get('count', 0)}; published={publish_status}; audit={audit_status}; audit_records={audit.get('count', 0)}; "
                 f"channel={channel_status}; signed_source={signed.get('source', '-')}; build_id={published.get('manifest', {}).get('build_id', channel_state.get('manifest', {}).get('build_id', '-'))}"
             ),
         )
