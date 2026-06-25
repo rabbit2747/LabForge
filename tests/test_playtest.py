@@ -21,7 +21,7 @@ from labforge.playtest import (
     stage_implementation_coverage_step,
     trusted_update_handoff_step,
 )
-from labforge.providers.docker_compose.provider import endpoint_expected_texts
+from labforge.providers.docker_compose.provider import endpoint_expected_selectors, endpoint_expected_texts
 
 
 class PlaytestTests(unittest.TestCase):
@@ -481,6 +481,8 @@ class PlaytestTests(unittest.TestCase):
                         "connect": "http://127.0.0.1:18080/",
                         "expected_text": "Document Library",
                         "expected_texts": ["Published Documents", "Document Library"],
+                        "expected_selector": "main",
+                        "expected_selectors": ["form", "main"],
                     }
                 ]
             },
@@ -488,6 +490,7 @@ class PlaytestTests(unittest.TestCase):
         )
 
         self.assertEqual(endpoints[0].expected_texts, ["Document Library", "Published Documents"])
+        self.assertEqual(endpoints[0].expected_selectors, ["main", "form"])
 
     def test_docker_provider_derives_expected_texts_from_artifact_plugins(self) -> None:
         artifact = SimpleNamespace(
@@ -504,6 +507,10 @@ class PlaytestTests(unittest.TestCase):
         self.assertEqual(
             endpoint_expected_texts(artifact),
             ["Operational Summary", "Document Library", "Operations Diagnostics Console", "Search Operations Console", "Core Status"],
+        )
+        self.assertEqual(
+            endpoint_expected_selectors(artifact),
+            ["main", "nav", "a[href*='download'], table", "form", "input[name='command']", "input[name='core']"],
         )
 
 

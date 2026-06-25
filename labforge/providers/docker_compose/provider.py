@@ -259,6 +259,9 @@ def build_endpoint_manifest(spec: LabSpec) -> dict[str, Any]:
                         expected_texts = endpoint_expected_texts(artifacts.get(name))
                         if expected_texts:
                             item["expected_texts"] = expected_texts
+                        expected_selectors = endpoint_expected_selectors(artifacts.get(name))
+                        if expected_selectors:
+                            item["expected_selectors"] = expected_selectors
                 published.append(item)
         else:
             internal.append(
@@ -311,6 +314,40 @@ def endpoint_expected_texts(artifact: Any | None) -> list[str]:
     }
     for plugin in artifact_vulnerability_plugins(artifact):
         values.extend(plugin_texts.get(plugin, []))
+    return list(dict.fromkeys(values))
+
+
+def endpoint_expected_selectors(artifact: Any | None) -> list[str]:
+    if artifact is None:
+        return []
+    values: list[str] = []
+    template = normalize_artifact_template(artifact)
+    template_selectors = {
+        "business-portal": ["main", "nav"],
+        "internal-admin-console": ["main", "nav"],
+        "identity-gateway": ["main"],
+        "data-api": ["main"],
+        "audit-log-service": ["main"],
+        "object-store": ["main"],
+        "siem-log-viewer": ["main"],
+    }
+    values.extend(template_selectors.get(template, []))
+    plugin_selectors = {
+        "ssti-preview": ["form", "textarea"],
+        "stored-xss-review": ["form", "textarea"],
+        "idor-object-access": ["a[href*='objects'], table"],
+        "ssrf-internal-fetch": ["form", "input[name='url']"],
+        "path-traversal-download": ["a[href*='download'], table"],
+        "unsafe-file-upload": ["form", "input[type='file']"],
+        "diagnostic-command-injection": ["form", "input[name='command']"],
+        "credential-exposure": ["section", "code"],
+        "solr-velocity-rce": ["form", "input[name='core']"],
+        "build-pipeline-abuse": ["form", "button"],
+        "signed-update-publish": ["form", "button"],
+        "customer-update-callback": ["section", "code"],
+    }
+    for plugin in artifact_vulnerability_plugins(artifact):
+        values.extend(plugin_selectors.get(plugin, []))
     return list(dict.fromkeys(values))
 
 

@@ -41,6 +41,7 @@ class PlaytestEndpoint(PlaytestModel):
     health_url: str = ""
     networks: list[str] = Field(default_factory=list)
     expected_texts: list[str] = Field(default_factory=list)
+    expected_selectors: list[str] = Field(default_factory=list)
 
 
 class PlaytestStep(PlaytestModel):
@@ -291,6 +292,7 @@ def endpoint_group(endpoint_manifest: dict[str, Any], predicate) -> list[Playtes
                 health_url=str(item.get("health_url", "")),
                 networks=[str(network) for network in item.get("networks", [])],
                 expected_texts=normalize_endpoint_expected_texts(item),
+                expected_selectors=normalize_endpoint_expected_selectors(item),
             )
         )
     return endpoints
@@ -302,6 +304,17 @@ def normalize_endpoint_expected_texts(item: dict[str, Any]) -> list[str]:
     if single:
         values.append(single)
     raw_many = item.get("expected_texts", [])
+    if isinstance(raw_many, list):
+        values.extend(str(value).strip() for value in raw_many if str(value).strip())
+    return list(dict.fromkeys(values))
+
+
+def normalize_endpoint_expected_selectors(item: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    single = str(item.get("expected_selector", "")).strip()
+    if single:
+        values.append(single)
+    raw_many = item.get("expected_selectors", [])
     if isinstance(raw_many, list):
         values.extend(str(value).strip() for value in raw_many if str(value).strip())
     return list(dict.fromkeys(values))

@@ -169,6 +169,7 @@ def run_http_entrypoint_check(
         )
     command = f"GET {url}"
     expected_texts = normalize_expected_texts(entrypoint)
+    expected_selectors = normalize_expected_selectors(entrypoint)
     if execute and browser_engine == "playwright":
         return run_playwright_entrypoint_check(
             check_id,
@@ -176,12 +177,15 @@ def run_http_entrypoint_check(
             url,
             expected,
             expected_texts,
+            expected_selectors,
             timeout_seconds=timeout_seconds,
         )
     if not execute:
         expected_detail = expected
         if expected_texts:
             expected_detail = f"{expected}; expected text: {', '.join(expected_texts)}"
+        if expected_selectors:
+            expected_detail = f"{expected_detail}; expected selectors: {', '.join(expected_selectors)}"
         return AccessPlaytestItem(
             check_id=check_id,
             service=service,
@@ -275,6 +279,7 @@ def run_playwright_entrypoint_check(
     url: str,
     expected: str,
     expected_texts: list[str],
+    expected_selectors: list[str],
     *,
     timeout_seconds: int,
 ) -> AccessPlaytestItem:
@@ -294,7 +299,8 @@ def run_playwright_entrypoint_check(
 const { chromium } = require('playwright');
 const target = process.argv[1];
 const expected = JSON.parse(process.argv[2] || '[]');
-const timeoutMs = Number(process.argv[3] || '5000');
+const selectors = JSON.parse(process.argv[3] || '[]');
+const timeoutMs = Number(process.argv[4] || '5000');
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
@@ -302,9 +308,16 @@ const timeoutMs = Number(process.argv[3] || '5000');
   const bodyText = await page.locator('body').innerText({ timeout: timeoutMs }).catch(() => '');
   const title = await page.title().catch(() => '');
   const finalUrl = page.url();
+  const missingSelectors = [];
+  const selectorCounts = {};
+  for (const selector of selectors) {
+    const count = await page.locator(selector).count().catch(() => 0);
+    selectorCounts[selector] = count;
+    if (count < 1) missingSelectors.push(selector);
+  }
   await browser.close();
   const missing = expected.filter((value) => !bodyText.includes(value) && !title.includes(value));
-  console.log(JSON.stringify({ ok: missing.length === 0, url: finalUrl, title, text: bodyText.slice(0, 2000), missing }));
+  console.log(JSON.stringify({ ok: missing.length === 0 && missingSelectors.length === 0, url: finalUrl, title, text: bodyText.slice(0, 2000), missing, missingSelectors, selectorCounts }));
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : String(error));
   process.exit(2);
@@ -320,6 +333,7 @@ const timeoutMs = Number(process.argv[3] || '5000');
         script,
         url,
         json.dumps(expected_texts),
+        json.dumps(expected_selectors),
         str(max(timeout_seconds, 1) * 1000),
     ]
     try:
@@ -375,6 +389,7 @@ const timeoutMs = Number(process.argv[3] || '5000');
             message=f"could not parse Playwright probe output: {exc}",
         )
     missing = [str(item) for item in data.get("missing", [])]
+    missing_selectors = [str(item) for item in data.get("missingSelectors", [])]
     text_sample = str(data.get("text", ""))[:500].strip()
     if missing:
         return AccessPlaytestItem(
@@ -387,6 +402,17 @@ const timeoutMs = Number(process.argv[3] || '5000');
             stdout=text_sample,
             message=f"browser_loaded=true; missing_expected_text={','.join(missing)}",
         )
+    if missing_selectors:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="browser-playwright",
+            command=command,
+            status="warning",
+            expected=expected,
+            stdout=text_sample,
+            message=f"browser_loaded=true; missing_expected_selector={','.join(missing_selectors)}",
+        )
     return AccessPlaytestItem(
         check_id=check_id,
         service=service,
@@ -395,7 +421,10 @@ const timeoutMs = Number(process.argv[3] || '5000');
         status="passed",
         expected=expected,
         stdout=text_sample,
-        message=f"browser_loaded=true; matched_expected_text={len(expected_texts)}; title={data.get('title', '')}",
+        message=(
+            f"browser_loaded=true; matched_expected_text={len(expected_texts)}; "
+            f"matched_expected_selector={len(expected_selectors)}; title={data.get('title', '')}"
+        ),
     )
 
 
@@ -407,6 +436,17 @@ def normalize_expected_texts(entrypoint: dict) -> list[str]:
     raw_many = entrypoint.get("expected_texts", [])
     if isinstance(raw_many, list):
         values.extend(str(item).strip() for item in raw_many if str(item).strip())
+    return list(dict.fromkeys(values))
+
+
+def normalize_expected_selectors(entrypoint: dict) -> list[str]:
+    values: list[str] = []
+    single = str(entrypoint.get("expected_selector", "")).strip()
+    if single:
+        values.append(single)
+    raw_many = entrypoint.get("expected_selectors", [])
+    if isinstance(raw_many, list):
+        values.extend(str(value).strip() for value in raw_many if str(value).strip())
     return list(dict.fromkeys(values))
 
 
