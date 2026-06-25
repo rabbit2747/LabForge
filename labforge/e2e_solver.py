@@ -27,6 +27,7 @@ class E2ESolverReport(E2ESolverModel):
     access_bundle: str = ""
     access_bundle_ready: bool = False
     access_bundle_findings: list[str] = Field(default_factory=list)
+    execution_depth_findings: list[str] = Field(default_factory=list)
     host_preflight: dict = Field(default_factory=dict)
     preflight_ready: bool = False
     lifecycle: list[ProviderLifecycleResult] = Field(default_factory=list)
@@ -150,6 +151,13 @@ def run_e2e_solver(
                 )
             )
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
+    execution_depth_findings = validate_execution_depth(
+        solver_plan,
+        access_manifest,
+        access_report,
+        solver_report,
+        execute=execute,
+    )
     report = E2ESolverReport(
         provider=provider,
         mode=mode,
@@ -159,6 +167,7 @@ def run_e2e_solver(
             solver_report,
             execute=execute,
             access_bundle_ready=access_bundle_ready,
+            execution_depth_findings=execution_depth_findings,
         ),
         provider_output=str(provider_output),
         solver_plan=str(solver_plan),
@@ -166,6 +175,7 @@ def run_e2e_solver(
         access_bundle=str(access_bundle_path) if access_bundle_path.exists() else "",
         access_bundle_ready=access_bundle_ready,
         access_bundle_findings=access_bundle_findings,
+        execution_depth_findings=execution_depth_findings,
         host_preflight=host_preflight_data,
         preflight_ready=preflight_ready,
         lifecycle=lifecycle,
@@ -187,9 +197,13 @@ def aggregate_e2e_status(
     *,
     execute: bool,
     access_bundle_ready: bool = True,
+    execution_depth_findings: list[str] | None = None,
 ) -> Literal["planned", "passed", "warning", "failed"]:
     if not execute:
         return "planned"
+    execution_depth_findings = execution_depth_findings or []
+    if any(item.startswith("missing=") for item in execution_depth_findings):
+        return "failed"
     if any(item.status == "failed" for item in lifecycle):
         return "failed"
     if access_report.status == "failed" or solver_report.status == "failed":
@@ -200,7 +214,53 @@ def aggregate_e2e_status(
         return "warning"
     if not access_bundle_ready:
         return "warning"
+    if any(item.startswith("warning=") for item in execution_depth_findings):
+        return "warning"
     return "passed"
+
+
+def validate_execution_depth(
+    solver_plan: Path,
+    access_manifest: Path,
+    access_report: AccessPlaytestReport,
+    solver_report: SolverRunReport,
+    *,
+    execute: bool,
+) -> list[str]:
+    if not execute:
+        return ["execution_depth=not-required-for-dry-run"]
+    plan = load_json(solver_plan)
+    access = load_json(access_manifest)
+    expected_access = expected_access_check_count(access)
+    actual_access = len(getattr(access_report, "items", []) or [])
+    expected_solver = len([step for step in plan.get("steps", []) or [] if isinstance(step, dict)])
+    actual_solver = len(getattr(solver_report, "steps", []) or [])
+    findings = [
+        f"access_checks=expected:{expected_access}:actual:{actual_access}",
+        f"solver_steps=expected:{expected_solver}:actual:{actual_solver}",
+    ]
+    if actual_access < expected_access:
+        findings.append(f"missing=access_checks:{expected_access - actual_access}")
+    if actual_solver < expected_solver:
+        findings.append(f"missing=solver_steps:{expected_solver - actual_solver}")
+    if expected_access == 0:
+        findings.append("warning=access_manifest_declares_no_checks")
+    if expected_solver == 0:
+        findings.append("warning=solver_plan_declares_no_steps")
+    return findings
+
+
+def expected_access_check_count(access_manifest: dict) -> int:
+    count = 0
+    for item in access_manifest.get("learner_entrypoints", []) or []:
+        if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect"):
+            count += 1
+    for item in access_manifest.get("final_submission_endpoints", []) or []:
+        if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect"):
+            count += 1
+    for key in ("health_checks", "terminal_checks", "terminal_sequences", "plugin_checks"):
+        count += len([item for item in access_manifest.get(key, []) or [] if isinstance(item, dict)])
+    return count
 
 
 def provider_preflight_ready(report: HostDoctorReport, provider: str) -> bool:
@@ -344,6 +404,12 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in report.access_bundle_findings or ["No access bundle findings."])
+    lines += [
+        "",
+        "## Execution Depth",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in report.execution_depth_findings or ["No execution depth findings."])
     lines += [
         "",
         "## Lifecycle",

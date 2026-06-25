@@ -7,12 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from labforge.access_playtest import AccessPlaytestReport
+from labforge.access_playtest import AccessPlaytestItem, AccessPlaytestReport
 from labforge.doctor import HostDoctorReport
 from labforge.e2e_solver import run_e2e_solver
 from labforge.provider_lifecycle import ProviderLifecycleResult
 from labforge.qa import e2e_solver_release_check
-from labforge.solver_runner import SolverRunReport
+from labforge.solver_runner import SolverRunReport, SolverRunStep
 
 
 class E2ESolverTests(unittest.TestCase):
@@ -194,7 +194,14 @@ class E2ESolverTests(unittest.TestCase):
                     {
                         "lab_id": "execute-smoke",
                         "title": "Execute Smoke",
-                        "steps": [],
+                        "steps": [
+                            {
+                                "order": 1,
+                                "step_id": "access-01",
+                                "action_type": "access",
+                                "evidence": ["portal_reachable"],
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -225,7 +232,14 @@ class E2ESolverTests(unittest.TestCase):
                         "title": "Execute Smoke",
                         "learner_entrypoints": [],
                         "attacker_entrypoints": [],
-                        "health_checks": [],
+                        "health_checks": [
+                            {
+                                "service": "portal",
+                                "kind": "http-health",
+                                "command": "curl -i http://127.0.0.1:18081/healthz",
+                                "expected": "healthy",
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -256,7 +270,15 @@ class E2ESolverTests(unittest.TestCase):
                     access_manifest=str(access_manifest),
                     browser_targets=[],
                     terminal_targets=[],
-                    items=[],
+                    items=[
+                        AccessPlaytestItem(
+                            check_id="health-01",
+                            service="portal",
+                            kind="http-health",
+                            command="curl -i http://127.0.0.1:18081/healthz",
+                            status="passed",
+                        )
+                    ],
                 )
 
             def fake_solver(*_args, **kwargs):
@@ -267,7 +289,15 @@ class E2ESolverTests(unittest.TestCase):
                     mode="execute",
                     status="passed",
                     solver_plan=str(solver_plan),
-                    steps=[],
+                    steps=[
+                        SolverRunStep(
+                            order=1,
+                            step_id="access-01",
+                            action_type="access",
+                            status="passed",
+                            evidence=["portal_reachable"],
+                        )
+                    ],
                 )
 
             with patch("labforge.e2e_solver.provider_lifecycle", side_effect=fake_lifecycle), patch(
@@ -296,8 +326,133 @@ class E2ESolverTests(unittest.TestCase):
 
             self.assertEqual(report.status, "passed")
             self.assertTrue(report.access_bundle_ready)
+            self.assertIn("access_checks=expected:1:actual:1", report.execution_depth_findings)
+            self.assertIn("solver_steps=expected:1:actual:1", report.execution_depth_findings)
             self.assertEqual(calls, [("validate", True), ("deploy", True), ("status", True), ("destroy", True)])
             self.assertTrue((out / "e2e-solver.md").exists())
+
+    def test_e2e_solver_execute_fails_when_reports_do_not_cover_declared_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            playtest = root / "playtest"
+            out = root / "e2e"
+            provider_output.mkdir()
+            playtest.mkdir()
+            solver_plan = playtest / "solver-plan.json"
+            access_manifest = playtest / "learner-access.json"
+            access_bundle = playtest / "lab-access-bundle.json"
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "execute-depth",
+                        "title": "Execute Depth",
+                        "steps": [
+                            {"order": 1, "step_id": "access-01", "action_type": "access"},
+                            {"order": 2, "step_id": "plugin-portal-ssti-preview", "action_type": "vulnerability-behavior"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_bundle.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "execute-depth",
+                        "title": "Execute Depth",
+                        "provider_output_dir": str(provider_output.resolve()),
+                        "learner_urls": ["http://127.0.0.1:18081/"],
+                        "attacker_ssh": [],
+                        "final_submission_urls": [],
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "solver_ready": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "execute-depth",
+                        "title": "Execute Depth",
+                        "learner_entrypoints": [
+                            {"service": "portal", "protocol": "http", "connect": "http://127.0.0.1:18081/"}
+                        ],
+                        "attacker_entrypoints": [],
+                        "health_checks": [
+                            {
+                                "service": "portal",
+                                "kind": "http-health",
+                                "command": "curl -i http://127.0.0.1:18081/healthz",
+                                "expected": "healthy",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_lifecycle(*_args, **kwargs):
+                return ProviderLifecycleResult(
+                    provider=kwargs["provider"],
+                    action=kwargs["action"],
+                    mode="execute",
+                    status="completed",
+                    output_dir=str(provider_output),
+                )
+
+            def fake_access(*_args, **_kwargs):
+                return AccessPlaytestReport(
+                    lab_id="execute-depth",
+                    title="Execute Depth",
+                    mode="execute",
+                    status="passed",
+                    access_manifest=str(access_manifest),
+                    items=[],
+                )
+
+            def fake_solver(*_args, **_kwargs):
+                return SolverRunReport(
+                    lab_id="execute-depth",
+                    title="Execute Depth",
+                    mode="execute",
+                    status="passed",
+                    solver_plan=str(solver_plan),
+                    steps=[],
+                )
+
+            with patch("labforge.e2e_solver.provider_lifecycle", side_effect=fake_lifecycle), patch(
+                "labforge.e2e_solver.run_access_playtest",
+                side_effect=fake_access,
+            ), patch("labforge.e2e_solver.run_solver_plan", side_effect=fake_solver):
+                report = run_e2e_solver(
+                    provider_output,
+                    solver_plan,
+                    access_manifest,
+                    out,
+                    execute=True,
+                    host_preflight=HostDoctorReport(
+                        host_os="linux",
+                        platform="test",
+                        architecture="x86_64",
+                        shell_hint="sh",
+                        cwd=str(root),
+                        wsl_available=False,
+                        host_docker_cli=True,
+                        host_docker_server=True,
+                        recommended_execution="host",
+                    ),
+                )
+
+            self.assertEqual(report.status, "failed")
+            self.assertIn("missing=access_checks:2", report.execution_depth_findings)
+            self.assertIn("missing=solver_steps:2", report.execution_depth_findings)
 
     def test_e2e_solver_warns_when_access_bundle_does_not_match_access_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -362,6 +517,15 @@ class E2ESolverTests(unittest.TestCase):
                     mode="execute",
                     status="passed",
                     access_manifest=str(access_manifest),
+                    items=[
+                        AccessPlaytestItem(
+                            check_id="browser-01",
+                            service="portal",
+                            kind="browser-http",
+                            command="GET http://127.0.0.1:18081/",
+                            status="passed",
+                        )
+                    ],
                 )
 
             def fake_solver(*_args, **_kwargs):
