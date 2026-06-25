@@ -103,6 +103,9 @@ def run_access_playtest(
     for index, check in enumerate(data.get("terminal_sequences", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_terminal_sequence_check(f"terminal-seq-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
+    for index, check in enumerate(data.get("tunnel_commands", []) or [], start=1):
+        if isinstance(check, dict):
+            items.append(run_tunnel_command_check(f"tunnel-{index:02d}", check, execute=execute))
     for index, check in enumerate(data.get("plugin_checks", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_plugin_evidence_check(f"plugin-evidence-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
@@ -139,6 +142,7 @@ def load_access_manifest(path: Path) -> dict:
         "health_checks",
         "terminal_checks",
         "terminal_sequences",
+        "tunnel_commands",
         "plugin_checks",
     ):
         data.setdefault(key, [])
@@ -625,6 +629,117 @@ def run_terminal_sequence_check(check_id: str, check: dict, *, execute: bool, ti
         stderr=stderr,
         message=f"exit_code=0; commands={len(commands)}; matched_expected_text={len(expected_texts)}",
     )
+
+
+def run_tunnel_command_check(check_id: str, check: dict, *, execute: bool) -> AccessPlaytestItem:
+    service = str(check.get("service", ""))
+    command = str(check.get("command", "")).strip()
+    expected = "SSH local-forward command is well-formed and matches the declared internal target."
+    if not command:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command="",
+            status="failed",
+            expected=expected,
+            message="missing tunnel command",
+        )
+    parsed = parse_ssh_local_forward(command)
+    if not parsed:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="failed",
+            expected=expected,
+            message="unsupported SSH local-forward syntax; expected `ssh -L local:host:port destination`",
+        )
+    messages = tunnel_consistency_messages(check, parsed)
+    if messages:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="failed",
+            expected=expected,
+            message="; ".join(messages),
+        )
+    if not execute:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="planned",
+            expected=expected,
+            message=f"dry-run; local={parsed['local_port']}; target={parsed['target_host']}:{parsed['target_port']}",
+        )
+    if not shutil.which("ssh"):
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="skipped",
+            expected=expected,
+            message="missing executable: ssh",
+        )
+    return AccessPlaytestItem(
+        check_id=check_id,
+        service=service,
+        kind="ssh-local-forward",
+        command=command,
+        status="passed",
+        expected=expected,
+        message=(
+            "syntax_valid=true; "
+            f"local={parsed['local_port']}; target={parsed['target_host']}:{parsed['target_port']}; "
+            "execution_noninvasive=true"
+        ),
+    )
+
+
+def parse_ssh_local_forward(command: str) -> dict[str, str] | None:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+    if not parts or parts[0] != "ssh":
+        return None
+    forward = ""
+    for index, part in enumerate(parts):
+        if part == "-L" and index + 1 < len(parts):
+            forward = parts[index + 1]
+            break
+        if part.startswith("-L") and len(part) > 2:
+            forward = part[2:]
+            break
+    if not forward:
+        return None
+    pieces = forward.split(":")
+    if len(pieces) < 3:
+        return None
+    local_port, target_host, target_port = pieces[0], pieces[1], pieces[2]
+    if not local_port.isdigit() or not target_host or not target_port:
+        return None
+    return {"local_port": local_port, "target_host": target_host, "target_port": target_port}
+
+
+def tunnel_consistency_messages(check: dict, parsed: dict[str, str]) -> list[str]:
+    messages: list[str] = []
+    expected_local = str(check.get("local_port", "")).strip()
+    expected_dns = str(check.get("dns", "")).strip()
+    expected_port = str(check.get("internal_port", "")).strip()
+    if expected_local and expected_local != parsed["local_port"]:
+        messages.append(f"local_port mismatch expected={expected_local} command={parsed['local_port']}")
+    if expected_dns and expected_dns != parsed["target_host"]:
+        messages.append(f"dns mismatch expected={expected_dns} command={parsed['target_host']}")
+    if expected_port and expected_port != parsed["target_port"]:
+        messages.append(f"internal_port mismatch expected={expected_port} command={parsed['target_port']}")
+    return messages
 
 
 def run_plugin_evidence_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:

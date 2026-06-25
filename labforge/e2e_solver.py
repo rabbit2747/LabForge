@@ -258,7 +258,7 @@ def expected_access_check_count(access_manifest: dict) -> int:
     for item in access_manifest.get("final_submission_endpoints", []) or []:
         if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect"):
             count += 1
-    for key in ("health_checks", "terminal_checks", "terminal_sequences", "plugin_checks"):
+    for key in ("health_checks", "terminal_checks", "terminal_sequences", "tunnel_commands", "plugin_checks"):
         count += len([item for item in access_manifest.get(key, []) or [] if isinstance(item, dict)])
     return count
 

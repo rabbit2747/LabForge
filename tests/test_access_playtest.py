@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from labforge.access_playtest import command_to_argv, run_access_playtest
+from labforge.access_playtest import command_to_argv, parse_ssh_local_forward, run_access_playtest
 
 
 class AccessPlaytestTests(unittest.TestCase):
@@ -75,6 +75,16 @@ class AccessPlaytestTests(unittest.TestCase):
                                 "expected_texts": ["labforge-terminal-ready"],
                             }
                         ],
+                        "tunnel_commands": [
+                            {
+                                "service": "internal-wiki",
+                                "dns": "wiki",
+                                "internal_port": "6000",
+                                "local_port": 18080,
+                                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222",
+                                "url": "http://127.0.0.1:18080/",
+                            }
+                        ],
                         "plugin_checks": [
                             {
                                 "service": "investor-portal",
@@ -94,10 +104,11 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertEqual(report.status, "planned")
             self.assertEqual(report.browser_targets, ["http://127.0.0.1:18081/"])
             self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
-            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned", "planned"])
+            self.assertEqual([item.status for item in report.items], ["planned", "planned", "planned", "planned", "planned", "planned", "planned"])
             self.assertEqual(report.items[0].kind, "browser-http")
             self.assertEqual(report.items[1].kind, "final-http")
-            self.assertEqual(report.items[-2].kind, "ssh-command-sequence")
+            self.assertEqual(report.items[-3].kind, "ssh-command-sequence")
+            self.assertEqual(report.items[-2].kind, "ssh-local-forward")
             self.assertEqual(report.items[-1].kind, "plugin-evidence")
             self.assertTrue((root / "access-playtest" / "access-playtest.md").exists())
             self.assertTrue((root / "access-playtest" / "access-playtest.yaml").exists())
@@ -443,6 +454,80 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertEqual(argv[0], "ssh")
             self.assertIn("BatchMode=yes", argv)
             self.assertEqual(argv[-1], "echo labforge-terminal-ready && pwd")
+
+    def test_access_playtest_validates_tunnel_command_without_opening_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "learner-access.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "tunnel-smoke",
+                        "title": "Tunnel Smoke",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "health_checks": [],
+                        "terminal_checks": [],
+                        "tunnel_commands": [
+                            {
+                                "service": "wiki",
+                                "dns": "wiki",
+                                "internal_port": "6000",
+                                "local_port": 18080,
+                                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222",
+                                "url": "http://127.0.0.1:18080/",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("labforge.access_playtest.shutil.which", return_value="ssh"):
+                report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.items[0].kind, "ssh-local-forward")
+            self.assertEqual(report.items[0].status, "passed")
+            self.assertIn("execution_noninvasive=true", report.items[0].message)
+
+    def test_access_playtest_fails_tunnel_command_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "learner-access.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "tunnel-mismatch",
+                        "title": "Tunnel Mismatch",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "health_checks": [],
+                        "terminal_checks": [],
+                        "tunnel_commands": [
+                            {
+                                "service": "wiki",
+                                "dns": "wiki",
+                                "internal_port": "6000",
+                                "local_port": 18080,
+                                "command": "ssh -L 18081:wiki:6000 attacker@127.0.0.1 -p 2222",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = run_access_playtest(manifest, root / "access-playtest", execute=True)
+
+            self.assertEqual(report.status, "failed")
+            self.assertEqual(report.items[0].kind, "ssh-local-forward")
+            self.assertIn("local_port mismatch", report.items[0].message)
+
+    def test_parse_ssh_local_forward_supports_joined_l_option(self) -> None:
+        parsed = parse_ssh_local_forward("ssh -L18080:wiki:6000 attacker@127.0.0.1 -p 2222")
+
+        self.assertEqual(parsed, {"local_port": "18080", "target_host": "wiki", "target_port": "6000"})
 
 
 class BrowserSmokeHandler(BaseHTTPRequestHandler):
