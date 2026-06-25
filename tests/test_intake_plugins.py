@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
-from labforge.intake import IntakeStage, ScenarioIntake, stages_from_intake, vulnerability_plugins_for_service
+from labforge.intake import (
+    IntakeStage,
+    ScenarioIntake,
+    create_intake_from_prompt,
+    scaffold_lab_from_intake,
+    stages_from_intake,
+    vulnerability_plugins_for_service,
+)
+from labforge.io import load_yaml
+from labforge.model import LabSpec
+from labforge.service_artifacts import materialize_service_runtimes
 
 
 def plugin_by_id(plugins: list[dict], plugin_id: str) -> dict:
@@ -198,6 +210,83 @@ class IntakePluginEvidenceTest(unittest.TestCase):
             plugin_by_id(plugins, "solr-velocity-rce")["emits_evidence"],
             ["stage5_search_rce_confirmed", "stage6_release_route_found"],
         )
+
+    def test_identity_gateway_jwt_role_confusion_plugin_inherits_stage_evidence(self) -> None:
+        intake = ScenarioIntake(
+            lab_id="jwt-map",
+            title="Identity Gateway JWT Role Confusion",
+            target_industry="banking",
+            summary="Learner compares JWT session tokens and finds a lab-scoped role claim confusion path.",
+            final_objective="Reach a controlled privileged export through the identity gateway.",
+            learner_entrypoint="Public digital banking portal.",
+            target_infrastructure=["loan-application-portal", "customer-identity-gateway", "compliance-export-service"],
+            stages=[
+                IntakeStage(
+                    stage_id="stage-03",
+                    learner_goal="Discover identity token policy.",
+                    expected_action="Review the identity gateway session, JWT preview, and role authorization policy.",
+                    evidence=["stage3_identity_policy_reviewed"],
+                    mitre_tactic="Discovery",
+                    mitre_techniques=["T1087 Account Discovery"],
+                    infrastructure_touched=["customer-identity-gateway"],
+                ),
+                IntakeStage(
+                    stage_id="stage-04",
+                    learner_goal="Abuse lab-scoped JWT role confusion.",
+                    expected_action="Modify only synthetic token role claims and confirm the privileged export authorization gap.",
+                    evidence=["stage4_role_confusion_confirmed"],
+                    mitre_tactic="Privilege Escalation",
+                    mitre_techniques=["T1550 Use Alternate Authentication Material"],
+                    infrastructure_touched=["customer-identity-gateway"],
+                ),
+            ],
+        )
+
+        plugins = vulnerability_plugins_for_service(intake, "customer-identity-gateway")
+
+        self.assertCountEqual(
+            plugin_by_id(plugins, "jwt-role-confusion")["emits_evidence"],
+            ["stage4_role_confusion_confirmed", "stage3_identity_policy_reviewed"],
+        )
+
+    def test_prompt_scaffold_maps_jwt_role_confusion_to_identity_gateway_runtime(self) -> None:
+        prompt = (
+            "Create a realistic banking red-team lab. The learner starts from a public loan application portal, "
+            "discovers the customer identity gateway, compares JWT session tokens, and exploits a lab-scoped "
+            "unsigned token role confusion issue to reach a controlled compliance export."
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            intake_dir = root / "intake"
+            lab_dir = root / "lab"
+            create_intake_from_prompt(intake_dir, prompt=prompt, lab_id="banking-jwt-chain", title="Banking JWT Chain", industry="banking", force=True)
+            scaffold_lab_from_intake(intake_dir / "scenario-intake.yaml", lab_dir, force=True)
+
+            artifacts = load_yaml(lab_dir / "artifacts.yaml")
+            identity = next(item for item in artifacts["service_artifacts"] if item["service"] == "customer-identity-gateway")
+            plugin_ids = [plugin["id"] for plugin in identity["vulnerability_plugins"]]
+
+            self.assertIn("jwt-role-confusion", plugin_ids)
+            jwt_plugin = plugin_by_id(identity["vulnerability_plugins"], "jwt-role-confusion")
+            self.assertTrue(jwt_plugin["emits_evidence"])
+            self.assertEqual(jwt_plugin["target_role"], "admin")
+            self.assertEqual(jwt_plugin["target_dataset"], "LABFORGE_SYNTHETIC_PRIVILEGED_EXPORT")
+            spec = LabSpec.load(lab_dir)
+            materialize_service_runtimes(spec, force=True)
+            self.assertTrue((lab_dir / "services" / "customer-identity-gateway" / "plugins" / "jwt-role-confusion.contract.yaml").exists())
+            self.assertFalse((lab_dir / "services" / "loan-ops-console" / "plugins" / "jwt-role-confusion.contract.yaml").exists())
+
+            stale_contract = lab_dir / "services" / "loan-ops-console" / "plugins" / "jwt-role-confusion.contract.yaml"
+            stale_seed = lab_dir / "services" / "loan-ops-console" / "seed" / "vulnerability-jwt-role-confusion.json"
+            stale_contract.parent.mkdir(parents=True, exist_ok=True)
+            stale_seed.parent.mkdir(parents=True, exist_ok=True)
+            stale_contract.write_text("plugin: jwt-role-confusion\n", encoding="utf-8")
+            stale_seed.write_text('{"plugin":"jwt-role-confusion"}\n', encoding="utf-8")
+
+            materialize_service_runtimes(spec, force=True)
+
+            self.assertFalse(stale_contract.exists())
+            self.assertFalse(stale_seed.exists())
 
     def test_workstation_review_or_diagnostic_stage_gets_runtime_plugin(self) -> None:
         intake = ScenarioIntake(

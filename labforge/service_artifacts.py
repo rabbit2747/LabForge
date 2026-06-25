@@ -182,6 +182,8 @@ def scaffold_service_artifacts(spec: LabSpec, force: bool = False) -> list[Path]
     for artifact in declared_service_artifacts(spec):
         service_root = spec.root / artifact.source_path
         service_root.mkdir(parents=True, exist_ok=True)
+        if force:
+            cleanup_generated_plugin_files(service_root)
 
         for dirname in RECOMMENDED_DIRECTORIES:
             directory = service_root / dirname
@@ -217,6 +219,8 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
     for artifact in declared_service_artifacts(spec):
         service_root = spec.root / artifact.source_path
         service_root.mkdir(parents=True, exist_ok=True)
+        if force:
+            cleanup_generated_plugin_files(service_root)
         service = services_by_name.get(artifact.service, {})
         port = service_runtime_port(service)
         blueprint = blueprint_by_service.get(artifact.service)
@@ -253,6 +257,17 @@ def materialize_service_runtimes(spec: LabSpec, force: bool = False) -> list[Pat
             write_text(path, content)
             written.append(path)
     return written
+
+
+def cleanup_generated_plugin_files(service_root: Path) -> None:
+    generated_patterns = [
+        "plugins/*.contract.yaml",
+        "seed/vulnerability-*.json",
+    ]
+    for pattern in generated_patterns:
+        for path in service_root.glob(pattern):
+            if path.is_file():
+                path.unlink()
 
 
 def vulnerability_evidence_map(chain_manifest, artifact) -> dict[str, list[str]]:

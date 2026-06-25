@@ -868,6 +868,33 @@ def vulnerability_plugins_for_service(intake: ScenarioIntake, service_name: str)
                 }
             )
 
+    if any(
+        word in scenario_text
+        for word in [
+            "jwt",
+            "json web token",
+            "unsigned token",
+            "alg none",
+            "algorithm confusion",
+            "role claim",
+            "role confusion",
+            "token role",
+            "identity token",
+        ]
+    ):
+        if any(word in service_text for word in ["identity", "session", "sso", "auth", "mfa", "token"]):
+            plugins.append(
+                {
+                    "id": "jwt-role-confusion",
+                    "auth_workflow": "identity session and role authorization review",
+                    "normal_role": "analyst",
+                    "target_role": "admin",
+                    "target_dataset": "LABFORGE_SYNTHETIC_PRIVILEGED_EXPORT",
+                    "issuer": "labforge-idp",
+                    "emits_evidence": evidence_for_service_plugin(intake, service_name, "jwt-role-confusion"),
+                }
+            )
+
     if any(word in scenario_text for word in ["solr", "velocity", "legacy search", "search service", "search core", "cve-2019-17558", "response writer"]):
         if any(word in service_text for word in ["search", "solr", "ops", "audit", "log", "release", "metadata"]):
             plugins.append(
@@ -973,6 +1000,7 @@ def plugin_stage_terms(plugin_id: str) -> tuple[str, ...]:
         "stored-xss-review": ("xss", "review", "approval", "privileged", "session", "manager", "bot"),
         "ssrf-internal-fetch": ("ssrf", "server-side", "fetch", "webhook", "metadata", "internal"),
         "idor-object-access": ("idor", "object", "export", "direct object", "authorization", "record"),
+        "jwt-role-confusion": ("jwt", "json web token", "unsigned token", "alg none", "algorithm confusion", "role claim", "role confusion", "identity", "session", "authorization"),
         "path-traversal-download": ("path traversal", "directory traversal", "download", "file read", "document"),
         "unsafe-file-upload": ("upload", "attachment", "file upload", "review"),
         "diagnostic-command-injection": ("command", "diagnostic", "shell", "foothold", "execution", "rce"),
@@ -1091,6 +1119,7 @@ def analyze_prompt(request: NaturalLanguageScenarioRequest) -> PromptAnalysis:
             "stored-xss": ["stored xss", "xss", "cross-site", "review bot", "manager bot"],
             "ssrf": ["ssrf", "server-side request", "internal fetch", "webhook", "url fetch"],
             "idor": ["idor", "direct object", "object reference", "export object"],
+            "jwt-role-confusion": ["jwt", "json web token", "unsigned token", "alg none", "role claim", "role confusion"],
             "diagnostic-command-execution": ["diagnostic", "command injection", "command execution", "rce", "shell"],
             "identity-abuse": ["ldap", "sso", "session", "cookie", "token", "credential", "account"],
             "lateral-movement": ["lateral", "pivot", "tunnel", "bastion", "jump", "internal movement"],
