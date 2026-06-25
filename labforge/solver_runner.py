@@ -843,18 +843,42 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        storage_status, storage, _, storage_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/attachments/storage", "/labforge/scaffold/uploads/storage"],
+            None,
+            timeout_seconds,
+        )
+        access_status, access, _, access_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/attachments/access-audit", "/labforge/scaffold/uploads/access-audit"],
+            None,
+            timeout_seconds,
+        )
         records = review.get("records", []) if isinstance(review, dict) else []
+        storage_objects = storage.get("objects", []) if isinstance(storage, dict) else []
+        access_records = access.get("records", []) if isinstance(access, dict) else []
         review_recorded = any(isinstance(record, dict) and record.get("filename") == filename for record in records)
         policy_mismatch_recorded = any(isinstance(record, dict) and record.get("filename") == filename and record.get("policy_match") is False for record in records)
+        storage_recorded = any(isinstance(item, dict) and item.get("filename") == filename and item.get("retrieval_url") == f"/attachments/{filename}" for item in storage_objects)
+        upload_audited = any(isinstance(record, dict) and record.get("action") == "upload" and record.get("filename") == filename and record.get("status") == 201 for record in access_records)
+        retrieve_audited = any(isinstance(record, dict) and record.get("action") == "retrieve" and record.get("filename") == filename and record.get("status") == 200 for record in access_records)
         ok = (
             landing_ok
             and policy_status == 200
             and uploaded_status == 201
             and retrieved_status == 200
             and review_status == 200
+            and storage_status == 200
+            and access_status == 200
             and "labforge upload smoke" in retrieved_body
             and review_recorded
             and policy_mismatch_recorded
+            and storage_recorded
+            and upload_audited
+            and retrieve_audited
         )
         return plugin_step(
             order,
@@ -866,9 +890,10 @@ def run_plugin_http_sequence(
             ok,
             (
                 f"{context_note}; policy_route={policy_route}; upload_route={upload_route}; "
-                f"retrieve_route={retrieve_route}; review_route={review_route}; policy={policy_status}; "
-                f"uploaded={uploaded_status}; retrieved={retrieved_status}; review={review_status}; "
-                f"filename={filename or '-'}; review_recorded={review_recorded}; policy_mismatch_recorded={policy_mismatch_recorded}"
+                f"retrieve_route={retrieve_route}; review_route={review_route}; storage_route={storage_route}; access_route={access_route}; policy={policy_status}; "
+                f"uploaded={uploaded_status}; retrieved={retrieved_status}; review={review_status}; storage={storage_status}; access={access_status}; "
+                f"filename={filename or '-'}; review_recorded={review_recorded}; policy_mismatch_recorded={policy_mismatch_recorded}; "
+                f"storage_recorded={storage_recorded}; upload_audited={upload_audited}; retrieve_audited={retrieve_audited}"
             ),
         )
     if plugin == "diagnostic-command-injection":

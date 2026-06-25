@@ -137,6 +137,7 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "LOG_PATH": logs / "service-events.jsonl",
         "REVIEW_ITEMS_PATH": state / "stored-xss-review-items.json",
         "REVIEW_AUDIT_PATH": state / "stored-xss-review-audit.json",
+        "UPLOAD_ACCESS_AUDIT_PATH": state / "upload-access-audit.json",
         "BUILD_JOBS_PATH": state / "build-pipeline-jobs.json",
         "BUILD_AUDIT_PATH": state / "build-pipeline-audit.json",
         "UPDATE_CHANNELS_PATH": state / "signed-update-channels.json",
@@ -403,18 +404,28 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             filename = data.get("filename", "")
             retrieved = client.get(f"/labforge/scaffold/uploads/{filename}") if filename else uploaded
             review = client.get("/labforge/scaffold/uploads/review")
+            storage = client.get("/labforge/scaffold/uploads/storage")
+            access_audit = client.get("/labforge/scaffold/uploads/access-audit")
             review_data = review.get_json(silent=True) or {}
             records = review_data.get("records", [])
+            storage_data = storage.get_json(silent=True) or {}
+            access_data = access_audit.get_json(silent=True) or {}
+            access_records = access_data.get("records", []) if isinstance(access_data, dict) else []
             return assert_condition(
                 service,
                 plugin_id,
                 policy.status_code == 200
                 and uploaded.status_code == 201
                 and retrieved.status_code == 200
+                and storage.status_code == 200
+                and any(obj.get("filename") == filename and obj.get("retrieval_url") == f"/attachments/{filename}" for obj in storage_data.get("objects", []))
+                and access_audit.status_code == 200
+                and any(record.get("action") == "upload" and record.get("filename") == filename and record.get("status") == 201 for record in access_records)
+                and any(record.get("action") == "retrieve" and record.get("filename") == filename and record.get("status") == 200 for record in access_records)
                 and b"labforge upload smoke" in retrieved.get_data()
                 and any(record.get("filename") == filename and record.get("policy_match") is False for record in records),
-                "/labforge/scaffold/uploads + policy + review",
-                retrieved,
+                "/labforge/scaffold/uploads + policy + review + storage + access-audit",
+                access_audit,
             )
         if plugin_id == "diagnostic-command-injection":
             info = client.get("/api/diagnostics")
