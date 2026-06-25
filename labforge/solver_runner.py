@@ -490,6 +490,13 @@ def run_plugin_http_sequence(
             ),
         )
     if plugin == "stored-xss-review":
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/reviewer/policy", "/labforge/scaffold/reviewer/policy"],
+            None,
+            timeout_seconds,
+        )
         created_status, created, _, create_route = http_json_first(
             "POST",
             base_url,
@@ -517,8 +524,22 @@ def run_plugin_http_sequence(
             {"source": "solver-runner", "item_id": item_id},
             timeout_seconds,
         )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/reviewer/audit", "/labforge/scaffold/reviewer/audit"],
+            None,
+            timeout_seconds,
+        )
+        records = audit.get("records", []) if isinstance(audit, dict) else []
+        item_created = any(isinstance(item, dict) and item.get("action") == "item-created" and item.get("accepted") is True for item in records)
+        item_opened = any(isinstance(item, dict) and item.get("action") == "item-opened" and item.get("accepted") is True for item in records)
+        context_recorded = any(isinstance(item, dict) and item.get("action") == "context-read" and item.get("accepted") is True for item in records)
+        callback_recorded = any(isinstance(item, dict) and item.get("action") == "callback-received" and item.get("accepted") is True for item in records)
         ok = (
             landing_ok
+            and policy_status == 200
+            and policy.get("audit_api") == "GET /operations/reviewer/audit"
             and created_status == 201
             and opened_status == 200
             and "stored" in opened_body
@@ -527,6 +548,11 @@ def run_plugin_http_sequence(
             and isinstance(reviewer_context.get("session_context"), dict)
             and callback_status == 202
             and callback.get("accepted") is True
+            and audit_status == 200
+            and item_created
+            and item_opened
+            and context_recorded
+            and callback_recorded
         )
         return plugin_step(
             order,
@@ -537,9 +563,10 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; create_route={create_route}; open_route={open_route}; context_route={context_route}; "
-                f"callback_route={callback_route}; created={created_status}; opened={opened_status}; "
-                f"context={context_status}; callback={callback_status}; item_id={item_id or '-'}"
+                f"{context_note}; policy_route={policy_route}; create_route={create_route}; open_route={open_route}; context_route={context_route}; "
+                f"callback_route={callback_route}; audit_route={audit_route}; policy={policy_status}; created={created_status}; opened={opened_status}; "
+                f"context={context_status}; callback={callback_status}; audit={audit_status}; item_created={item_created}; item_opened={item_opened}; "
+                f"context_recorded={context_recorded}; callback_recorded={callback_recorded}; item_id={item_id or '-'}"
             ),
         )
     if plugin == "idor-object-access":

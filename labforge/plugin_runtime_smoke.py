@@ -136,6 +136,7 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "STAGE_STATE_PATH": state / "stage-state.json",
         "LOG_PATH": logs / "service-events.jsonl",
         "REVIEW_ITEMS_PATH": state / "stored-xss-review-items.json",
+        "REVIEW_AUDIT_PATH": state / "stored-xss-review-audit.json",
         "BUILD_JOBS_PATH": state / "build-pipeline-jobs.json",
         "BUILD_AUDIT_PATH": state / "build-pipeline-audit.json",
         "UPDATE_CHANNELS_PATH": state / "signed-update-channels.json",
@@ -237,27 +238,39 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 response,
             )
         if plugin_id == "stored-xss-review":
+            policy = client.get("/labforge/scaffold/reviewer/policy")
             created = client.post("/labforge/scaffold/review-items", json={"title": "Smoke", "body": "<b>stored</b>"})
             data = created.get_json(silent=True) or {}
             item_id = data.get("id", "")
             opened = client.get(f"/labforge/scaffold/reviewer/items/{item_id}") if item_id else created
             context = client.get("/labforge/scaffold/reviewer/context")
             callback = client.post("/labforge/scaffold/reviewer/callback", json={"source": "runtime-smoke", "item_id": item_id})
+            audit = client.get("/labforge/scaffold/reviewer/audit")
+            policy_data = policy.get_json(silent=True) or {}
             context_data = context.get_json(silent=True) or {}
             callback_data = callback.get_json(silent=True) or {}
+            audit_data = audit.get_json(silent=True) or {}
+            records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
             return assert_condition(
                 service,
                 plugin_id,
-                created.status_code == 201
+                policy.status_code == 200
+                and policy_data.get("callback_api") == "POST /operations/reviewer/callback"
+                and created.status_code == 201
                 and opened.status_code == 200
                 and "stored" in opened.get_data(as_text=True)
                 and "reviewer/context" in opened.get_data(as_text=True)
                 and context.status_code == 200
                 and isinstance(context_data.get("session_context"), dict)
                 and callback.status_code == 202
-                and callback_data.get("accepted") is True,
-                "/labforge/scaffold/review-items + reviewer context/callback",
-                callback,
+                and callback_data.get("accepted") is True
+                and audit.status_code == 200
+                and any(record.get("action") == "item-created" and record.get("accepted") is True for record in records)
+                and any(record.get("action") == "item-opened" and record.get("accepted") is True for record in records)
+                and any(record.get("action") == "context-read" and record.get("accepted") is True for record in records)
+                and any(record.get("action") == "callback-received" and record.get("accepted") is True for record in records),
+                "/labforge/scaffold/reviewer/policy + review-items + reviewer context/callback/audit",
+                audit,
             )
         if plugin_id == "idor-object-access":
             catalog = client.get("/labforge/scaffold/objects?owner=learner")
