@@ -148,6 +148,7 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "CUSTOMER_UPDATE_AUDIT_PATH": state / "customer-update-audit.json",
         "SOLR_VELOCITY_STATE_PATH": state / "solr-velocity-state.json",
         "SOLR_VELOCITY_AUDIT_PATH": state / "solr-velocity-audit.json",
+        "JWT_ROLE_AUDIT_PATH": state / "jwt-role-confusion-audit.json",
         "SQLI_REPORT_DB_PATH": state / "sql-injection-reporting.sqlite3",
         "SQLI_REPORT_AUDIT_PATH": state / "sql-injection-reporting-audit.json",
     }
@@ -317,6 +318,50 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and direct_read_audited,
                 "/labforge/scaffold/objects catalog + policy + entitlement + relationship + direct read policy-gap audit",
                 response,
+            )
+        if plugin_id == "jwt-role-confusion":
+            import base64
+
+            def b64url(value: dict) -> str:
+                raw = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+            session = client.get("/labforge/scaffold/identity/session")
+            policy = client.get("/labforge/scaffold/identity/policy")
+            token = (session.get_json(silent=True) or {}).get("token", "")
+            denied = client.get("/labforge/scaffold/identity/admin/export", headers={"Authorization": f"Bearer {token}"})
+            forged_token = f"{b64url({'typ': 'JWT', 'alg': 'none', 'kid': 'ops-2026'})}.{b64url({'iss': 'labforge-idp', 'sub': 'learner.analyst', 'role': 'admin', 'scope': 'reports:read identity:preview', 'aud': service})}."
+            preview = client.post("/labforge/scaffold/identity/token-preview", json={"token": forged_token})
+            accepted = client.get("/labforge/scaffold/identity/admin/export", headers={"Authorization": f"Bearer {forged_token}"})
+            audit = client.get("/labforge/scaffold/identity/audit")
+            session_data = session.get_json(silent=True) or {}
+            policy_data = policy.get_json(silent=True) or {}
+            preview_data = preview.get_json(silent=True) or {}
+            accepted_data = accepted.get_json(silent=True) or {}
+            audit_data = audit.get_json(silent=True) or {}
+            records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
+            denied_recorded = any(record.get("action") == "admin-export" and record.get("accepted") is False for record in records)
+            accepted_recorded = any(record.get("action") == "admin-export" and record.get("accepted") is True for record in records)
+            return assert_condition(
+                service,
+                plugin_id,
+                session.status_code == 200
+                and session_data.get("role") == "analyst"
+                and bool(token)
+                and policy.status_code == 200
+                and policy_data.get("preview_api") == "POST /api/identity/token-preview"
+                and denied.status_code == 403
+                and preview.status_code == 200
+                and preview_data.get("claims", {}).get("role") == "admin"
+                and preview_data.get("signature_valid") is True
+                and accepted.status_code == 200
+                and accepted_data.get("accepted") is True
+                and accepted_data.get("dataset") == "LABFORGE_SYNTHETIC_PRIVILEGED_EXPORT"
+                and audit.status_code == 200
+                and denied_recorded
+                and accepted_recorded,
+                "/labforge/scaffold/identity session + policy + preview + denied/admin export + audit",
+                accepted,
             )
         if plugin_id == "sql-injection-reporting":
             catalog = client.get("/labforge/scaffold/reports?owner=learner")

