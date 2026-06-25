@@ -106,6 +106,18 @@ class LearnerTerminalSequence(PlaytestModel):
     expected: str = "Remote command sequence completes."
 
 
+class LearnerTunnelCommand(PlaytestModel):
+    service: str
+    dns: str
+    internal_port: str
+    local_host: str = "127.0.0.1"
+    local_port: int
+    via: str
+    command: str
+    url: str = ""
+    access_note: str = ""
+
+
 class LearnerAccessManifest(PlaytestModel):
     lab_id: str
     title: str
@@ -119,6 +131,7 @@ class LearnerAccessManifest(PlaytestModel):
     attacker_entrypoints: list[PlaytestEndpoint] = Field(default_factory=list)
     final_submission_endpoints: list[PlaytestEndpoint] = Field(default_factory=list)
     internal_targets: list[InternalAccessTarget] = Field(default_factory=list)
+    tunnel_commands: list[LearnerTunnelCommand] = Field(default_factory=list)
     health_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_sequences: list[LearnerTerminalSequence] = Field(default_factory=list)
@@ -169,6 +182,7 @@ class LabAccessBundle(PlaytestModel):
     final_submission_urls: list[str] = Field(default_factory=list)
     published_endpoints: list[dict[str, Any]] = Field(default_factory=list)
     internal_targets: list[dict[str, Any]] = Field(default_factory=list)
+    tunnel_commands: list[dict[str, Any]] = Field(default_factory=list)
     health_commands: list[str] = Field(default_factory=list)
     terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
     plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
@@ -341,6 +355,61 @@ def endpoint_host_port(item: dict[str, Any]) -> int | None:
         return None
 
 
+def tunnel_commands_for_internal_targets(
+    internal_targets: list[InternalAccessTarget],
+    attacker_entrypoints: list[PlaytestEndpoint],
+    published_endpoints: list[PlaytestEndpoint],
+) -> list[LearnerTunnelCommand]:
+    attacker = next((endpoint for endpoint in attacker_entrypoints if endpoint.protocol == "ssh" and endpoint.connect), None)
+    if not attacker:
+        return []
+    used_ports = {
+        endpoint.default_host_port
+        for endpoint in [*published_endpoints, *attacker_entrypoints]
+        if endpoint.default_host_port is not None
+    }
+    local_port = 18080
+    commands: list[LearnerTunnelCommand] = []
+    for target in internal_targets:
+        if not target.dns or not target.expose:
+            continue
+        internal_port = str(target.expose[0])
+        while local_port in used_ports:
+            local_port += 1
+        used_ports.add(local_port)
+        url = f"http://127.0.0.1:{local_port}/" if looks_like_http_port(internal_port) else ""
+        commands.append(
+            LearnerTunnelCommand(
+                service=target.service,
+                dns=target.dns,
+                internal_port=internal_port,
+                local_port=local_port,
+                via=attacker.service,
+                command=f"ssh -L {local_port}:{target.dns}:{internal_port} {ssh_destination(attacker.connect)}",
+                url=url,
+                access_note=(
+                    f"Keep this SSH session open, then access {url or f'127.0.0.1:{local_port}'} "
+                    f"to reach internal service `{target.dns}:{internal_port}` through `{attacker.service}`."
+                ),
+            )
+        )
+        local_port += 1
+    return commands
+
+
+def looks_like_http_port(port: str) -> bool:
+    try:
+        value = int(str(port).split("/", maxsplit=1)[0])
+    except ValueError:
+        return False
+    return value not in {22, 389, 636, 1433, 1521, 3306, 5432, 6379}
+
+
+def ssh_destination(connect: str) -> str:
+    text = " ".join(str(connect).split())
+    return text.removeprefix("ssh ").strip() or text
+
+
 def internal_targets_from_endpoint_manifest(endpoint_manifest: dict[str, Any]) -> list[InternalAccessTarget]:
     targets: list[InternalAccessTarget] = []
     for item in endpoint_manifest.get("internal_services", []):
@@ -409,6 +478,12 @@ def is_primary_learner_endpoint(item: dict[str, Any]) -> bool:
 
 def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *, solver_plan: SolverPlan | None = None) -> LearnerAccessManifest:
     endpoint_manifest = load_endpoint_manifest(provider_out)
+    internal_targets = internal_targets_from_endpoint_manifest(endpoint_manifest)
+    tunnel_commands = tunnel_commands_for_internal_targets(
+        internal_targets,
+        report.attacker_entrypoints,
+        [*report.learner_entrypoints, *report.final_submission_endpoints],
+    )
     first_action = ""
     if report.learner_entrypoints:
         first = report.learner_entrypoints[0]
@@ -468,7 +543,8 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *,
         learner_entrypoints=report.learner_entrypoints,
         attacker_entrypoints=report.attacker_entrypoints,
         final_submission_endpoints=report.final_submission_endpoints,
-        internal_targets=internal_targets_from_endpoint_manifest(endpoint_manifest),
+        internal_targets=internal_targets,
+        tunnel_commands=tunnel_commands,
         health_checks=health_checks,
         terminal_checks=terminal_checks,
         terminal_sequences=terminal_sequences,
@@ -585,6 +661,12 @@ def build_lab_access_bundle(
         "human_readiness_report": str((playtest_out / "human-readiness.md").resolve()),
     }
     endpoint_manifest = load_endpoint_manifest(provider_out)
+    internal_targets = internal_targets_from_endpoint_manifest(endpoint_manifest)
+    tunnel_commands = tunnel_commands_for_internal_targets(
+        internal_targets,
+        report.attacker_entrypoints,
+        [*report.learner_entrypoints, *report.final_submission_endpoints],
+    )
     return LabAccessBundle(
         lab_id=report.lab_id,
         title=report.title,
@@ -598,7 +680,8 @@ def build_lab_access_bundle(
             endpoint.model_dump()
             for endpoint in [*report.learner_entrypoints, *report.attacker_entrypoints, *report.final_submission_endpoints]
         ],
-        internal_targets=[target.model_dump() for target in internal_targets_from_endpoint_manifest(endpoint_manifest)],
+        internal_targets=[target.model_dump() for target in internal_targets],
+        tunnel_commands=[command.model_dump() for command in tunnel_commands],
         health_commands=[check.command for check in access.health_checks],
         terminal_sequences=[
             {
@@ -1841,6 +1924,11 @@ def render_human_readiness_markdown(report: HumanReadinessReport) -> str:
 
 def render_learner_access_markdown(report: PlaytestReport) -> str:
     internal_targets = internal_targets_from_endpoint_manifest(load_endpoint_manifest(Path(report.output_dir) / "provider-output"))
+    tunnel_commands = tunnel_commands_for_internal_targets(
+        internal_targets,
+        report.attacker_entrypoints,
+        [*report.learner_entrypoints, *report.final_submission_endpoints],
+    )
     lines = [
         f"# Learner Access - {report.title}",
         "",
@@ -1894,6 +1982,15 @@ def render_learner_access_markdown(report: PlaytestReport) -> str:
         ]
     else:
         lines.append("- No internal-only targets were declared by the provider.")
+    lines += ["", "## Suggested Internal Tunnels", ""]
+    if tunnel_commands:
+        lines += [
+            "Run these commands from the learner host when the scenario path requires browser access to an internal service. Keep the SSH session open while using the local URL.",
+            "",
+            tunnel_command_table(tunnel_commands),
+        ]
+    else:
+        lines.append("- No internal tunnel commands were generated.")
     health_lines = [
         f"- `{endpoint.service}`: `curl -i {endpoint.health_url}`"
         for endpoint in [*report.learner_entrypoints, *report.final_submission_endpoints]
@@ -2065,6 +2162,11 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
         ]
     else:
         lines.append("- No internal targets declared.")
+    lines += ["", "### Suggested Internal Tunnels", ""]
+    if bundle.tunnel_commands:
+        lines.append(tunnel_command_table([LearnerTunnelCommand.model_validate(item) for item in bundle.tunnel_commands]))
+    else:
+        lines.append("- No tunnel commands generated.")
     lines += ["", "## Health Commands", ""]
     lines.extend(f"- `{command}`" for command in bundle.health_commands or ["-"])
     lines += ["", "## Terminal Sequences", ""]
@@ -2145,6 +2247,18 @@ def internal_target_table(targets: list[InternalAccessTarget]) -> str:
             f"| `{target.service}` | {escape_cell(target.role or '-')} | `{target.dns or '-'}` | "
             f"{escape_cell(', '.join(target.networks) or '-')} | `{', '.join(target.expose) or '-'}` | "
             f"{escape_cell(target.access_note or target.access_scope)} |"
+        )
+    return "\n".join(lines)
+
+
+def tunnel_command_table(commands: list[LearnerTunnelCommand]) -> str:
+    if not commands:
+        return "No tunnel commands were generated."
+    lines = ["| Service | Internal Target | Local URL | Command | Note |", "|---|---|---|---|---|"]
+    for command in commands:
+        lines.append(
+            f"| `{command.service}` | `{command.dns}:{command.internal_port}` | `{command.url or '-'}` | "
+            f"`{command.command}` | {escape_cell(command.access_note)} |"
         )
     return "\n".join(lines)
 

@@ -323,11 +323,13 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
         for item in access.get("internal_targets", []) or []
         if isinstance(item, dict) and (str(item.get("service", "")).strip() or str(item.get("dns", "")).strip())
     ]
+    tunnel_commands = compact_tunnel_commands(access)
     compare_bundle_list(findings, data, "learner_urls", learner_urls)
     compare_bundle_list(findings, data, "attacker_ssh", attacker_ssh)
     compare_bundle_list(findings, data, "final_submission_urls", final_urls)
     compare_bundle_targets(findings, data, "published_endpoints", published_endpoints)
     compare_bundle_targets(findings, data, "internal_targets", internal_targets)
+    compare_bundle_targets(findings, data, "tunnel_commands", tunnel_commands)
     if not data.get("solver_ready"):
         findings.append("missing=solver_ready")
     return findings or ["access_bundle=ready"]
@@ -362,7 +364,7 @@ def compact_record(item: dict, fields: list[str]) -> dict:
         value = item.get(field)
         if field == "expose":
             record[field] = [str(port) for port in value or []]
-        elif field == "default_host_port":
+        elif field in {"default_host_port", "local_port"}:
             record[field] = value
         else:
             record[field] = str(value or "").strip()
@@ -389,6 +391,28 @@ def compact_published_endpoints(access: dict) -> list[dict]:
                     "override_env": str(item.get("override_env", "")).strip(),
                 }
             )
+    return values
+
+
+def compact_tunnel_commands(access: dict) -> list[dict]:
+    values: list[dict] = []
+    for item in access.get("tunnel_commands", []) or []:
+        if not isinstance(item, dict):
+            continue
+        service = str(item.get("service", "")).strip()
+        command = str(item.get("command", "")).strip()
+        if not service and not command:
+            continue
+        values.append(
+            {
+                "service": service,
+                "dns": str(item.get("dns", "")).strip(),
+                "internal_port": str(item.get("internal_port", "")).strip(),
+                "local_port": item.get("local_port"),
+                "command": command,
+                "url": str(item.get("url", "")).strip(),
+            }
+        )
     return values
 
 

@@ -18,8 +18,11 @@ from labforge.playtest import (
     service_base_urls_from_endpoint_manifest,
     SolverPlan,
     SolverPlanStep,
+    InternalAccessTarget,
+    PlaytestEndpoint,
     stage_handoffs_from_chain_manifest,
     stage_implementation_coverage_step,
+    tunnel_commands_for_internal_targets,
     trusted_update_handoff_step,
 )
 from labforge.providers.docker_compose.provider import endpoint_expected_selectors, endpoint_expected_texts
@@ -92,6 +95,9 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(access_manifest["internal_targets"])
             self.assertTrue(any(target["dns"] == "fileserver" for target in access_manifest["internal_targets"]))
             self.assertTrue(any(target["access_scope"] == "internal-only" for target in access_manifest["internal_targets"]))
+            self.assertTrue(access_manifest["tunnel_commands"])
+            self.assertTrue(any("ssh -L" in command["command"] for command in access_manifest["tunnel_commands"]))
+            self.assertTrue(any(command["dns"] == "fileserver" for command in access_manifest["tunnel_commands"]))
             solver_plan = load_yaml(out / "solver-plan.json")
             self.assertEqual(solver_plan["lab_id"], report.lab_id)
             self.assertTrue(solver_plan["learner_start"])
@@ -118,6 +124,8 @@ class PlaytestTests(unittest.TestCase):
             self.assertTrue(access_bundle["terminal_sequences"])
             self.assertTrue(access_bundle["internal_targets"])
             self.assertTrue(any(target["dns"] == "controlled-drop" for target in access_bundle["internal_targets"]))
+            self.assertTrue(access_bundle["tunnel_commands"])
+            self.assertTrue(any(command["url"].startswith("http://127.0.0.1:") for command in access_bundle["tunnel_commands"] if command["url"]))
             self.assertTrue(access_bundle["solver_ready"])
             self.assertIn("plugin_checks", access_bundle)
             self.assertIn("stage_handoffs", access_bundle)
@@ -135,6 +143,7 @@ class PlaytestTests(unittest.TestCase):
             self.assertIn("Attacker SSH", access_bundle_md)
             self.assertIn("Published Endpoint Matrix", access_bundle_md)
             self.assertIn("Internal Targets", access_bundle_md)
+            self.assertIn("Suggested Internal Tunnels", access_bundle_md)
             self.assertIn("Stage Handoffs", access_bundle_md)
             self.assertIn("Plugin Evidence Checks", access_bundle_md)
             playtest_md = (out / "playtest-report.md").read_text(encoding="utf-8")
@@ -638,6 +647,36 @@ class PlaytestTests(unittest.TestCase):
         self.assertEqual(endpoints[0].default_host_port, 18080)
         self.assertEqual(endpoints[0].container_port, "8080")
         self.assertEqual(endpoints[0].override_env, "LABFORGE_PORT_DOCUMENT_PORTAL_8080")
+
+    def test_tunnel_commands_for_internal_targets_avoid_published_ports(self) -> None:
+        commands = tunnel_commands_for_internal_targets(
+            [
+                InternalAccessTarget(service="wiki", dns="wiki", expose=["6000"], networks=["corp"]),
+                InternalAccessTarget(service="ldap", dns="ldap", expose=["389"], networks=["corp"]),
+            ],
+            [
+                PlaytestEndpoint(
+                    service="attacker-workstation",
+                    protocol="ssh",
+                    connect="ssh attacker@127.0.0.1 -p 2222",
+                    default_host_port=2222,
+                )
+            ],
+            [
+                PlaytestEndpoint(
+                    service="edge-proxy",
+                    protocol="http",
+                    connect="http://127.0.0.1:18080/",
+                    default_host_port=18080,
+                )
+            ],
+        )
+
+        self.assertEqual(commands[0].local_port, 18081)
+        self.assertEqual(commands[0].command, "ssh -L 18081:wiki:6000 attacker@127.0.0.1 -p 2222")
+        self.assertEqual(commands[0].url, "http://127.0.0.1:18081/")
+        self.assertEqual(commands[1].local_port, 18082)
+        self.assertEqual(commands[1].url, "")
 
     def test_docker_provider_derives_expected_texts_from_artifact_plugins(self) -> None:
         artifact = SimpleNamespace(
