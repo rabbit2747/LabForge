@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .access_playtest import AccessPlaytestReport, BrowserProbeEngine, run_access_playtest
+from .access_playtest import (
+    AccessPlaytestReport,
+    BrowserProbeEngine,
+    collect_process_output,
+    parse_ssh_local_forward,
+    run_access_playtest,
+    ssh_tunnel_argv,
+    wait_for_tcp_port,
+)
 from .doctor import HostDoctorReport, inspect_host, report_to_markdown
 from .io import dump_yaml, write_text
 from .provider_lifecycle import ProviderLifecycleResult, provider_lifecycle
@@ -15,6 +25,17 @@ from .solver_runner import SolverRunReport, run_solver_plan
 
 class E2ESolverModel(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+
+class E2ETunnelResult(E2ESolverModel):
+    service: str = ""
+    command: str = ""
+    local_port: str = ""
+    target: str = ""
+    status: Literal["passed", "failed", "skipped"]
+    message: str = ""
+    stdout: str = ""
+    stderr: str = ""
 
 
 class E2ESolverReport(E2ESolverModel):
@@ -31,6 +52,7 @@ class E2ESolverReport(E2ESolverModel):
     host_preflight: dict = Field(default_factory=dict)
     preflight_ready: bool = False
     lifecycle: list[ProviderLifecycleResult] = Field(default_factory=list)
+    persistent_tunnels: list[E2ETunnelResult] = Field(default_factory=list)
     access_playtest: AccessPlaytestReport | None = None
     solver_run: SolverRunReport | None = None
     cleanup_requested: bool = False
@@ -126,22 +148,32 @@ def run_e2e_solver(
                 timeout_seconds=timeout_seconds,
             )
         )
-        access_report = run_access_playtest(
-            access_manifest,
-            out / "access-playtest",
-            execute=execute,
-            timeout_seconds=min(timeout_seconds, 15),
-            browser_engine=browser_engine,
-            execute_tunnels=execute_tunnels,
-        )
-        solver_report = run_solver_plan(
-            solver_plan,
-            out / "solver-run",
-            access_manifest=access_manifest,
-            endpoint_manifest=endpoint_manifest_arg,
-            execute=execute,
-            timeout_seconds=min(timeout_seconds, 15),
-        )
+        persistent_tunnels: list[E2ETunnelResult] = []
+        persistent_tunnel_processes: list[subprocess.Popen] = []
+        if execute and execute_tunnels:
+            persistent_tunnels, persistent_tunnel_processes = start_persistent_tunnels(
+                access_manifest,
+                timeout_seconds=min(timeout_seconds, 15),
+            )
+        try:
+            access_report = run_access_playtest(
+                access_manifest,
+                out / "access-playtest",
+                execute=execute,
+                timeout_seconds=min(timeout_seconds, 15),
+                browser_engine=browser_engine,
+                execute_tunnels=False,
+            )
+            solver_report = run_solver_plan(
+                solver_plan,
+                out / "solver-run",
+                access_manifest=access_manifest,
+                endpoint_manifest=endpoint_manifest_arg,
+                execute=execute,
+                timeout_seconds=min(timeout_seconds, 15),
+            )
+        finally:
+            stop_persistent_tunnels(persistent_tunnel_processes)
         if cleanup:
             lifecycle.append(
                 provider_lifecycle(
@@ -153,6 +185,8 @@ def run_e2e_solver(
                     timeout_seconds=timeout_seconds,
                 )
             )
+    if "persistent_tunnels" not in locals():
+        persistent_tunnels = []
     mode: Literal["dry-run", "execute"] = "execute" if execute else "dry-run"
     execution_depth_findings = validate_execution_depth(
         solver_plan,
@@ -171,6 +205,7 @@ def run_e2e_solver(
             execute=execute,
             access_bundle_ready=access_bundle_ready,
             execution_depth_findings=execution_depth_findings,
+            persistent_tunnels=persistent_tunnels,
         ),
         provider_output=str(provider_output),
         solver_plan=str(solver_plan),
@@ -182,6 +217,7 @@ def run_e2e_solver(
         host_preflight=host_preflight_data,
         preflight_ready=preflight_ready,
         lifecycle=lifecycle,
+        persistent_tunnels=persistent_tunnels,
         access_playtest=access_report,
         solver_run=solver_report,
         cleanup_requested=cleanup,
@@ -193,6 +229,105 @@ def run_e2e_solver(
     return report
 
 
+def start_persistent_tunnels(access_manifest: Path, *, timeout_seconds: int) -> tuple[list[E2ETunnelResult], list[subprocess.Popen]]:
+    access = load_json(access_manifest)
+    results: list[E2ETunnelResult] = []
+    processes: list[subprocess.Popen] = []
+    for item in access.get("tunnel_commands", []) or []:
+        if not isinstance(item, dict):
+            continue
+        service = str(item.get("service", "")).strip()
+        command = str(item.get("command", "")).strip()
+        parsed = parse_ssh_local_forward(command)
+        if not parsed:
+            results.append(
+                E2ETunnelResult(
+                    service=service,
+                    command=command,
+                    status="failed",
+                    message="unsupported SSH local-forward syntax",
+                )
+            )
+            continue
+        target = f"{parsed['target_host']}:{parsed['target_port']}"
+        if not shutil.which("ssh"):
+            results.append(
+                E2ETunnelResult(
+                    service=service,
+                    command=command,
+                    local_port=parsed["local_port"],
+                    target=target,
+                    status="failed",
+                    message="missing executable: ssh",
+                )
+            )
+            continue
+        argv = ssh_tunnel_argv(command)
+        if not argv:
+            results.append(
+                E2ETunnelResult(
+                    service=service,
+                    command=command,
+                    local_port=parsed["local_port"],
+                    target=target,
+                    status="failed",
+                    message="could not build non-interactive SSH tunnel argv",
+                )
+            )
+            continue
+        process = subprocess.Popen(  # noqa: S603 - lab-scoped SSH command parsed without shell.
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if wait_for_tcp_port("127.0.0.1", int(parsed["local_port"]), timeout_seconds):
+            processes.append(process)
+            results.append(
+                E2ETunnelResult(
+                    service=service,
+                    command=command,
+                    local_port=parsed["local_port"],
+                    target=target,
+                    status="passed",
+                    message=f"tunnel_open=true; local=127.0.0.1:{parsed['local_port']}; target={target}",
+                )
+            )
+            continue
+        stdout, stderr = collect_process_output(process)
+        terminate_process(process)
+        results.append(
+            E2ETunnelResult(
+                service=service,
+                command=command,
+                local_port=parsed["local_port"],
+                target=target,
+                status="failed",
+                stdout=stdout,
+                stderr=stderr,
+                message=f"tunnel did not open on 127.0.0.1:{parsed['local_port']} within {timeout_seconds}s",
+            )
+        )
+    return results, processes
+
+
+def stop_persistent_tunnels(processes: list[subprocess.Popen]) -> None:
+    for process in processes:
+        terminate_process(process)
+
+
+def terminate_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
 def aggregate_e2e_status(
     lifecycle: list[ProviderLifecycleResult],
     access_report: AccessPlaytestReport,
@@ -201,17 +336,23 @@ def aggregate_e2e_status(
     execute: bool,
     access_bundle_ready: bool = True,
     execution_depth_findings: list[str] | None = None,
+    persistent_tunnels: list[E2ETunnelResult] | None = None,
 ) -> Literal["planned", "passed", "warning", "failed"]:
     if not execute:
         return "planned"
     execution_depth_findings = execution_depth_findings or []
+    persistent_tunnels = persistent_tunnels or []
     if any(item.startswith("missing=") for item in execution_depth_findings):
         return "failed"
     if any(item.status == "failed" for item in lifecycle):
         return "failed"
+    if any(item.status == "failed" for item in persistent_tunnels):
+        return "failed"
     if access_report.status == "failed" or solver_report.status == "failed":
         return "failed"
     if any(item.status in {"planned", "not-implemented"} for item in lifecycle):
+        return "warning"
+    if any(item.status == "skipped" for item in persistent_tunnels):
         return "warning"
     if access_report.status == "warning" or solver_report.status == "warning":
         return "warning"
@@ -503,6 +644,21 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
     ]
     for item in report.lifecycle:
         lines.append(f"| `{item.action}` | `{item.mode}` | {item.status} | {escape_cell(item.message or '-')} |")
+    lines += [
+        "",
+        "## Persistent Tunnels",
+        "",
+        "| Service | Local Port | Target | Status | Message |",
+        "|---|---:|---|---|---|",
+    ]
+    if report.persistent_tunnels:
+        for item in report.persistent_tunnels:
+            lines.append(
+                f"| `{item.service or '-'}` | `{item.local_port or '-'}` | `{item.target or '-'}` | "
+                f"{item.status} | {escape_cell(item.message or '-')} |"
+            )
+    else:
+        lines.append("| `-` | `-` | `-` | skipped | No persistent tunnel execution requested. |")
     lines += [
         "",
         "## Access Playtest",

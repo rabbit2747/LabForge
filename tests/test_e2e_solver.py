@@ -15,6 +15,27 @@ from labforge.qa import e2e_solver_release_check
 from labforge.solver_runner import SolverRunReport, SolverRunStep
 
 
+class FakeTunnelProcess:
+    def __init__(self) -> None:
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return None if not self.terminated and not self.killed else 0
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def communicate(self, timeout=None):
+        return ("", "")
+
+
 class E2ESolverTests(unittest.TestCase):
     def test_e2e_solver_dry_run_plans_lifecycle_access_and_solver(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -754,6 +775,286 @@ class E2ESolverTests(unittest.TestCase):
 
             self.assertFalse(report.access_bundle_ready)
             self.assertTrue(any(item.startswith("mismatch=tunnel_commands") for item in report.access_bundle_findings))
+
+    def test_e2e_solver_execute_keeps_tunnel_alive_for_solver_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            playtest = root / "playtest"
+            out = root / "e2e"
+            provider_output.mkdir()
+            playtest.mkdir()
+            solver_plan = playtest / "solver-plan.json"
+            access_manifest = playtest / "learner-access.json"
+            access_bundle = playtest / "lab-access-bundle.json"
+            tunnel_process = FakeTunnelProcess()
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "persistent-tunnel",
+                        "title": "Persistent Tunnel",
+                        "steps": [{"order": 1, "step_id": "wiki-01", "action_type": "access"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            tunnel_record = {
+                "service": "wiki",
+                "dns": "wiki",
+                "internal_port": "6000",
+                "local_port": 18080,
+                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222",
+                "url": "http://127.0.0.1:18080/",
+            }
+            access_bundle.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "persistent-tunnel",
+                        "title": "Persistent Tunnel",
+                        "learner_urls": [],
+                        "attacker_ssh": [],
+                        "final_submission_urls": [],
+                        "published_endpoints": [],
+                        "internal_targets": [],
+                        "tunnel_commands": [tunnel_record],
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "solver_ready": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "persistent-tunnel",
+                        "title": "Persistent Tunnel",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "final_submission_endpoints": [],
+                        "internal_targets": [],
+                        "tunnel_commands": [tunnel_record],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_lifecycle(*_args, **kwargs):
+                return ProviderLifecycleResult(
+                    provider=kwargs["provider"],
+                    action=kwargs["action"],
+                    mode="execute",
+                    status="completed",
+                    output_dir=str(provider_output),
+                )
+
+            def fake_access(*_args, **kwargs):
+                self.assertTrue(kwargs["execute"])
+                self.assertFalse(kwargs["execute_tunnels"])
+                self.assertFalse(tunnel_process.terminated)
+                return AccessPlaytestReport(
+                    lab_id="persistent-tunnel",
+                    title="Persistent Tunnel",
+                    mode="execute",
+                    status="passed",
+                    access_manifest=str(access_manifest),
+                    items=[
+                        AccessPlaytestItem(
+                            check_id="tunnel-01",
+                            service="wiki",
+                            kind="ssh-local-forward",
+                            command=tunnel_record["command"],
+                            status="passed",
+                        )
+                    ],
+                )
+
+            def fake_solver(*_args, **kwargs):
+                self.assertTrue(kwargs["execute"])
+                self.assertFalse(tunnel_process.terminated)
+                return SolverRunReport(
+                    lab_id="persistent-tunnel",
+                    title="Persistent Tunnel",
+                    mode="execute",
+                    status="passed",
+                    solver_plan=str(solver_plan),
+                    steps=[SolverRunStep(order=1, step_id="wiki-01", action_type="access", status="passed")],
+                )
+
+            with patch("labforge.e2e_solver.provider_lifecycle", side_effect=fake_lifecycle), patch(
+                "labforge.e2e_solver.shutil.which",
+                return_value="ssh",
+            ), patch("labforge.e2e_solver.subprocess.Popen", return_value=tunnel_process), patch(
+                "labforge.e2e_solver.wait_for_tcp_port",
+                return_value=True,
+            ), patch("labforge.e2e_solver.run_access_playtest", side_effect=fake_access), patch(
+                "labforge.e2e_solver.run_solver_plan",
+                side_effect=fake_solver,
+            ):
+                report = run_e2e_solver(
+                    provider_output,
+                    solver_plan,
+                    access_manifest,
+                    out,
+                    execute=True,
+                    execute_tunnels=True,
+                    host_preflight=HostDoctorReport(
+                        host_os="linux",
+                        platform="test",
+                        architecture="x86_64",
+                        shell_hint="sh",
+                        cwd=str(root),
+                        wsl_available=False,
+                        host_docker_cli=True,
+                        host_docker_server=True,
+                        recommended_execution="host",
+                    ),
+                )
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.persistent_tunnels[0].status, "passed")
+            self.assertTrue(tunnel_process.terminated)
+            self.assertIn("Persistent Tunnels", (out / "e2e-solver.md").read_text(encoding="utf-8"))
+
+    def test_e2e_solver_execute_fails_when_persistent_tunnel_does_not_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            playtest = root / "playtest"
+            out = root / "e2e"
+            provider_output.mkdir()
+            playtest.mkdir()
+            solver_plan = playtest / "solver-plan.json"
+            access_manifest = playtest / "learner-access.json"
+            access_bundle = playtest / "lab-access-bundle.json"
+            tunnel_process = FakeTunnelProcess()
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "persistent-tunnel-fail",
+                        "title": "Persistent Tunnel Fail",
+                        "steps": [{"order": 1, "step_id": "wiki-01", "action_type": "access"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            tunnel_record = {
+                "service": "wiki",
+                "dns": "wiki",
+                "internal_port": "6000",
+                "local_port": 18080,
+                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222",
+                "url": "http://127.0.0.1:18080/",
+            }
+            bundle = {
+                "lab_id": "persistent-tunnel-fail",
+                "title": "Persistent Tunnel Fail",
+                "learner_urls": [],
+                "attacker_ssh": [],
+                "final_submission_urls": [],
+                "published_endpoints": [],
+                "internal_targets": [],
+                "tunnel_commands": [tunnel_record],
+                "generated_files": {
+                    "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                    "learner_access_json": str(access_manifest.resolve()),
+                    "solver_plan_json": str(solver_plan.resolve()),
+                },
+                "solver_ready": True,
+            }
+            access_bundle.write_text(json.dumps(bundle), encoding="utf-8")
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "persistent-tunnel-fail",
+                        "title": "Persistent Tunnel Fail",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "final_submission_endpoints": [],
+                        "internal_targets": [],
+                        "tunnel_commands": [tunnel_record],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_lifecycle(*_args, **kwargs):
+                return ProviderLifecycleResult(
+                    provider=kwargs["provider"],
+                    action=kwargs["action"],
+                    mode="execute",
+                    status="completed",
+                    output_dir=str(provider_output),
+                )
+
+            def fake_access(*_args, **_kwargs):
+                return AccessPlaytestReport(
+                    lab_id="persistent-tunnel-fail",
+                    title="Persistent Tunnel Fail",
+                    mode="execute",
+                    status="passed",
+                    access_manifest=str(access_manifest),
+                    items=[
+                        AccessPlaytestItem(
+                            check_id="tunnel-01",
+                            service="wiki",
+                            kind="ssh-local-forward",
+                            command=tunnel_record["command"],
+                            status="passed",
+                        )
+                    ],
+                )
+
+            def fake_solver(*_args, **_kwargs):
+                return SolverRunReport(
+                    lab_id="persistent-tunnel-fail",
+                    title="Persistent Tunnel Fail",
+                    mode="execute",
+                    status="passed",
+                    solver_plan=str(solver_plan),
+                    steps=[SolverRunStep(order=1, step_id="wiki-01", action_type="access", status="passed")],
+                )
+
+            with patch("labforge.e2e_solver.provider_lifecycle", side_effect=fake_lifecycle), patch(
+                "labforge.e2e_solver.shutil.which",
+                return_value="ssh",
+            ), patch("labforge.e2e_solver.subprocess.Popen", return_value=tunnel_process), patch(
+                "labforge.e2e_solver.wait_for_tcp_port",
+                return_value=False,
+            ), patch("labforge.e2e_solver.run_access_playtest", side_effect=fake_access), patch(
+                "labforge.e2e_solver.run_solver_plan",
+                side_effect=fake_solver,
+            ):
+                report = run_e2e_solver(
+                    provider_output,
+                    solver_plan,
+                    access_manifest,
+                    out,
+                    execute=True,
+                    execute_tunnels=True,
+                    host_preflight=HostDoctorReport(
+                        host_os="linux",
+                        platform="test",
+                        architecture="x86_64",
+                        shell_hint="sh",
+                        cwd=str(root),
+                        wsl_available=False,
+                        host_docker_cli=True,
+                        host_docker_server=True,
+                        recommended_execution="host",
+                    ),
+                )
+
+            self.assertEqual(report.status, "failed")
+            self.assertEqual(report.persistent_tunnels[0].status, "failed")
+            self.assertTrue(tunnel_process.terminated)
 
 
 if __name__ == "__main__":
