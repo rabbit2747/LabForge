@@ -313,9 +313,19 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
         for item in access.get("final_submission_endpoints", []) or []
         if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
     ]
+    internal_targets = [
+        {
+            "service": str(item.get("service", "")).strip(),
+            "dns": str(item.get("dns", "")).strip(),
+            "expose": [str(port) for port in item.get("expose", []) or []],
+        }
+        for item in access.get("internal_targets", []) or []
+        if isinstance(item, dict) and (str(item.get("service", "")).strip() or str(item.get("dns", "")).strip())
+    ]
     compare_bundle_list(findings, data, "learner_urls", learner_urls)
     compare_bundle_list(findings, data, "attacker_ssh", attacker_ssh)
     compare_bundle_list(findings, data, "final_submission_urls", final_urls)
+    compare_bundle_targets(findings, data, "internal_targets", internal_targets)
     if not data.get("solver_ready"):
         findings.append("missing=solver_ready")
     return findings or ["access_bundle=ready"]
@@ -331,6 +341,20 @@ def load_json(path: Path) -> dict:
 
 def compare_bundle_list(findings: list[str], bundle: dict, key: str, expected: list[str]) -> None:
     actual = [str(item).strip() for item in bundle.get(key, []) or [] if str(item).strip()]
+    if actual != expected:
+        findings.append(f"mismatch={key}:expected={expected}:actual={actual}")
+
+
+def compare_bundle_targets(findings: list[str], bundle: dict, key: str, expected: list[dict]) -> None:
+    actual = [
+        {
+            "service": str(item.get("service", "")).strip(),
+            "dns": str(item.get("dns", "")).strip(),
+            "expose": [str(port) for port in item.get("expose", []) or []],
+        }
+        for item in bundle.get(key, []) or []
+        if isinstance(item, dict) and (str(item.get("service", "")).strip() or str(item.get("dns", "")).strip())
+    ]
     if actual != expected:
         findings.append(f"mismatch={key}:expected={expected}:actual={actual}")
 

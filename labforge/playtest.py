@@ -44,6 +44,16 @@ class PlaytestEndpoint(PlaytestModel):
     expected_selectors: list[str] = Field(default_factory=list)
 
 
+class InternalAccessTarget(PlaytestModel):
+    service: str
+    role: str = ""
+    dns: str = ""
+    networks: list[str] = Field(default_factory=list)
+    expose: list[str] = Field(default_factory=list)
+    access_scope: str = "internal-only"
+    access_note: str = ""
+
+
 class PlaytestStep(PlaytestModel):
     step_id: str
     title: str
@@ -104,6 +114,7 @@ class LearnerAccessManifest(PlaytestModel):
     learner_entrypoints: list[PlaytestEndpoint] = Field(default_factory=list)
     attacker_entrypoints: list[PlaytestEndpoint] = Field(default_factory=list)
     final_submission_endpoints: list[PlaytestEndpoint] = Field(default_factory=list)
+    internal_targets: list[InternalAccessTarget] = Field(default_factory=list)
     health_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_checks: list[LearnerAccessCheck] = Field(default_factory=list)
     terminal_sequences: list[LearnerTerminalSequence] = Field(default_factory=list)
@@ -152,6 +163,7 @@ class LabAccessBundle(PlaytestModel):
     learner_urls: list[str] = Field(default_factory=list)
     attacker_ssh: list[str] = Field(default_factory=list)
     final_submission_urls: list[str] = Field(default_factory=list)
+    internal_targets: list[dict[str, Any]] = Field(default_factory=list)
     health_commands: list[str] = Field(default_factory=list)
     terminal_sequences: list[dict[str, Any]] = Field(default_factory=list)
     plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
@@ -298,6 +310,38 @@ def endpoint_group(endpoint_manifest: dict[str, Any], predicate) -> list[Playtes
     return endpoints
 
 
+def internal_targets_from_endpoint_manifest(endpoint_manifest: dict[str, Any]) -> list[InternalAccessTarget]:
+    targets: list[InternalAccessTarget] = []
+    for item in endpoint_manifest.get("internal_services", []):
+        if not isinstance(item, dict):
+            continue
+        service = str(item.get("service", "")).strip()
+        dns = str(item.get("dns") or service).strip()
+        networks = [str(network) for network in item.get("networks", []) or [] if str(network).strip()]
+        expose = [str(port) for port in item.get("expose", []) or [] if str(port).strip()]
+        if not service and not dns:
+            continue
+        scope = "internal-only"
+        note_parts = []
+        if dns:
+            note_parts.append(f"resolve as `{dns}` from containers attached to {', '.join(networks) or 'the same lab network'}")
+        if expose:
+            note_parts.append(f"service ports: {', '.join(expose)}")
+        note_parts.append("not directly reachable from the learner host unless a scenario stage creates an approved tunnel, pivot, or workstation route")
+        targets.append(
+            InternalAccessTarget(
+                service=service or dns,
+                role=str(item.get("role", "")),
+                dns=dns or service,
+                networks=networks,
+                expose=expose,
+                access_scope=scope,
+                access_note="; ".join(note_parts),
+            )
+        )
+    return targets
+
+
 def normalize_endpoint_expected_texts(item: dict[str, Any]) -> list[str]:
     values: list[str] = []
     single = str(item.get("expected_text", "")).strip()
@@ -333,6 +377,7 @@ def is_primary_learner_endpoint(item: dict[str, Any]) -> bool:
 
 
 def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *, solver_plan: SolverPlan | None = None) -> LearnerAccessManifest:
+    endpoint_manifest = load_endpoint_manifest(provider_out)
     first_action = ""
     if report.learner_entrypoints:
         first = report.learner_entrypoints[0]
@@ -392,12 +437,13 @@ def build_learner_access_manifest(report: PlaytestReport, provider_out: Path, *,
         learner_entrypoints=report.learner_entrypoints,
         attacker_entrypoints=report.attacker_entrypoints,
         final_submission_endpoints=report.final_submission_endpoints,
+        internal_targets=internal_targets_from_endpoint_manifest(endpoint_manifest),
         health_checks=health_checks,
         terminal_checks=terminal_checks,
         terminal_sequences=terminal_sequences,
         plugin_checks=plugin_checks_from_solver_plan(
             solver_plan,
-            service_base_urls=service_base_urls_from_endpoint_manifest(load_endpoint_manifest(provider_out)),
+            service_base_urls=service_base_urls_from_endpoint_manifest(endpoint_manifest),
         )
         if solver_plan
         else [],
@@ -507,6 +553,7 @@ def build_lab_access_bundle(
         "walkthrough": str((playtest_out / "playtest-walkthrough.md").resolve()),
         "human_readiness_report": str((playtest_out / "human-readiness.md").resolve()),
     }
+    endpoint_manifest = load_endpoint_manifest(provider_out)
     return LabAccessBundle(
         lab_id=report.lab_id,
         title=report.title,
@@ -516,6 +563,7 @@ def build_lab_access_bundle(
         learner_urls=[endpoint.connect for endpoint in report.learner_entrypoints if endpoint.protocol == "http" and endpoint.connect],
         attacker_ssh=[endpoint.connect for endpoint in report.attacker_entrypoints if endpoint.protocol == "ssh" and endpoint.connect],
         final_submission_urls=[endpoint.connect for endpoint in report.final_submission_endpoints if endpoint.protocol == "http" and endpoint.connect],
+        internal_targets=[target.model_dump() for target in internal_targets_from_endpoint_manifest(endpoint_manifest)],
         health_commands=[check.command for check in access.health_checks],
         terminal_sequences=[
             {
@@ -528,7 +576,7 @@ def build_lab_access_bundle(
         ],
         plugin_checks=plugin_checks_from_solver_plan(
             solver_plan,
-            service_base_urls=service_base_urls_from_endpoint_manifest(load_endpoint_manifest(provider_out)),
+            service_base_urls=service_base_urls_from_endpoint_manifest(endpoint_manifest),
         ),
         stage_handoffs=stage_handoffs_from_chain_manifest(chain_manifest),
         start_commands=[command.model_dump() for command in access.start_commands],
@@ -1757,6 +1805,7 @@ def render_human_readiness_markdown(report: HumanReadinessReport) -> str:
 
 
 def render_learner_access_markdown(report: PlaytestReport) -> str:
+    internal_targets = internal_targets_from_endpoint_manifest(load_endpoint_manifest(Path(report.output_dir) / "provider-output"))
     lines = [
         f"# Learner Access - {report.title}",
         "",
@@ -1801,6 +1850,15 @@ def render_learner_access_markdown(report: PlaytestReport) -> str:
         lines.extend(f"- `{endpoint.service}`: `{endpoint.connect}`" for endpoint in report.final_submission_endpoints)
     else:
         lines.append("- No final submission endpoint was generated.")
+    lines += ["", "## Internal Targets", ""]
+    if internal_targets:
+        lines += [
+            "These services are not directly opened on the learner host. They become reachable only from the right lab network, workstation, tunnel, pivot, or scenario-approved route.",
+            "",
+            internal_target_table(internal_targets),
+        ]
+    else:
+        lines.append("- No internal-only targets were declared by the provider.")
     health_lines = [
         f"- `{endpoint.service}`: `curl -i {endpoint.health_url}`"
         for endpoint in [*report.learner_entrypoints, *report.final_submission_endpoints]
@@ -1958,6 +2016,15 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
     lines.extend(f"- `{command}`" for command in bundle.attacker_ssh or ["-"])
     lines += ["", "### Final Submission URLs", ""]
     lines.extend(f"- `{url}`" for url in bundle.final_submission_urls or ["-"])
+    lines += ["", "### Internal Targets", ""]
+    if bundle.internal_targets:
+        lines += [
+            "These are provider-declared internal DNS targets. They are listed for supervisor/playtest context and require the scenario path to create reachability.",
+            "",
+            internal_target_table([InternalAccessTarget.model_validate(item) for item in bundle.internal_targets]),
+        ]
+    else:
+        lines.append("- No internal targets declared.")
     lines += ["", "## Health Commands", ""]
     lines.extend(f"- `{command}`" for command in bundle.health_commands or ["-"])
     lines += ["", "## Terminal Sequences", ""]
@@ -2024,6 +2091,19 @@ def endpoint_table(endpoints: list[PlaytestEndpoint]) -> str:
         lines.append(
             f"| `{endpoint.service}` | {escape_cell(endpoint.role or '-')} | `{endpoint.protocol or '-'}` | "
             f"`{endpoint.connect or '-'}` | `{endpoint.health_url or '-'}` |"
+        )
+    return "\n".join(lines)
+
+
+def internal_target_table(targets: list[InternalAccessTarget]) -> str:
+    if not targets:
+        return "No internal targets were declared."
+    lines = ["| Service | Role | DNS | Networks | Exposed Ports | Access Note |", "|---|---|---|---|---|---|"]
+    for target in targets:
+        lines.append(
+            f"| `{target.service}` | {escape_cell(target.role or '-')} | `{target.dns or '-'}` | "
+            f"{escape_cell(', '.join(target.networks) or '-')} | `{', '.join(target.expose) or '-'}` | "
+            f"{escape_cell(target.access_note or target.access_scope)} |"
         )
     return "\n".join(lines)
 

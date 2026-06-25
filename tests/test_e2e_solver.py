@@ -564,6 +564,80 @@ class E2ESolverTests(unittest.TestCase):
             self.assertFalse(report.access_bundle_ready)
             self.assertTrue(any(item.startswith("mismatch=learner_urls") for item in report.access_bundle_findings))
 
+    def test_e2e_solver_warns_when_internal_targets_do_not_match_access_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            provider_output.mkdir()
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            (root / "lab-access-bundle.json").write_text(
+                json.dumps(
+                    {
+                        "lab_id": "internal-target-mismatch",
+                        "title": "Internal Target Mismatch",
+                        "learner_urls": [],
+                        "attacker_ssh": [],
+                        "final_submission_urls": [],
+                        "internal_targets": [
+                            {"service": "wiki", "dns": "wiki", "expose": ["6001"]},
+                        ],
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "solver_ready": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            solver_plan.write_text(
+                json.dumps({"lab_id": "internal-target-mismatch", "title": "Internal Target Mismatch", "steps": []}),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "internal-target-mismatch",
+                        "title": "Internal Target Mismatch",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "final_submission_endpoints": [],
+                        "internal_targets": [
+                            {"service": "wiki", "dns": "wiki", "expose": ["6000"]},
+                        ],
+                        "health_checks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = run_e2e_solver(
+                provider_output,
+                solver_plan,
+                access_manifest,
+                root / "e2e",
+                execute=False,
+                host_preflight=HostDoctorReport(
+                    host_os="linux",
+                    platform="test",
+                    architecture="x86_64",
+                    shell_hint="sh",
+                    cwd=str(root),
+                    wsl_available=False,
+                    host_docker_cli=True,
+                    host_docker_server=True,
+                    recommended_execution="host",
+                ),
+            )
+
+            self.assertEqual(report.status, "planned")
+            self.assertFalse(report.access_bundle_ready)
+            self.assertTrue(any(item.startswith("mismatch=internal_targets") for item in report.access_bundle_findings))
+
 
 if __name__ == "__main__":
     unittest.main()
