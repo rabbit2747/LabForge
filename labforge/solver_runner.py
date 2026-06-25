@@ -663,6 +663,90 @@ def run_plugin_http_sequence(
                 f"audit={audit_status}; direct_read_audited={direct_read_audited}"
             ),
         )
+    if plugin == "sql-injection-reporting":
+        catalog_status, catalog, _, catalog_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/reports?owner=learner", "/labforge/scaffold/reports?owner=learner"],
+            None,
+            timeout_seconds,
+        )
+        policy_status, policy, _, policy_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/reports/policy", "/labforge/scaffold/reports/policy"],
+            None,
+            timeout_seconds,
+        )
+        schema_status, schema, _, schema_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/reports/schema", "/labforge/scaffold/reports/schema"],
+            None,
+            timeout_seconds,
+        )
+        normal_status, normal, _, normal_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/reports/search?owner=learner&q=quarterly", "/labforge/scaffold/reports/search?owner=learner&q=quarterly"],
+            None,
+            timeout_seconds,
+        )
+        injected_status, injected, _, injected_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/reports/search?owner=learner&q=%25%27%20OR%20%271%27%3D%271%27%20--", "/labforge/scaffold/reports/search?owner=learner&q=%25%27%20OR%20%271%27%3D%271%27%20--"],
+            None,
+            timeout_seconds,
+        )
+        audit_status, audit, _, audit_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/reports/audit", "/labforge/scaffold/reports/audit"],
+            None,
+            timeout_seconds,
+        )
+        normal_items = normal.get("items", []) if isinstance(normal, dict) else []
+        injected_items = injected.get("items", []) if isinstance(injected, dict) else []
+        audit_records = audit.get("records", []) if isinstance(audit, dict) else []
+        normal_restricted = any(isinstance(item, dict) and item.get("classification") == "restricted" for item in normal_items)
+        restricted_returned = any(isinstance(item, dict) and item.get("id") == "rpt-9001" and item.get("export_reference") for item in injected_items)
+        audit_recorded = any(
+            isinstance(record, dict)
+            and record.get("action") == "search"
+            and int((record.get("detail") or {}).get("restricted_rows_returned") or 0) > 0
+            for record in audit_records
+        )
+        ok = (
+            landing_ok
+            and catalog_status == 200
+            and policy_status == 200
+            and policy.get("schema_api") == "GET /api/reports/schema"
+            and schema_status == 200
+            and "export_reference" in schema.get("columns", [])
+            and normal_status == 200
+            and not normal_restricted
+            and injected_status == 200
+            and injected.get("restricted_rows_returned", 0) >= 1
+            and restricted_returned
+            and audit_status == 200
+            and audit_recorded
+        )
+        return plugin_step(
+            order,
+            step_id,
+            service,
+            plugin,
+            base_url,
+            evidence,
+            ok,
+            (
+                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; schema_route={schema_route}; "
+                f"normal_route={normal_route}; injected_route={injected_route}; audit_route={audit_route}; "
+                f"catalog={catalog_status}; policy={policy_status}; schema={schema_status}; normal={normal_status}; "
+                f"injected={injected_status}; restricted_returned={restricted_returned}; audit={audit_status}; audit_recorded={audit_recorded}"
+            ),
+        )
     if plugin == "ssrf-internal-fetch":
         registry_status, registry, _, registry_route = http_json_first(
             "GET",
@@ -1574,6 +1658,7 @@ def plugin_landing_probe(base_url: str, plugin: str, timeout_seconds: int) -> tu
         "ssti-preview": (["/operations/preview", "/labforge/scaffold/ssti-preview"], ["Response Preview"]),
         "stored-xss-review": (["/operations/review", "/labforge/scaffold/review"], ["Review Intake"]),
         "idor-object-access": (["/objects", "/api/business-objects", "/labforge/scaffold/objects"], ["Business Object Catalog"]),
+        "sql-injection-reporting": (["/operations/reports", "/api/reports", "/labforge/scaffold/reports"], ["Reporting Workbench"]),
         "ssrf-internal-fetch": (["/operations/fetch", "/labforge/scaffold/fetch"], ["Upstream Import Console"]),
         "path-traversal-download": (["/documents", "/labforge/scaffold/documents"], ["Document Library"]),
         "unsafe-file-upload": (["/attachments", "/labforge/scaffold/uploads"], ["Case Attachment Portal"]),

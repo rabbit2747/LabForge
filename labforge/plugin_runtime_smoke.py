@@ -148,6 +148,8 @@ def isolate_generated_state(module: Any, service: str) -> None:
         "CUSTOMER_UPDATE_AUDIT_PATH": state / "customer-update-audit.json",
         "SOLR_VELOCITY_STATE_PATH": state / "solr-velocity-state.json",
         "SOLR_VELOCITY_AUDIT_PATH": state / "solr-velocity-audit.json",
+        "SQLI_REPORT_DB_PATH": state / "sql-injection-reporting.sqlite3",
+        "SQLI_REPORT_AUDIT_PATH": state / "sql-injection-reporting-audit.json",
     }
     for name, value in patches.items():
         if hasattr(module, name):
@@ -315,6 +317,49 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and direct_read_audited,
                 "/labforge/scaffold/objects catalog + policy + entitlement + relationship + direct read policy-gap audit",
                 response,
+            )
+        if plugin_id == "sql-injection-reporting":
+            catalog = client.get("/labforge/scaffold/reports?owner=learner")
+            policy = client.get("/labforge/scaffold/reports/policy")
+            schema = client.get("/labforge/scaffold/reports/schema")
+            normal = client.get("/labforge/scaffold/reports/search?owner=learner&q=quarterly")
+            injected = client.get("/labforge/scaffold/reports/search?owner=learner&q=%25%27%20OR%20%271%27%3D%271%27%20--")
+            audit = client.get("/labforge/scaffold/reports/audit")
+            catalog_data = catalog.get_json(silent=True) or {}
+            policy_data = policy.get_json(silent=True) or {}
+            schema_data = schema.get_json(silent=True) or {}
+            normal_data = normal.get_json(silent=True) or {}
+            injected_data = injected.get_json(silent=True) or {}
+            audit_data = audit.get_json(silent=True) or {}
+            normal_items = normal_data.get("items", []) if isinstance(normal_data, dict) else []
+            injected_items = injected_data.get("items", []) if isinstance(injected_data, dict) else []
+            audit_records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
+            restricted_returned = any(isinstance(item, dict) and item.get("id") == "rpt-9001" and item.get("export_reference") for item in injected_items)
+            normal_restricted = any(isinstance(item, dict) and item.get("classification") == "restricted" for item in normal_items)
+            audit_recorded = any(
+                isinstance(record, dict)
+                and record.get("action") == "search"
+                and int((record.get("detail") or {}).get("restricted_rows_returned") or 0) > 0
+                for record in audit_records
+            )
+            return assert_condition(
+                service,
+                plugin_id,
+                catalog.status_code == 200
+                and policy.status_code == 200
+                and policy_data.get("schema_api") == "GET /api/reports/schema"
+                and schema.status_code == 200
+                and "export_reference" in schema_data.get("columns", [])
+                and normal.status_code == 200
+                and not normal_restricted
+                and injected.status_code == 200
+                and injected_data.get("restricted_rows_returned", 0) >= 1
+                and restricted_returned
+                and audit.status_code == 200
+                and audit_recorded
+                and catalog_data.get("search_api") == "GET /api/reports/search?q=<query>&owner=<owner>",
+                "/labforge/scaffold/reports catalog + policy + schema + normal/injected search + audit",
+                injected,
             )
         if plugin_id == "ssrf-internal-fetch":
             registry = client.get("/labforge/scaffold/source-registry")

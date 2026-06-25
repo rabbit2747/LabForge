@@ -10,7 +10,29 @@ from types import SimpleNamespace
 from urllib.error import URLError
 from unittest.mock import patch
 
+from labforge.plugin_runtime_smoke import isolate_generated_state, load_generated_app_module
 from labforge.solver_runner import http_json, run_solver_plan, ssh_batch_argv, ssh_command_sequence_argv
+from labforge.vulnerability_scaffolds import render_vulnerability_scaffold_files
+
+
+BASE_PLUGIN_APP = """\
+from pathlib import Path
+import json
+from flask import Flask, jsonify
+
+SERVICE = "reporting-console"
+PURPOSE = "solver-runner generated plugin host"
+STATE_DIR = Path("/state")
+LOG_PATH = Path("/var/log/labforge/service-events.jsonl")
+app = Flask(__name__)
+
+@app.get("/healthz")
+def healthz():
+    return jsonify({"ok": True})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
+"""
 
 
 class SolverRunnerTests(unittest.TestCase):
@@ -320,6 +342,91 @@ class SolverRunnerTests(unittest.TestCase):
             self.assertEqual(report.status, "planned")
             self.assertEqual(report.service_targets["internal-wiki"], "http://127.0.0.1:18080")
             self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
+
+    def test_solver_runner_executes_sql_injection_reporting_plugin_against_generated_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = SimpleNamespace(
+                service="reporting-console",
+                purpose="operations report search",
+                model_extra={
+                    "vulnerability_plugins": [
+                        {
+                            "id": "sql-injection-reporting",
+                            "reporting_workflow": "analyst compliance report search",
+                            "record_model": "compliance reports",
+                            "authorization_boundary": "owner scoped report rows",
+                            "target_dataset": "LABFORGE_SYNTHETIC_RESTRICTED_REPORT",
+                        }
+                    ]
+                },
+            )
+            files = render_vulnerability_scaffold_files(artifact, {"app.py": BASE_PLUGIN_APP})
+            app_path = root / "app.py"
+            app_path.write_text(files["app.py"], encoding="utf-8")
+            module, error = load_generated_app_module("reporting-console", app_path)
+            self.assertIsNone(error or None)
+            self.assertIsNotNone(module)
+            isolate_generated_state(module, "reporting-console")
+
+            from werkzeug.serving import make_server
+
+            server = make_server("127.0.0.1", 0, module.app)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-sqli",
+                            "title": "Solver SQLi",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-reporting-console-sql-injection-reporting",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "reporting-console",
+                                    "plugin": "sql-injection-reporting",
+                                    "evidence": [],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps(
+                        {
+                            "published_endpoints": [
+                                {
+                                    "service": "reporting-console",
+                                    "protocol": "http",
+                                    "url": base_url,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(
+                    solver_plan,
+                    root / "solver-run",
+                    endpoint_manifest=endpoint_manifest,
+                    execute=True,
+                )
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("restricted_returned=True", report.steps[0].message)
+                self.assertIn("audit_recorded=True", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
 
     def test_solver_runner_fails_when_expected_stage_evidence_is_not_emitted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
