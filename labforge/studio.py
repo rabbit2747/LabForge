@@ -419,6 +419,7 @@ def run_release_gate_for_scenario(workspace: Path, scenario_id: str, payload: di
     cleanup_e2e = bool(payload.get("cleanup_e2e", False))
     e2e_timeout = int(payload.get("e2e_timeout", 60) or 60)
     browser_engine = str(payload.get("browser_engine", "http")).strip() or "http"
+    execute_tunnels = bool(payload.get("execute_tunnels", False))
     agent_result_dir = path / "agents" / ".ai" / "outputs"
     report = run_release_gate(
         lab_dir,
@@ -432,6 +433,7 @@ def run_release_gate_for_scenario(workspace: Path, scenario_id: str, payload: di
         cleanup_e2e=cleanup_e2e,
         e2e_timeout_seconds=e2e_timeout,
         browser_engine="playwright" if browser_engine == "playwright" else "http",
+        execute_tunnels=execute_tunnels,
     )
     detail = read_scenario_detail(workspace, scenario_id)
     detail["last_release_gate"] = release_gate_payload(path, report.model_dump())
@@ -1064,6 +1066,17 @@ def render_studio_html() -> str:
             <h2>Release Gate</h2>
             <button id="runReleaseGate" class="primary">Run Release Gate</button>
           </div>
+          <div class="form-grid" style="grid-template-columns: repeat(4, minmax(160px, 1fr)); margin-bottom:12px;">
+            <label><input id="releaseExecuteE2E" type="checkbox"> Live E2E execute</label>
+            <label><input id="releaseCleanupE2E" type="checkbox" checked> Cleanup after E2E</label>
+            <label><input id="releaseExecuteTunnels" type="checkbox"> Execute SSH tunnels</label>
+            <label>Browser engine
+              <select id="releaseBrowserEngine">
+                <option value="http">HTTP probe</option>
+                <option value="playwright">Playwright Chromium</option>
+              </select>
+            </label>
+          </div>
           <div id="releaseGateSummary">${renderReleaseGateSummary(s.last_release_gate || s.release_gate || {})}</div>
         </div>
         <div class="panel">
@@ -1192,15 +1205,27 @@ def render_studio_html() -> str:
 
     async function runReleaseGate(id) {
       const btn = document.getElementById('runReleaseGate');
+      const executeE2E = document.getElementById('releaseExecuteE2E')?.checked || false;
+      const cleanupE2E = document.getElementById('releaseCleanupE2E')?.checked || false;
+      const executeTunnels = document.getElementById('releaseExecuteTunnels')?.checked || false;
+      const browserEngine = document.getElementById('releaseBrowserEngine')?.value || 'http';
       btn.disabled = true;
-      btn.textContent = 'Running...';
+      btn.textContent = executeE2E ? 'Running live E2E...' : 'Running...';
       const summary = document.getElementById('releaseGateSummary');
-      summary.innerHTML = '<div class="empty">Running strict release readiness checks...</div>';
+      summary.innerHTML = `<div class="empty">Running strict release readiness checks${executeE2E ? ' with live E2E execution' : ''}...</div>`;
       try {
         const detail = await api(`/api/scenarios/${encodeURIComponent(id)}/release-gate`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ provider: 'docker-compose', profile: 'protected', materialize: true })
+          body: JSON.stringify({
+            provider: 'docker-compose',
+            profile: 'protected',
+            materialize: true,
+            execute_e2e: executeE2E,
+            cleanup_e2e: cleanupE2E,
+            execute_tunnels: executeTunnels,
+            browser_engine: browserEngine
+          })
         });
         renderDetail(detail);
         await loadScenarios();
@@ -1400,6 +1425,7 @@ def render_studio_html() -> str:
     function renderReleaseGateSummary(report) {
       if (!report || !report.status) return '<div class="empty">No release gate has been executed yet.</div>';
       const checks = report.checks || [];
+      const live = releaseGateLiveE2ESummary(checks);
       const rows = checks.length ? checks.map(check => {
         const messages = (check.messages || []).join(' | ') || '-';
         return `<tr>
@@ -1414,10 +1440,40 @@ def render_studio_html() -> str:
           <span>release ready ${report.release_ready ? 'yes' : 'no'}</span>
           <span>${escapeHtml(report.provider || 'docker-compose')} / ${escapeHtml(report.profile || 'protected')}</span>
         </div>
+        ${live}
         <table style="width:100%; border-collapse:collapse;">
           <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Check</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Status</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Messages</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
+    }
+    function releaseGateLiveE2ESummary(checks) {
+      const e2e = (checks || []).find(check => check.name === 'e2e-solver-evidence');
+      if (!e2e) return '';
+      const messages = e2e.messages || [];
+      const field = (name) => {
+        const prefix = `${name}=`;
+        const value = messages.find(item => String(item).startsWith(prefix));
+        return value ? String(value).slice(prefix.length) : '-';
+      };
+      const live = field('live_readiness');
+      const executedAccess = field('executed_access_passed');
+      const executedSolver = field('executed_solver_passed');
+      const mode = field('mode');
+      const execute = field('execute');
+      const browser = field('browser_engine');
+      const tunnels = field('execute_tunnels');
+      return `
+        <div style="border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px;">
+          <div class="meta">
+            <span class="status ${live === 'passed' ? 'passed' : ''}">live e2e ${escapeHtml(live)}</span>
+            <span>mode ${escapeHtml(mode)}</span>
+            <span>execute ${escapeHtml(execute)}</span>
+            <span>browser ${escapeHtml(browser)}</span>
+            <span>tunnels ${escapeHtml(tunnels)}</span>
+            <span>access passed ${escapeHtml(executedAccess)}</span>
+            <span>solver passed ${escapeHtml(executedSolver)}</span>
+          </div>
+        </div>`;
     }
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

@@ -4,8 +4,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from labforge.cli import main
+from labforge.qa import QaCheck, ReleaseGateReport
 from labforge.studio import (
     create_pipeline_scenario,
     create_verified_mvp_scenario,
@@ -178,6 +180,66 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((out / "mvp" / "verified-mvp.json").exists())
             self.assertTrue((out / "release-gate" / "release-gate-report.yaml").exists())
+
+    def test_studio_release_gate_forwards_live_e2e_options(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            scenario = workspace / "live-options"
+            lab = scenario / "lab"
+            lab.mkdir(parents=True)
+            (lab / "scenario.yaml").write_text(
+                "lab_id: live-options\n"
+                "title: Live Options\n"
+                "target_industry: enterprise\n"
+                "services: []\n"
+                "stages: []\n",
+                encoding="utf-8",
+            )
+
+            def fake_release_gate(*_args, **kwargs):
+                self.assertTrue(kwargs["execute_e2e"])
+                self.assertTrue(kwargs["cleanup_e2e"])
+                self.assertTrue(kwargs["execute_tunnels"])
+                self.assertEqual(kwargs["browser_engine"], "playwright")
+                return ReleaseGateReport(
+                    lab_id="live-options",
+                    provider=kwargs["provider"],
+                    profile=kwargs["profile"],
+                    status="passed",
+                    release_ready=True,
+                    output_dir=str(scenario / "release-gate"),
+                    checks=[
+                        QaCheck(
+                            name="e2e-solver-evidence",
+                            status="passed",
+                            messages=[
+                                "mode=execute",
+                                "execute=true",
+                                "browser_engine=playwright",
+                                "execute_tunnels=true",
+                                "live_readiness=passed",
+                                "executed_access_passed=3",
+                                "executed_solver_passed=8",
+                            ],
+                        )
+                    ],
+                )
+
+            with patch("labforge.studio.run_release_gate", side_effect=fake_release_gate):
+                detail = run_release_gate_for_scenario(
+                    workspace,
+                    "live-options",
+                    {
+                        "execute_e2e": True,
+                        "cleanup_e2e": True,
+                        "execute_tunnels": True,
+                        "browser_engine": "playwright",
+                    },
+                )
+
+            gate = detail["last_release_gate"]
+            self.assertEqual(gate["status"], "passed")
+            self.assertEqual(gate["checks"][0]["messages"][4], "live_readiness=passed")
 
 
 if __name__ == "__main__":
