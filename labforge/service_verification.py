@@ -64,6 +64,15 @@ LEARNER_VISIBLE_SOLVER_MARKERS: dict[str, str] = {
     "admin password": "Credentials should be discoverable through realistic configuration, logs, tickets, or secret references.",
     "password is": "Avoid direct answer-style credential disclosure in business content.",
     "cve-": "Learner-facing internal content should usually expose version and behavior clues, not the exact CVE label.",
+    "grader": "Learner-facing service content should not describe scoring internals or validation machinery.",
+    "score points": "Use normal audit, workflow, or evidence language instead of scoring language.",
+    "stage completed": "Do not expose internal completion events as normal business content.",
+    "stage_completed": "Do not expose internal completion events as normal business content.",
+    "magic string": "Avoid fixed secret words or exact answer strings that only exist for grading.",
+    "magic_string": "Avoid fixed secret words or exact answer strings that only exist for grading.",
+    "hardcoded payload": "Do not publish exact exploit payloads in learner-visible business content.",
+    "copy this payload": "Learner-facing content should provide natural operational clues, not copy/paste exploit instructions.",
+    "use exact id": "Avoid brittle fixed identifiers unless the identifier appears naturally in business records.",
 }
 
 LEARNER_VISIBLE_SCAN_DIRS = ("templates", "seed", "noise", "static")

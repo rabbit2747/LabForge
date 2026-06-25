@@ -37,6 +37,35 @@ class ServiceVerificationTests(unittest.TestCase):
             self.assertIn("admin password", messages)
             self.assertIn("answer key", messages)
 
+    def test_learner_visible_service_content_flags_grader_and_magic_value_language(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab(root)
+            service_root = root / "services" / "support-portal"
+            write_service_runtime(service_root)
+            (service_root / "seed").mkdir(parents=True, exist_ok=True)
+            (service_root / "seed" / "operator-note.json").write_text(
+                json.dumps(
+                    {
+                        "note": (
+                            "The grader expects stage_completed when learners use exact id support-portal-01. "
+                            "Copy this payload from the walkthrough."
+                        )
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = verify_services(LabSpec.load(root))
+            findings = [item for item in report.findings if item.category == "learner-facing-language"]
+            messages = "\n".join(item.message for item in findings)
+
+            self.assertEqual(report.status, "warning")
+            self.assertIn("grader", messages)
+            self.assertIn("stage_completed", messages)
+            self.assertIn("copy this payload", messages)
+            self.assertIn("use exact id", messages)
+
     def test_learner_visible_service_content_accepts_business_language(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -50,7 +79,7 @@ class ServiceVerificationTests(unittest.TestCase):
             )
             (service_root / "seed").mkdir(parents=True, exist_ok=True)
             (service_root / "seed" / "runbook.json").write_text(
-                json.dumps({"note": "Vault reference and startup diagnostic entries require correlation."}),
+                json.dumps({"note": "Vault reference and startup diagnostic entries require correlation for case OES-1287."}),
                 encoding="utf-8",
             )
 
