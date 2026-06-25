@@ -312,7 +312,10 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             policy = client.get("/labforge/scaffold/fetch/policy")
             registry_data = registry.get_json(silent=True) or {}
             sources = registry_data.get("sources", [])
-            first_source = sources[0].get("url") if sources and isinstance(sources[0], dict) else "http://metadata-service:8080/metadata"
+            first_source_record = sources[0] if sources and isinstance(sources[0], dict) else {}
+            first_source = first_source_record.get("url") or "http://metadata-service:8080/metadata"
+            source_id = first_source_record.get("id") or "src-metadata-service"
+            source_detail = client.get(f"/labforge/scaffold/source-registry/{source_id}")
             blocked = client.get("/labforge/scaffold/fetch?url=http://169.254.169.254/latest")
             import urllib.request
 
@@ -340,26 +343,46 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 urllib.request.urlopen = original_urlopen
             blocked_data = blocked.get_json(silent=True) or {}
             allowed_data = allowed.get_json(silent=True) or {}
+            source_detail_data = source_detail.get_json(silent=True) or {}
+            allowed_provenance = allowed_data.get("provenance", {}) if isinstance(allowed_data, dict) else {}
+            blocked_provenance = blocked_data.get("provenance", {}) if isinstance(blocked_data, dict) else {}
             audit = client.get("/labforge/scaffold/fetch/audit")
             audit_data = audit.get_json(silent=True) or {}
             records = audit_data.get("records", [])
-            blocked_recorded = any(record.get("url") == "http://169.254.169.254/latest" and record.get("allowed") is False for record in records)
-            allowed_recorded = any(record.get("url") == first_source and record.get("allowed") is True for record in records)
+            blocked_recorded = any(
+                record.get("url") == "http://169.254.169.254/latest"
+                and record.get("allowed") is False
+                and record.get("provenance", {}).get("policy_decision") == "deny"
+                for record in records
+            )
+            allowed_recorded = any(
+                record.get("url") == first_source
+                and record.get("allowed") is True
+                and record.get("provenance", {}).get("registry_match") is True
+                and record.get("response_fingerprint")
+                for record in records
+            )
             return assert_condition(
                 service,
                 plugin_id,
                 registry.status_code == 200
                 and policy.status_code == 200
+                and source_detail.status_code == 200
+                and source_detail_data.get("source", {}).get("id") == source_id
                 and isinstance(sources, list)
                 and len(sources) >= 1
                 and blocked.status_code == 400
                 and blocked_data.get("allowed") is False
+                and blocked_provenance.get("policy_decision") == "deny"
                 and allowed.status_code == 200
                 and allowed_data.get("allowed") is True
+                and allowed_provenance.get("registry_match") is True
+                and allowed_provenance.get("source_id") == source_id
+                and bool(allowed_data.get("response_fingerprint"))
                 and audit.status_code == 200
                 and blocked_recorded
                 and allowed_recorded,
-                "/labforge/scaffold/source-registry + fetch policy/audit comparison",
+                "/labforge/scaffold/source-registry detail + fetch provenance/audit comparison",
                 allowed,
             )
         if plugin_id == "path-traversal-download":

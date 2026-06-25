@@ -655,12 +655,22 @@ def run_plugin_http_sequence(
         )
         sources = registry.get("sources", []) if isinstance(registry, dict) else []
         approved_source = ""
+        source_id = ""
         for source in sources:
             if isinstance(source, dict) and source.get("status") == "approved" and source.get("url"):
                 approved_source = str(source["url"])
+                source_id = str(source.get("id") or "")
                 break
         if not approved_source:
             approved_source = "http://metadata-service:8080/metadata"
+            source_id = "src-metadata-service"
+        detail_status, detail, _, detail_route = http_json_first(
+            "GET",
+            base_url,
+            [f"/api/source-registry/{source_id}", f"/labforge/scaffold/source-registry/{source_id}"],
+            None,
+            timeout_seconds,
+        )
         policy_status, policy, _, policy_route = http_json_first(
             "GET",
             base_url,
@@ -693,18 +703,38 @@ def run_plugin_http_sequence(
             timeout_seconds,
         )
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
-        blocked_recorded = any(isinstance(record, dict) and record.get("url") == "http://169.254.169.254/latest" and record.get("allowed") is False for record in audit_records)
-        allowed_recorded = any(isinstance(record, dict) and record.get("url") == approved_source and record.get("allowed") is True for record in audit_records)
+        allowed_provenance = allowed_data.get("provenance", {}) if isinstance(allowed_data, dict) else {}
+        blocked_provenance = blocked_data.get("provenance", {}) if isinstance(blocked_data, dict) else {}
+        blocked_recorded = any(
+            isinstance(record, dict)
+            and record.get("url") == "http://169.254.169.254/latest"
+            and record.get("allowed") is False
+            and record.get("provenance", {}).get("policy_decision") == "deny"
+            for record in audit_records
+        )
+        allowed_recorded = any(
+            isinstance(record, dict)
+            and record.get("url") == approved_source
+            and record.get("allowed") is True
+            and record.get("provenance", {}).get("registry_match") is True
+            and bool(record.get("response_fingerprint"))
+            for record in audit_records
+        )
         ok = (
             landing_ok
             and registry_status == 200
+            and detail_status == 200
             and policy_status == 200
             and isinstance(sources, list)
             and len(sources) >= 1
             and blocked_status == 400
             and blocked_data.get("allowed") is False
+            and blocked_provenance.get("policy_decision") == "deny"
             and allowed_status == 200
             and allowed_data.get("allowed") is True
+            and allowed_provenance.get("registry_match") is True
+            and allowed_provenance.get("source_id") == source_id
+            and bool(allowed_data.get("response_fingerprint"))
             and audit_status == 200
             and blocked_recorded
             and allowed_recorded
@@ -719,12 +749,13 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; registry_route={registry_route}; policy_route={policy_route}; blocked_route={blocked_route}; "
-                f"allowed_route={allowed_route}; audit_route={audit_route}; registry={registry_status}; policy={policy_status}; "
-                f"approved_source={approved_source}; "
+                f"{context_note}; registry_route={registry_route}; detail_route={detail_route}; policy_route={policy_route}; blocked_route={blocked_route}; "
+                f"allowed_route={allowed_route}; audit_route={audit_route}; registry={registry_status}; detail={detail_status}; policy={policy_status}; "
+                f"approved_source={approved_source}; source_id={source_id}; "
                 f"blocked_fetch_status={blocked_status}; blocked_allowed={blocked_data.get('allowed')}; "
                 f"allowed_fetch_status={allowed_status}; allowed={allowed_data.get('allowed')}; audit={audit_status}; "
-                f"blocked_recorded={blocked_recorded}; allowed_recorded={allowed_recorded}"
+                f"blocked_recorded={blocked_recorded}; allowed_recorded={allowed_recorded}; "
+                f"allowed_provenance={allowed_provenance.get('policy_decision')}/{allowed_provenance.get('source_id')}"
             ),
         )
     if plugin == "path-traversal-download":

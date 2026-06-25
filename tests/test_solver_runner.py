@@ -1715,12 +1715,34 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                     {
                         "sources": [
                             {
+                                "id": "src-metadata-service",
                                 "url": "http://metadata-service:8080/metadata",
                                 "owner": "integration-operations",
+                                "network_zone": "corp-internal",
                                 "status": "approved",
                             }
                         ],
                         "blocked_examples": ["http://169.254.169.254/latest"],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/source-registry/src-metadata-service":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "source": {
+                            "id": "src-metadata-service",
+                            "url": "http://metadata-service:8080/metadata",
+                            "owner": "integration-operations",
+                            "network_zone": "corp-internal",
+                            "status": "approved",
+                        },
+                        "fetch_api": "/operations/fetch?url=http://metadata-service:8080/metadata",
+                        "expected_policy_result": "allow",
                     }
                 ).encode("utf-8")
             )
@@ -1736,6 +1758,8 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                         "blocked_examples": ["http://169.254.169.254/latest"],
                         "audit_api": "/api/fetch/audit",
                         "registry_api": "/api/source-registry",
+                        "source_detail_api": "/api/source-registry/<source_id>",
+                        "response_provenance": ["registry_match", "source_id", "network_zone", "policy_decision", "response_fingerprint"],
                     }
                 ).encode("utf-8")
             )
@@ -1748,8 +1772,19 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                 json.dumps(
                     {
                         "records": [
-                            {"url": "http://169.254.169.254/latest", "allowed": False, "status": 400},
-                            {"url": "http://metadata-service:8080/metadata", "allowed": True, "status": 200},
+                            {
+                                "url": "http://169.254.169.254/latest",
+                                "allowed": False,
+                                "status": 400,
+                                "provenance": {"policy_decision": "deny", "registry_match": False},
+                            },
+                            {
+                                "url": "http://metadata-service:8080/metadata",
+                                "allowed": True,
+                                "status": 200,
+                                "provenance": {"policy_decision": "allow", "registry_match": True, "source_id": "src-metadata-service"},
+                                "response_fingerprint": "abc123",
+                            },
                         ]
                     }
                 ).encode("utf-8")
@@ -1759,7 +1794,15 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"allowed": False, "reason": "blocked local or metadata target"}).encode("utf-8"))
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "allowed": False,
+                        "reason": "blocked local or metadata target",
+                        "provenance": {"policy_decision": "deny", "registry_match": False},
+                    }
+                ).encode("utf-8")
+            )
             return
         if self.path.startswith("/operations/fetch?url=http://metadata-service:8080/metadata"):
             self.send_response(200)
@@ -1772,6 +1815,8 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                         "status": 200,
                         "upstream": {"service": "metadata-service", "scope": "lab-internal"},
                         "body": '{"service": "metadata-service"}',
+                        "provenance": {"policy_decision": "allow", "registry_match": True, "source_id": "src-metadata-service"},
+                        "response_fingerprint": "abc123",
                     }
                 ).encode("utf-8")
             )
