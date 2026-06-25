@@ -235,7 +235,7 @@ class PlaytestTests(unittest.TestCase):
         manifest = SimpleNamespace(
             nodes=[
                 SimpleNamespace(stage_id="stage-01", title="Entry", learner_clue="Start with the public portal."),
-                SimpleNamespace(stage_id="stage-02", title="Internal wiki", learner_clue="Use template evidence to find wiki context."),
+                SimpleNamespace(stage_id="stage-02", title="Internal wiki", learner_clue="Use template evidence to find wiki context.", services=["internal-wiki"]),
             ],
             links=[
                 SimpleNamespace(
@@ -254,13 +254,14 @@ class PlaytestTests(unittest.TestCase):
         self.assertEqual(handoffs[0]["to_stage"], "stage-02")
         self.assertEqual(handoffs[0]["carried_evidence"], ["template_probe_confirmed"])
         self.assertEqual(handoffs[0]["learner_clue"], "Use template evidence to find wiki context.")
+        self.assertEqual(handoffs[0]["to_services"], ["internal-wiki"])
 
     def test_stage_handoffs_from_chain_manifest_prefers_evidence_handoffs(self) -> None:
         manifest = SimpleNamespace(
             nodes=[
-                SimpleNamespace(stage_id="stage-01", title="Entry", learner_clue="Collect durable evidence."),
-                SimpleNamespace(stage_id="stage-02", title="Intermediate", learner_clue="Review normal operations."),
-                SimpleNamespace(stage_id="stage-03", title="Console", learner_clue="Use durable evidence in the console."),
+                SimpleNamespace(stage_id="stage-01", title="Entry", learner_clue="Collect durable evidence.", services=["portal"]),
+                SimpleNamespace(stage_id="stage-02", title="Intermediate", learner_clue="Review normal operations.", services=["wiki"]),
+                SimpleNamespace(stage_id="stage-03", title="Console", learner_clue="Use durable evidence in the console.", services=["release-console"]),
             ],
             links=[
                 SimpleNamespace(
@@ -292,6 +293,7 @@ class PlaytestTests(unittest.TestCase):
         long_handoff = next(item for item in handoffs if item["from_stage"] == "stage-01" and item["to_stage"] == "stage-03")
         self.assertEqual(long_handoff["carried_evidence"], ["durable_context"])
         self.assertEqual(long_handoff["status"], "skipped-stage")
+        self.assertEqual(long_handoff["to_services"], ["release-console"])
 
     def test_trusted_update_handoff_chain_is_detected_across_services(self) -> None:
         spec = SimpleNamespace(

@@ -197,6 +197,51 @@ class QaReleaseGateTests(unittest.TestCase):
             ["critical=stage-handoff:stage-01->stage-02:learner_clue contains answer-key wording"],
         )
 
+    def test_stage_handoff_clue_messages_require_evidence_or_stage_context_anchor(self) -> None:
+        self.assertEqual(
+            stage_handoff_clue_messages(
+                {
+                    "from_stage": "stage-01",
+                    "from_title": "Support Preview",
+                    "to_stage": "stage-02",
+                    "to_title": "Internal Wiki Review",
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Use the template behavior observed in support preview to review internal wiki notes.",
+                }
+            ),
+            [],
+        )
+        self.assertEqual(
+            stage_handoff_clue_messages(
+                {
+                    "from_stage": "stage-01",
+                    "from_title": "Support Preview",
+                    "to_stage": "stage-02",
+                    "to_title": "Internal Wiki Review",
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Review normal operating material and decide what to do next.",
+                }
+            ),
+            ["critical=stage-handoff:stage-01->stage-02:learner_clue does not reference carried evidence or stage context"],
+        )
+
+    def test_stage_handoff_clue_messages_accept_service_context_anchor(self) -> None:
+        self.assertEqual(
+            stage_handoff_clue_messages(
+                {
+                    "from_stage": "stage-04",
+                    "from_title": "Separate useful engineering clues from noise.",
+                    "to_stage": "stage-05",
+                    "to_title": "Discover bounded production services.",
+                    "from_services": ["engineering-wiki", "historian"],
+                    "to_services": ["mes-api", "historian", "ot-jump-host"],
+                    "carried_evidence": ["stage-04_completed"],
+                    "learner_clue": "Enumerate MES, historian, and jump-host surfaces that are intentionally simulated for the lab.",
+                }
+            ),
+            [],
+        )
+
     def test_human_readiness_gap_messages_pass_when_report_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

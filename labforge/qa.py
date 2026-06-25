@@ -557,7 +557,64 @@ def stage_handoff_clue_messages(handoff: dict) -> list[str]:
         return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue is generic fallback text"]
     if len(clue) < 24:
         return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue is too thin"]
+    anchors = [
+        *[str(item) for item in handoff.get("carried_evidence", []) or []],
+        str(handoff.get("from_title", "")),
+        str(handoff.get("to_title", "")),
+        *[str(item) for item in handoff.get("from_services", []) or []],
+        *[str(item) for item in handoff.get("to_services", []) or []],
+    ]
+    if not clue_references_handoff_anchor(clue, anchors):
+        return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue does not reference carried evidence or stage context"]
     return []
+
+
+def clue_references_handoff_anchor(clue: str, anchors: list[str]) -> bool:
+    clue_text = normalize_anchor_text(clue)
+    if not clue_text:
+        return False
+    for anchor in anchors:
+        anchor_text = normalize_anchor_text(anchor)
+        if not anchor_text:
+            continue
+        if anchor_text in clue_text:
+            return True
+        parts = [
+            part
+            for part in anchor_text.split()
+            if len(part) >= 4 and part not in GENERIC_ANCHOR_WORDS
+        ]
+        if parts and any(part in clue_text for part in parts):
+            return True
+    return False
+
+
+GENERIC_ANCHOR_WORDS = {
+    "review",
+    "normal",
+    "business",
+    "stage",
+    "step",
+    "next",
+    "internal",
+    "external",
+    "public",
+    "private",
+    "console",
+    "service",
+    "system",
+    "workflow",
+    "operation",
+    "operations",
+    "material",
+    "notes",
+    "context",
+}
+
+
+def normalize_anchor_text(value: str) -> str:
+    chars = [ch.lower() if ch.isalnum() else " " for ch in str(value)]
+    return " ".join("".join(chars).split())
 
 
 def stage_handoff_count(out: Path) -> int:
