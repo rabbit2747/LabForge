@@ -428,6 +428,93 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_stored_xss_reviewer_automation_against_generated_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = SimpleNamespace(
+                service="release-console",
+                purpose="release approval workflow",
+                model_extra={
+                    "vulnerability_plugins": [
+                        {
+                            "id": "stored-xss-review",
+                            "storage_location": "/state/release-review-items.json",
+                            "reviewer_role": "release manager",
+                            "review_surface": "release approval inbox",
+                            "callback_scope": "lab-internal callback",
+                        }
+                    ]
+                },
+            )
+            files = render_vulnerability_scaffold_files(artifact, {"app.py": BASE_PLUGIN_APP})
+            app_path = root / "app.py"
+            app_path.write_text(files["app.py"], encoding="utf-8")
+            module, error = load_generated_app_module("release-console", app_path)
+            self.assertIsNone(error or None)
+            self.assertIsNotNone(module)
+            isolate_generated_state(module, "release-console")
+
+            from werkzeug.serving import make_server
+
+            server = make_server("127.0.0.1", 0, module.app)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-stored-xss",
+                            "title": "Solver Stored XSS",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-release-console-stored-xss-review",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "release-console",
+                                    "plugin": "stored-xss-review",
+                                    "evidence": [],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps(
+                        {
+                            "published_endpoints": [
+                                {
+                                    "service": "release-console",
+                                    "protocol": "http",
+                                    "url": base_url,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(
+                    solver_plan,
+                    root / "solver-run",
+                    endpoint_manifest=endpoint_manifest,
+                    execute=True,
+                )
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("bot_status=200", report.steps[0].message)
+                self.assertIn("bot_run=202", report.steps[0].message)
+                self.assertIn("bot_ran=True", report.steps[0].message)
+                self.assertIn("callback_recorded=True", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_jwt_role_confusion_plugin_against_generated_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

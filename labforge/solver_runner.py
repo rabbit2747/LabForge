@@ -498,14 +498,31 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        bot_status, bot, _, bot_status_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/reviewer/bot/status", "/labforge/scaffold/reviewer/bot/status"],
+            None,
+            timeout_seconds,
+        )
         created_status, created, _, create_route = http_json_first(
             "POST",
             base_url,
             ["/operations/review-items", "/labforge/scaffold/review-items"],
-            {"title": "Solver review", "body": "<b>stored</b>"},
+            {
+                "title": "Solver review",
+                "body": "<b>stored</b><script>fetch('/operations/reviewer/callback',{method:'POST',body:'callback-received'})</script>",
+            },
             timeout_seconds,
         )
         item_id = str(created.get("id", ""))
+        bot_run_status, bot_run, _, bot_run_route = http_json_first(
+            "POST",
+            base_url,
+            ["/operations/reviewer/bot/run", "/labforge/scaffold/reviewer/bot/run"],
+            {"trigger": "solver-runner"},
+            timeout_seconds,
+        )
         opened_status, _, opened_body, open_route = (
             http_json_first("GET", base_url, [f"/operations/reviewer/items/{item_id}", f"/labforge/scaffold/reviewer/items/{item_id}"], None, timeout_seconds)
             if item_id
@@ -534,6 +551,7 @@ def run_plugin_http_sequence(
         )
         records = audit.get("records", []) if isinstance(audit, dict) else []
         item_created = any(isinstance(item, dict) and item.get("action") == "item-created" and item.get("accepted") is True for item in records)
+        bot_ran = any(isinstance(item, dict) and item.get("action") == "bot-run" and item.get("accepted") is True for item in records)
         item_opened = any(isinstance(item, dict) and item.get("action") == "item-opened" and item.get("accepted") is True for item in records)
         context_recorded = any(isinstance(item, dict) and item.get("action") == "context-read" and item.get("accepted") is True for item in records)
         callback_recorded = any(isinstance(item, dict) and item.get("action") == "callback-received" and item.get("accepted") is True for item in records)
@@ -541,7 +559,11 @@ def run_plugin_http_sequence(
             landing_ok
             and policy_status == 200
             and policy.get("audit_api") == "GET /operations/reviewer/audit"
+            and bot_status == 200
+            and bot.get("enabled") is True
             and created_status == 201
+            and bot_run_status == 202
+            and bot_run.get("reviewed_count", 0) >= 1
             and opened_status == 200
             and "stored" in opened_body
             and "reviewer/context" in opened_body
@@ -551,6 +573,7 @@ def run_plugin_http_sequence(
             and callback.get("accepted") is True
             and audit_status == 200
             and item_created
+            and bot_ran
             and item_opened
             and context_recorded
             and callback_recorded
@@ -564,10 +587,12 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; policy_route={policy_route}; create_route={create_route}; open_route={open_route}; context_route={context_route}; "
-                f"callback_route={callback_route}; audit_route={audit_route}; policy={policy_status}; created={created_status}; opened={opened_status}; "
-                f"context={context_status}; callback={callback_status}; audit={audit_status}; item_created={item_created}; item_opened={item_opened}; "
-                f"context_recorded={context_recorded}; callback_recorded={callback_recorded}; item_id={item_id or '-'}"
+                f"{context_note}; policy_route={policy_route}; bot_status_route={bot_status_route}; create_route={create_route}; "
+                f"bot_run_route={bot_run_route}; open_route={open_route}; context_route={context_route}; callback_route={callback_route}; "
+                f"audit_route={audit_route}; policy={policy_status}; bot_status={bot_status}; created={created_status}; "
+                f"bot_run={bot_run_status}; reviewed_count={bot_run.get('reviewed_count', 0)}; opened={opened_status}; "
+                f"context={context_status}; callback={callback_status}; audit={audit_status}; item_created={item_created}; bot_ran={bot_ran}; "
+                f"item_opened={item_opened}; context_recorded={context_recorded}; callback_recorded={callback_recorded}; item_id={item_id or '-'}"
             ),
         )
     if plugin == "idor-object-access":
