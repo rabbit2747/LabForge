@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from labforge.access_playtest import AccessPlaytestItem, AccessPlaytestReport
 from labforge.doctor import HostDoctorReport
-from labforge.e2e_solver import run_e2e_solver
+from labforge.e2e_solver import run_e2e_solver, validate_plugin_check_alignment
 from labforge.provider_lifecycle import ProviderLifecycleResult
 from labforge.qa import e2e_solver_release_check
 from labforge.solver_runner import SolverRunReport, SolverRunStep
@@ -503,6 +503,43 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(report.status, "failed")
             self.assertIn("missing=access_checks:2", report.execution_depth_findings)
             self.assertIn("missing=solver_steps:2", report.execution_depth_findings)
+            self.assertIn("missing=plugin_checks_for_solver_steps:plugin-portal-ssti-preview", report.execution_depth_findings)
+
+    def test_e2e_solver_aligns_plugin_checks_with_solver_vulnerability_steps(self) -> None:
+        solver_plan = {
+            "steps": [
+                {"step_id": "access-01", "action_type": "access"},
+                {"step_id": "plugin-portal-ssti-preview", "action_type": "vulnerability-behavior"},
+                {"step_id": "plugin-api-jwt-role-confusion", "action_type": "vulnerability-behavior"},
+            ]
+        }
+        access_manifest = {
+            "plugin_checks": [
+                {"step_id": "plugin-portal-ssti-preview"},
+                {"step_id": "plugin-old-unused-check"},
+            ]
+        }
+
+        findings = validate_plugin_check_alignment(solver_plan, access_manifest)
+
+        self.assertIn("missing=plugin_checks_for_solver_steps:plugin-api-jwt-role-confusion", findings)
+        self.assertIn("mismatch=plugin_checks_without_solver_steps:plugin-old-unused-check", findings)
+
+    def test_e2e_solver_accepts_aligned_plugin_checks(self) -> None:
+        solver_plan = {
+            "steps": [
+                {"step_id": "plugin-portal-ssti-preview", "action_type": "vulnerability-behavior"},
+                {"step_id": "plugin-api-jwt-role-confusion", "action_type": "vulnerability-behavior"},
+            ]
+        }
+        access_manifest = {
+            "plugin_checks": [
+                {"step_id": "plugin-portal-ssti-preview"},
+                {"step_id": "plugin-api-jwt-role-confusion"},
+            ]
+        }
+
+        self.assertEqual(validate_plugin_check_alignment(solver_plan, access_manifest), [])
 
     def test_e2e_solver_warns_when_access_bundle_does_not_match_access_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

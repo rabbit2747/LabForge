@@ -387,6 +387,8 @@ def validate_execution_depth(
         findings.append(f"missing=access_checks:{expected_access - actual_access}")
     if actual_solver < expected_solver:
         findings.append(f"missing=solver_steps:{expected_solver - actual_solver}")
+    plugin_alignment_findings = validate_plugin_check_alignment(plan, access)
+    findings.extend(plugin_alignment_findings)
     if expected_access == 0:
         findings.append("warning=access_manifest_declares_no_checks")
     if expected_solver == 0:
@@ -405,6 +407,31 @@ def expected_access_check_count(access_manifest: dict) -> int:
     for key in ("health_checks", "terminal_checks", "terminal_sequences", "tunnel_commands", "plugin_checks"):
         count += len([item for item in access_manifest.get(key, []) or [] if isinstance(item, dict)])
     return count
+
+
+def validate_plugin_check_alignment(solver_plan: dict, access_manifest: dict) -> list[str]:
+    solver_plugin_steps = [
+        str(step.get("step_id", "")).strip()
+        for step in solver_plan.get("steps", []) or []
+        if isinstance(step, dict) and str(step.get("action_type", "")).strip() == "vulnerability-behavior" and str(step.get("step_id", "")).strip()
+    ]
+    access_plugin_steps = [
+        str(check.get("step_id", "")).strip()
+        for check in access_manifest.get("plugin_checks", []) or []
+        if isinstance(check, dict) and str(check.get("step_id", "")).strip()
+    ]
+    findings: list[str] = []
+    if not solver_plugin_steps and not access_plugin_steps:
+        return findings
+    solver_set = set(solver_plugin_steps)
+    access_set = set(access_plugin_steps)
+    missing_access = sorted(solver_set - access_set)
+    orphan_access = sorted(access_set - solver_set)
+    if missing_access:
+        findings.append(f"missing=plugin_checks_for_solver_steps:{','.join(missing_access)}")
+    if orphan_access:
+        findings.append(f"mismatch=plugin_checks_without_solver_steps:{','.join(orphan_access)}")
+    return findings
 
 
 def provider_preflight_ready(report: HostDoctorReport, provider: str) -> bool:
