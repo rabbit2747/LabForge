@@ -364,10 +364,13 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "path-traversal-download":
             catalog = client.get("/api/documents")
             policy = client.get("/labforge/scaffold/documents/policy")
+            resolution = client.get("/labforge/scaffold/documents/resolve?name=../restricted/audit-export.txt")
             public = client.get("/labforge/scaffold/documents/download?name=welcome.txt")
             traversed = client.get("/labforge/scaffold/documents/download?name=../restricted/audit-export.txt")
             audit = client.get("/labforge/scaffold/documents/audit")
             catalog_data = catalog.get_json(silent=True) or {}
+            resolution_data = resolution.get_json(silent=True) or {}
+            resolved = resolution_data.get("resolution", {}) if isinstance(resolution_data, dict) else {}
             audit_data = audit.get_json(silent=True) or {}
             audit_records = audit_data.get("records", [])
             return assert_condition(
@@ -375,12 +378,16 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 plugin_id,
                 catalog.status_code == 200
                 and policy.status_code == 200
+                and resolution.status_code == 200
+                and resolved.get("traversal") is True
+                and resolved.get("inside_document_root") is True
+                and resolved.get("inside_active_workspace") is False
                 and public.status_code == 200
                 and traversed.status_code == 200
                 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed.get_data(as_text=True)
                 and any(record.get("traversal") and record.get("status") == 200 for record in audit_records)
                 and catalog_data.get("policy_api") == "/api/documents/policy",
-                "/api/documents + /labforge/scaffold/documents/download + audit",
+                "/api/documents + resolve + download + audit",
                 traversed,
             )
         if plugin_id == "unsafe-file-upload":
