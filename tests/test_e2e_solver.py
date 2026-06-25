@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from labforge.access_playtest import AccessPlaytestItem, AccessPlaytestReport
 from labforge.doctor import HostDoctorReport
-from labforge.e2e_solver import run_e2e_solver, validate_plugin_check_alignment
+from labforge.e2e_solver import run_e2e_solver, validate_access_bundle, validate_plugin_check_alignment
 from labforge.provider_lifecycle import ProviderLifecycleResult
 from labforge.qa import e2e_solver_release_check
 from labforge.solver_runner import SolverRunReport, SolverRunStep
@@ -37,6 +37,90 @@ class FakeTunnelProcess:
 
 
 class E2ESolverTests(unittest.TestCase):
+    def test_access_bundle_validation_flags_missing_playability_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            provider_output.mkdir()
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            access_bundle = root / "lab-access-bundle.json"
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "step_id": "plugin-support-portal-ssti-preview",
+                                "action_type": "vulnerability-behavior",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "attacker_entrypoints": [
+                            {
+                                "service": "attacker-workstation",
+                                "protocol": "ssh",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                            }
+                        ],
+                        "internal_targets": [
+                            {"service": "wiki", "dns": "wiki", "expose": ["6000"]}
+                        ],
+                        "terminal_sequences": [],
+                        "tunnel_commands": [],
+                        "plugin_checks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_bundle.write_text(
+                json.dumps(
+                    {
+                        "generated_files": {
+                            "provider_endpoints": str((provider_output / "endpoints.json").resolve()),
+                            "learner_access_json": str(access_manifest.resolve()),
+                            "solver_plan_json": str(solver_plan.resolve()),
+                        },
+                        "learner_urls": [],
+                        "attacker_ssh": ["ssh attacker@127.0.0.1 -p 2222"],
+                        "final_submission_urls": [],
+                        "terminal_sequences": [
+                            {
+                                "service": "attacker-workstation",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                                "commands": ["echo labforge-terminal-ready", "pwd"],
+                                "expected_texts": ["labforge-terminal-ready"],
+                            }
+                        ],
+                        "published_endpoints": [
+                            {
+                                "service": "attacker-workstation",
+                                "protocol": "ssh",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                            }
+                        ],
+                        "internal_targets": [{"service": "wiki", "dns": "wiki", "expose": ["6000"]}],
+                        "tunnel_commands": [],
+                        "plugin_checks": [],
+                        "solver_ready": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_access_bundle(access_bundle, provider_output, solver_plan, access_manifest)
+
+            joined = " ".join(findings)
+            self.assertIn("missing=terminal_sequences_for_attacker_ssh", joined)
+            self.assertIn("missing=tunnel_commands_for_internal_targets", joined)
+            self.assertIn("missing=plugin_checks_for_vulnerability_steps", joined)
+
     def test_e2e_solver_dry_run_plans_lifecycle_access_and_solver(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -124,6 +208,14 @@ class E2ESolverTests(unittest.TestCase):
                                 "kind": "http-health",
                                 "command": "curl -i http://127.0.0.1:18081/healthz",
                                 "expected": "healthy",
+                            }
+                        ],
+                        "terminal_sequences": [
+                            {
+                                "service": "attacker-workstation",
+                                "connect": "ssh attacker@127.0.0.1 -p 2222",
+                                "commands": ["echo labforge-terminal-ready", "pwd"],
+                                "expected_texts": ["labforge-terminal-ready"],
                             }
                         ],
                     }

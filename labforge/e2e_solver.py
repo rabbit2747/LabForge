@@ -495,12 +495,36 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
         if isinstance(item, dict) and (str(item.get("service", "")).strip() or str(item.get("dns", "")).strip())
     ]
     tunnel_commands = compact_tunnel_commands(access)
+    plugin_checks = [
+        {"step_id": str(item.get("step_id", "")).strip()}
+        for item in access.get("plugin_checks", []) or []
+        if isinstance(item, dict) and str(item.get("step_id", "")).strip()
+    ]
+    terminal_sequences = [
+        str(item.get("service", "")).strip()
+        for item in access.get("terminal_sequences", []) or []
+        if isinstance(item, dict)
+    ]
+    solver = load_json(solver_plan)
+    solver_steps = [item for item in solver.get("steps", []) or [] if isinstance(item, dict)]
+    solver_vulnerability_steps = [
+        item
+        for item in solver_steps
+        if str(item.get("action_type", "")).strip() == "vulnerability-behavior"
+    ]
     compare_bundle_list(findings, data, "learner_urls", learner_urls)
     compare_bundle_list(findings, data, "attacker_ssh", attacker_ssh)
     compare_bundle_list(findings, data, "final_submission_urls", final_urls)
     compare_bundle_targets(findings, data, "published_endpoints", published_endpoints)
     compare_bundle_targets(findings, data, "internal_targets", internal_targets)
     compare_bundle_targets(findings, data, "tunnel_commands", tunnel_commands)
+    compare_bundle_targets(findings, data, "plugin_checks", plugin_checks, subset=True)
+    if attacker_ssh and not terminal_sequences:
+        findings.append("missing=terminal_sequences_for_attacker_ssh")
+    if internal_targets and not tunnel_commands:
+        findings.append("missing=tunnel_commands_for_internal_targets")
+    if solver_vulnerability_steps and not plugin_checks:
+        findings.append("missing=plugin_checks_for_vulnerability_steps")
     if not data.get("solver_ready"):
         findings.append("missing=solver_ready")
     return findings or ["access_bundle=ready"]
@@ -520,11 +544,16 @@ def compare_bundle_list(findings: list[str], bundle: dict, key: str, expected: l
         findings.append(f"mismatch={key}:expected={expected}:actual={actual}")
 
 
-def compare_bundle_targets(findings: list[str], bundle: dict, key: str, expected: list[dict]) -> None:
+def compare_bundle_targets(findings: list[str], bundle: dict, key: str, expected: list[dict], *, subset: bool = False) -> None:
     fields = sorted({field for item in expected for field in item.keys()})
     actual = [compact_record(item, fields) for item in bundle.get(key, []) or [] if isinstance(item, dict)]
     expected_compact = [compact_record(item, fields) for item in expected]
     actual = [item for item in actual if any(value not in ("", [], None) for value in item.values())]
+    if subset:
+        missing = [item for item in expected_compact if item not in actual]
+        if missing:
+            findings.append(f"mismatch={key}:missing={missing}:actual={actual}")
+        return
     if actual != expected_compact:
         findings.append(f"mismatch={key}:expected={expected_compact}:actual={actual}")
 

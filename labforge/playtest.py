@@ -667,6 +667,20 @@ def build_lab_access_bundle(
         report.attacker_entrypoints,
         [*report.learner_entrypoints, *report.final_submission_endpoints],
     )
+    plugin_checks = plugin_checks_from_solver_plan(
+        solver_plan,
+        service_base_urls=service_base_urls_from_endpoint_manifest(endpoint_manifest),
+    )
+    stage_handoffs = stage_handoffs_from_chain_manifest(chain_manifest)
+    readiness_findings = lab_access_solver_readiness_findings(
+        report=report,
+        access=access,
+        solver_plan=solver_plan,
+        internal_targets=internal_targets,
+        tunnel_commands=tunnel_commands,
+        plugin_checks=plugin_checks,
+        stage_handoffs=stage_handoffs,
+    )
     return LabAccessBundle(
         lab_id=report.lab_id,
         title=report.title,
@@ -692,20 +706,18 @@ def build_lab_access_bundle(
             }
             for sequence in access.terminal_sequences
         ],
-        plugin_checks=plugin_checks_from_solver_plan(
-            solver_plan,
-            service_base_urls=service_base_urls_from_endpoint_manifest(endpoint_manifest),
-        ),
-        stage_handoffs=stage_handoffs_from_chain_manifest(chain_manifest),
+        plugin_checks=plugin_checks,
+        stage_handoffs=stage_handoffs,
         start_commands=[command.model_dump() for command in access.start_commands],
         status_commands=[command.model_dump() for command in access.status_commands],
         stop_commands=[command.model_dump() for command in access.stop_commands],
         generated_files=generated_files,
-        solver_ready=bool(solver_plan.steps and (solver_plan.learner_start or solver_plan.attacker_shell or solver_plan.final_submission)),
+        solver_ready=not readiness_findings,
         notes=[
             "Run start commands from provider_output_dir before opening learner URLs.",
             "Use learner_urls for browser playtest and attacker_ssh for terminal playtest.",
             "Run access-playtest and solver-run reports after deployment to prove the lab is playable.",
+            *readiness_findings,
         ],
     )
 
@@ -723,6 +735,7 @@ def build_human_readiness_report(
     }
     for step in solver_plan.steps:
         checks.append(human_solver_step_readiness_check(step, plugin_check_keys))
+    checks.append(human_chain_readiness_check(solver_plan, access))
     failures = [check for check in checks if check.status == "failed"]
     warnings = [check for check in checks if check.status == "warning"]
     status: PlaytestStatus = "failed" if failures else ("warning" if warnings else "passed")
@@ -749,7 +762,15 @@ def human_access_readiness_check(report: PlaytestReport, access: LearnerAccessMa
         messages.append("Learner access manifest has no first_action.")
     if not access.start_commands:
         messages.append("No provider start command is documented.")
-    if not report.final_submission_endpoints:
+    internal_targets = list(getattr(access, "internal_targets", []) or [])
+    tunnel_commands = list(getattr(access, "tunnel_commands", []) or [])
+    if report.attacker_entrypoints and not access.terminal_sequences:
+        messages.append("Attacker SSH is published but no terminal command sequence is documented.")
+    if internal_targets and not tunnel_commands:
+        messages.append("Internal-only targets exist but no learner tunnel command is documented.")
+    if tunnel_commands and not report.attacker_entrypoints:
+        messages.append("Tunnel commands exist but no attacker SSH endpoint is available to anchor them.")
+    if not report.final_submission_endpoints and not final_submission_reachable_via_tunnel(internal_targets, tunnel_commands):
         warnings.append("No final submission endpoint is available.")
     status: PlaytestStatus = "failed" if messages else ("warning" if warnings else "passed")
     return HumanReadinessCheck(
@@ -758,6 +779,39 @@ def human_access_readiness_check(report: PlaytestReport, access: LearnerAccessMa
         status=status,
         messages=[*messages, *warnings] or ["Learner start, terminal access, and final submission handoff are documented."],
     )
+
+
+def human_chain_readiness_check(solver_plan: SolverPlan, access: LearnerAccessManifest) -> HumanReadinessCheck:
+    messages: list[str] = []
+    vulnerability_steps = [step for step in solver_plan.steps if step.action_type == "vulnerability-behavior"]
+    if vulnerability_steps and not access.plugin_checks:
+        messages.append("Vulnerability stages exist but no plugin evidence checks are documented.")
+    if len(solver_plan.steps) >= 4 and not any(step.action_type == "final-submission" for step in solver_plan.steps):
+        messages.append("Multi-stage solver plan has no final-submission step.")
+    internal_targets = list(getattr(access, "internal_targets", []) or [])
+    tunnel_commands = list(getattr(access, "tunnel_commands", []) or [])
+    if internal_targets and not tunnel_commands:
+        messages.append("Internal target handoff is not backed by a tunnel or reachability command.")
+    return HumanReadinessCheck(
+        check_id="human-chain-01",
+        step_id="stage-chain",
+        status="failed" if messages else "passed",
+        messages=messages or ["Stage chain has access, evidence, internal reachability, and completion handoff material."],
+    )
+
+
+def final_submission_reachable_via_tunnel(
+    internal_targets: list[InternalAccessTarget],
+    tunnel_commands: list[LearnerTunnelCommand],
+) -> bool:
+    final_services = {
+        target.service
+        for target in internal_targets
+        if any(token in target.service.lower() for token in ("drop", "submit", "controlled"))
+    }
+    if not final_services:
+        return False
+    return any(command.service in final_services and bool(command.url or command.command) for command in tunnel_commands)
 
 
 def human_solver_step_readiness_check(
@@ -808,6 +862,41 @@ def contains_answer_key_language(text: str) -> bool:
         "use the exact",
     )
     return any(term in normalized for term in blocked)
+
+
+def lab_access_solver_readiness_findings(
+    *,
+    report: PlaytestReport,
+    access: LearnerAccessManifest,
+    solver_plan: SolverPlan,
+    internal_targets: list[InternalAccessTarget],
+    tunnel_commands: list[LearnerTunnelCommand],
+    plugin_checks: list[dict[str, Any]],
+    stage_handoffs: list[dict[str, Any]],
+) -> list[str]:
+    findings: list[str] = []
+    if not solver_plan.steps:
+        findings.append("readiness: solver plan has no ordered steps.")
+    if not (report.learner_entrypoints or report.attacker_entrypoints):
+        findings.append("readiness: no learner URL or attacker SSH endpoint is published.")
+    if report.attacker_entrypoints and not access.terminal_sequences:
+        findings.append("readiness: attacker SSH endpoint lacks a terminal command sequence.")
+    if internal_targets and not tunnel_commands:
+        findings.append("readiness: internal-only services exist without generated tunnel commands.")
+    if tunnel_commands and not report.attacker_entrypoints:
+        findings.append("readiness: tunnel commands require an attacker SSH endpoint.")
+    vulnerability_steps = [step for step in solver_plan.steps if step.action_type == "vulnerability-behavior"]
+    if vulnerability_steps and not plugin_checks:
+        findings.append("readiness: vulnerability solver steps lack plugin evidence checks.")
+    if len(solver_plan.steps) >= 4 and not stage_handoffs:
+        findings.append("readiness: multi-stage solver plan lacks stage handoff evidence.")
+    if (
+        len(solver_plan.steps) >= 4
+        and not (report.final_submission_endpoints or solver_plan.final_submission)
+        and not final_submission_reachable_via_tunnel(internal_targets, tunnel_commands)
+    ):
+        findings.append("readiness: multi-stage solver plan lacks final submission access.")
+    return findings
 
 
 def stage_handoffs_from_chain_manifest(chain_manifest) -> list[dict[str, Any]]:

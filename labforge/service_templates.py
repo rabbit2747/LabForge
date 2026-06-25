@@ -413,13 +413,15 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "    append_event('index.viewed')",
                 "    metadata = load_json('metadata.json', {'service': SERVICE, 'role': ROLE, 'purpose': PURPOSE})",
                 "    workflow = load_json('workflow.json', {'normal_workflows': []})",
-                "    records = load_json('records.json', {'items': []}).get('items', [])",
+                "    records_payload = load_json('records.json', {'items': [], 'industry_context': {}})",
+                "    records = records_payload.get('items', [])",
+                "    industry_context = records_payload.get('industry_context', {})",
                 "    clues = load_json('clues.json', {'items': []}).get('items', [])",
                 "    discovery = load_json('vulnerability-discovery.json', {'items': []})",
                 "    chain = chain_data()",
                 "    stage_state = recompute_stage_unlocks(load_stage_state())",
                 "    events = load_events()[:8]",
-                "    return render_template_string(DASHBOARD_TEMPLATE, service=SERVICE, role=ROLE, purpose=PURPOSE, metadata=metadata, routes=ROUTES, workflow=workflow, records=records, clues=clues, discovery=discovery, chain=chain, stage_state=stage_state, events=events)",
+                "    return render_template_string(DASHBOARD_TEMPLATE, service=SERVICE, role=ROLE, purpose=PURPOSE, metadata=metadata, routes=ROUTES, workflow=workflow, records=records, industry_context=industry_context, clues=clues, discovery=discovery, chain=chain, stage_state=stage_state, events=events)",
                 "",
                 "",
                 "@app.get('/metadata')",
@@ -586,7 +588,7 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "  <nav><a class=\"active\" href=\"/\">Overview</a><a href=\"/workflow\">Workflow</a><a href=\"/api/records\">Records API</a>{% if discovery.get('items') %}<a href=\"/operations/reference\">Operations Reference</a>{% endif %}<a href=\"/api/chain\">Chain Context</a><a href=\"/api/state\">Stage State</a><a href=\"/logs/events\">Events</a><a href=\"/api/routes\">Routes</a></nav>",
                 "  <main>",
                 "    <div>",
-                "      <section><h2>Operational Summary</h2><p class=\"muted\">{{ purpose }}</p><div class=\"grid\">",
+                "      <section><h2>Operational Summary</h2><p class=\"muted\">{{ purpose }}</p>{% if industry_context %}<p><span class=\"pill\">{{ industry_context.get('display_name') }}</span> <span class=\"muted\">{{ industry_context.get('operating_model') }}</span></p>{% endif %}<div class=\"grid\">",
                 "        <div class=\"tile\"><strong>Routes</strong><br><span class=\"muted\">{{ routes|length }} declared business/API surfaces</span></div>",
                 "        <div class=\"tile\"><strong>Records</strong><br><span class=\"muted\">{{ records|length }} seeded business records</span></div>",
                 "        <div class=\"tile\"><strong>Workflows</strong><br><span class=\"muted\">{{ workflow.get('normal_workflows', [])|length }} normal workflows</span></div>",
@@ -594,6 +596,9 @@ def render_enterprise_flask_service(artifact: Any, port: int, *, blueprint: Any 
                 "        <div class=\"tile\"><strong>Evidence State</strong><br><span class=\"muted\">{{ stage_state.get('acquired_evidence', [])|length }} acquired evidence items</span></div>",
                 "        {% if discovery.get('items') %}<div class=\"tile\"><strong>Operations Reference</strong><br><span class=\"muted\">{{ discovery.get('items', [])|length }} workflow reference item(s)</span></div>{% endif %}",
                 "      </div></section>",
+                "      {% if industry_context.get('workflow_lanes') %}<section style=\"margin-top:18px\"><h2>Business Workflow Lanes</h2><table><tr><th>Lane</th><th>Normal Records</th><th>Operational Review</th></tr>",
+                "      {% for lane in industry_context.get('workflow_lanes', []) %}<tr><td>{{ lane.get('name') }}</td><td>{{ lane.get('records') }}</td><td>{{ lane.get('review') }}</td></tr>{% endfor %}",
+                "      </table></section>{% endif %}",
                 "      {% if discovery.get('items') %}<section style=\"margin-top:18px\"><h2>Operations Reference</h2><table><tr><th>Workflow</th><th>Normal Routes</th><th>Operator Note</th></tr>",
                 "      {% for item in discovery.get('items', []) %}<tr><td>{{ item.get('business_feature') }}</td><td>{% for route in item.get('normal_routes', [])[:4] %}<code>{{ route }}</code><br>{% endfor %}</td><td>{{ item.get('operator_language') }}</td></tr>{% endfor %}",
                 "      </table></section>{% endif %}",
@@ -817,6 +822,7 @@ def render_default_records(artifact: Any, role: str) -> str:
     domain = business_domain_for_artifact(artifact, role)
     service = str(artifact.service)
     data = {
+        "industry_context": industry_context_for_domain(domain),
         "items": business_records(service, role, domain)
     }
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
@@ -905,6 +911,82 @@ def business_records(service: str, role: str, domain: str) -> list[dict[str, str
         {**common, "id": f"{service}-case-002", "type": role, "status": "pending-review", "owner": "support", "updated_at": "2026-05-18T09:45:00Z"},
         {**common, "id": f"{service}-archive-003", "type": "archive-record", "status": "archived", "owner": "records", "updated_at": "2026-05-18T10:30:00Z"},
     ]
+
+
+def industry_context_for_domain(domain: str) -> dict[str, Any]:
+    contexts = {
+        "banking": {
+            "display_name": "Retail / Commercial Banking",
+            "operating_model": "Digital banking, loan operations, payments, fraud, AML, and compliance workflows share synthetic customer and case data.",
+            "workflow_lanes": [
+                {"name": "Loan Operations", "records": "loan applications, document exceptions, underwriting notes", "review": "underwriter and loan-ops queue review"},
+                {"name": "Payments", "records": "wire, ACH, reconciliation, and batch exceptions", "review": "payments operations batch reconciliation"},
+                {"name": "Fraud / AML", "records": "fraud alerts, AML cases, SAR-style review notes", "review": "financial-crime analyst triage"},
+                {"name": "Compliance Export", "records": "regulatory export metadata and audit evidence", "review": "compliance approval and evidence packaging"},
+            ],
+        },
+        "securities": {
+            "display_name": "Securities Firm / Brokerage",
+            "operating_model": "Investor services, market data, order management, settlement, surveillance, and compliance exports operate as separated business lanes.",
+            "workflow_lanes": [
+                {"name": "Investor Services", "records": "customer notices, support requests, account context", "review": "brokerage support and account operations"},
+                {"name": "Trading / OMS", "records": "orders, quotes, execution reports, trade exceptions", "review": "trade operations exception handling"},
+                {"name": "Market Data", "records": "ticker snapshots, feed health, vendor integration notes", "review": "market data operations review"},
+                {"name": "Compliance / Surveillance", "records": "surveillance alerts and regulatory exports", "review": "compliance analyst review"},
+            ],
+        },
+        "healthcare": {
+            "display_name": "Healthcare Provider",
+            "operating_model": "Patient access, clinical records, billing, claims, and privacy audit workflows use synthetic PHI-safe data.",
+            "workflow_lanes": [
+                {"name": "Patient Access", "records": "appointments, portal messages, intake forms", "review": "front-desk and scheduling review"},
+                {"name": "Clinical", "records": "encounters, care notes, EHR access records", "review": "clinical staff review"},
+                {"name": "Billing / Claims", "records": "claim status, payer responses, billing events", "review": "revenue-cycle queue review"},
+                {"name": "Privacy Audit", "records": "access logs and audit export metadata", "review": "privacy office audit review"},
+            ],
+        },
+        "manufacturing": {
+            "display_name": "Manufacturing / OT-Adjacent Enterprise",
+            "operating_model": "Supplier, engineering, MES, historian, maintenance, and production-report workflows are modeled without real control actions.",
+            "workflow_lanes": [
+                {"name": "Supplier / Maintenance", "records": "supplier requests and maintenance work orders", "review": "maintenance coordinator review"},
+                {"name": "Engineering", "records": "engineering changes and recipe documents", "review": "engineering approval workflow"},
+                {"name": "MES / Historian", "records": "work orders, alarms, historian tag snapshots", "review": "plant operations review"},
+                {"name": "Production Reporting", "records": "production report exports and quality notes", "review": "operations management review"},
+            ],
+        },
+        "supply-chain": {
+            "display_name": "Software Supply Chain",
+            "operating_model": "Support, engineering, build, signing, release, update, and customer integration workflows exchange synthetic release metadata.",
+            "workflow_lanes": [
+                {"name": "Support", "records": "tickets, customer notes, diagnostics", "review": "support operations triage"},
+                {"name": "Engineering", "records": "commits, release notes, branch metadata", "review": "developer review"},
+                {"name": "Release", "records": "build jobs, manifests, signing audit", "review": "release manager approval"},
+                {"name": "Customer Integration", "records": "agent update status and customer export metadata", "review": "customer success validation"},
+            ],
+        },
+        "active-directory": {
+            "display_name": "Active Directory Enterprise",
+            "operating_model": "Domain users, groups, Kerberos, file shares, GPO, and Windows event logs require VM-backed realism for full fidelity.",
+            "workflow_lanes": [
+                {"name": "Identity", "records": "users, groups, service accounts", "review": "IAM access review"},
+                {"name": "Workstations", "records": "endpoint inventory and login events", "review": "desktop operations review"},
+                {"name": "File Services", "records": "SMB shares and access control notes", "review": "file owner review"},
+                {"name": "Security Monitoring", "records": "Windows events and domain audit logs", "review": "SOC triage"},
+            ],
+        },
+        "enterprise": {
+            "display_name": "General Enterprise IT",
+            "operating_model": "Public apps, identity, internal applications, data stores, and monitoring workflows use synthetic business data.",
+            "workflow_lanes": [
+                {"name": "Business Portal", "records": "requests, tickets, account context", "review": "operations triage"},
+                {"name": "Identity", "records": "users, groups, service accounts", "review": "access review"},
+                {"name": "Records", "records": "documents, archives, audit evidence", "review": "records owner review"},
+                {"name": "Monitoring", "records": "logs, alerts, routine events", "review": "security monitoring"},
+            ],
+        },
+    }
+    return contexts.get(domain, contexts["enterprise"])
 
 
 def business_events(service: str, role: str, domain: str) -> list[dict[str, str]]:

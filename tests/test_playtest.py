@@ -14,6 +14,7 @@ from labforge.playtest import (
     plugin_walkthrough_steps,
     build_human_readiness_report,
     run_playtest,
+    lab_access_solver_readiness_findings,
     service_realism_step,
     service_base_urls_from_endpoint_manifest,
     SolverPlan,
@@ -198,6 +199,55 @@ class PlaytestTests(unittest.TestCase):
         messages = " ".join(message for check in readiness.checks for message in check.messages)
         self.assertIn("too thin", messages)
         self.assertIn("missing plugin evidence check", messages)
+
+    def test_solver_readiness_findings_require_terminal_tunnel_plugin_and_handoff_material(self) -> None:
+        report = SimpleNamespace(
+            learner_entrypoints=[],
+            attacker_entrypoints=[PlaytestEndpoint(service="attacker-workstation", protocol="ssh", connect="ssh attacker@127.0.0.1 -p 2222")],
+            final_submission_endpoints=[],
+        )
+        access = SimpleNamespace(terminal_sequences=[])
+        solver_plan = SolverPlan(
+            lab_id="readiness",
+            title="Readiness",
+            provider="docker-compose",
+            profile="protected",
+            status="planned",
+            steps=[
+                SolverPlanStep(
+                    order=1,
+                    step_id="plugin-support-portal-ssti-preview",
+                    title="support-portal: ssti-preview",
+                    service="support-portal",
+                    plugin="ssti-preview",
+                    action_type="vulnerability-behavior",
+                    learner_action="Use the customer reply preview workflow to compare normal merge-field rendering with expression rendering.",
+                    expected_result="The learner can prove the preview renderer evaluates server-side template expressions and records evidence.",
+                    evidence=["emitted_evidence=template_probe_confirmed"],
+                    discovery_cues=["Normal merge fields render in preview before any attack payload is attempted."],
+                    next_step_condition="Proceed when template_probe_confirmed appears in service state.",
+                ),
+                SolverPlanStep(order=2, step_id="access-02", title="Access", action_type="access", learner_action="Open the next service.", expected_result="The service responds."),
+                SolverPlanStep(order=3, step_id="runtime-01", title="Runtime", action_type="stage-chain", learner_action="Validate runtime state.", expected_result="Runtime state exists."),
+                SolverPlanStep(order=4, step_id="final-01", title="Final", action_type="final-submission", learner_action="Submit final proof.", expected_result="Submission succeeds."),
+            ],
+        )
+
+        findings = lab_access_solver_readiness_findings(
+            report=report,
+            access=access,
+            solver_plan=solver_plan,
+            internal_targets=[InternalAccessTarget(service="wiki", dns="wiki", expose=["6000"])],
+            tunnel_commands=[],
+            plugin_checks=[],
+            stage_handoffs=[],
+        )
+
+        joined = " ".join(findings)
+        self.assertIn("terminal command sequence", joined)
+        self.assertIn("internal-only services", joined)
+        self.assertIn("plugin evidence checks", joined)
+        self.assertIn("stage handoff evidence", joined)
 
     def test_plugin_guidance_contains_discovery_cues_and_next_condition(self) -> None:
         guidance = guidance_for_plugin("ssti-preview", "support-portal")
