@@ -1609,7 +1609,7 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"secret_value": "redacted", "secret_reference": "lab://secret/ref"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"secret_value": "redacted", "secret_reference": "lab://secret/ref", "bind_profile_api": "/api/config/bind-profile"}).encode("utf-8"))
             return
         if self.path == "/api/config/secret-policy":
             self.send_response(200)
@@ -1619,9 +1619,30 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
                 json.dumps(
                     {
                         "redaction_policy": "runtime config values are redacted",
+                        "bind_profile_api": "/api/config/bind-profile",
                         "startup_log_api": "/api/config/startup-log",
                         "correlation_api": "/api/config/correlation",
                         "audit_api": "/api/config/access-audit",
+                        "audit_provenance_fields": ["secret_reference_visible", "secret_value_visible", "secret_value_source", "profile_detail_api"],
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/config/bind-profile":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "profile": {
+                            "account_name": "operator-bind",
+                            "downstream_service": "internal-directory",
+                            "secret_reference": "lab://secret/ref",
+                            "cache_profile": "operator-bind",
+                            "cache_export_variable": "OPERATOR_BIND_CURRENT",
+                        },
+                        "correlation_api": "/api/config/correlation",
                     }
                 ).encode("utf-8")
             )
@@ -1635,8 +1656,14 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
                     {
                         "secret_value_in_config": "redacted",
                         "secret_reference": "lab://secret/ref",
+                        "bind_profile": {"secret_reference": "lab://secret/ref", "cache_export_variable": "OPERATOR_BIND_CURRENT"},
                         "cache_profile_matches_account": True,
                         "recovered_credential": "LabForge-Operator-Training-Secret!",
+                        "evidence_chain": [
+                            {"source": "runtime-config", "matches_bind_profile": True},
+                            {"source": "bind-profile", "matches_startup_log": True},
+                            {"source": "startup-log", "secret_value_visible": True},
+                        ],
                     }
                 ).encode("utf-8")
             )
@@ -1655,8 +1682,8 @@ class CredentialExposureSmokeHandler(BaseHTTPRequestHandler):
                 json.dumps(
                     {
                         "records": [
-                            {"action": "config-read", "secret_value_visible": False},
-                            {"action": "startup-log-read", "secret_value_visible": True},
+                            {"action": "config-read", "secret_value_visible": False, "provenance": {"secret_value_source": "runtime-config-redaction"}},
+                            {"action": "startup-log-read", "secret_value_visible": True, "provenance": {"secret_value_source": "startup-cache-export"}},
                         ]
                     }
                 ).encode("utf-8")

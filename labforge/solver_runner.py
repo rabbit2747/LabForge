@@ -1157,6 +1157,13 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        profile_status, profile, _, profile_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/config/bind-profile", "/labforge/scaffold/config/bind-profile"],
+            None,
+            timeout_seconds,
+        )
         log_status, _, log_body, log_route = http_json_first(
             "GET",
             base_url,
@@ -1179,19 +1186,39 @@ def run_plugin_http_sequence(
             timeout_seconds,
         )
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
-        redacted_config_audited = any(isinstance(record, dict) and record.get("action") == "config-read" and record.get("secret_value_visible") is False for record in audit_records)
-        startup_secret_audited = any(isinstance(record, dict) and record.get("action") == "startup-log-read" and record.get("secret_value_visible") is True for record in audit_records)
+        profile_data = profile.get("profile", {}) if isinstance(profile, dict) else {}
+        evidence_chain = correlation.get("evidence_chain", []) if isinstance(correlation, dict) else []
+        redacted_config_audited = any(
+            isinstance(record, dict)
+            and record.get("action") == "config-read"
+            and record.get("secret_value_visible") is False
+            and record.get("provenance", {}).get("secret_value_source") == "runtime-config-redaction"
+            for record in audit_records
+        )
+        startup_secret_audited = any(
+            isinstance(record, dict)
+            and record.get("action") == "startup-log-read"
+            and record.get("secret_value_visible") is True
+            and record.get("provenance", {}).get("secret_value_source") == "startup-cache-export"
+            for record in audit_records
+        )
         ok = (
             landing_ok
             and config_status == 200
             and policy_status == 200
+            and profile_status == 200
             and log_status == 200
             and correlation_status == 200
             and audit_status == 200
             and config.get("secret_value") == "redacted"
+            and config.get("bind_profile_api") == "/api/config/bind-profile"
             and "redacted" in policy.get("redaction_policy", "")
+            and policy.get("bind_profile_api") == "/api/config/bind-profile"
+            and profile_data.get("secret_reference") == config.get("secret_reference")
             and correlation.get("secret_reference") == config.get("secret_reference")
             and correlation.get("cache_profile_matches_account") is True
+            and isinstance(evidence_chain, list)
+            and len(evidence_chain) >= 3
             and bool(correlation.get("recovered_credential"))
             and "vault-cache export" in log_body
             and redacted_config_audited
@@ -1206,10 +1233,11 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; config_route={config_route}; policy_route={policy_route}; log_route={log_route}; "
+                f"{context_note}; config_route={config_route}; policy_route={policy_route}; profile_route={profile_route}; log_route={log_route}; "
                 f"correlation_route={correlation_route}; audit_route={audit_route}; config={config_status}; "
-                f"policy={policy_status}; log={log_status}; correlation={correlation_status}; audit={audit_status}; "
-                f"secret_value={config.get('secret_value', '-')}; cache_profile_matches_account={correlation.get('cache_profile_matches_account')}; "
+                f"policy={policy_status}; profile={profile_status}; log={log_status}; correlation={correlation_status}; audit={audit_status}; "
+                f"secret_value={config.get('secret_value', '-')}; profile_reference_match={profile_data.get('secret_reference') == config.get('secret_reference')}; "
+                f"cache_profile_matches_account={correlation.get('cache_profile_matches_account')}; evidence_chain={len(evidence_chain) if isinstance(evidence_chain, list) else 'unknown'}; "
                 f"recovered_credential={'present' if correlation.get('recovered_credential') else 'missing'}; "
                 f"redacted_config_audited={redacted_config_audited}; startup_secret_audited={startup_secret_audited}"
             ),

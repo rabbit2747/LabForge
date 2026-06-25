@@ -494,32 +494,43 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "credential-exposure":
             config = client.get("/labforge/scaffold/config")
             policy = client.get("/labforge/scaffold/config/secret-policy")
+            profile = client.get("/labforge/scaffold/config/bind-profile")
             log = client.get("/labforge/scaffold/config/startup-log")
             correlation = client.get("/labforge/scaffold/config/correlation")
             audit = client.get("/labforge/scaffold/config/access-audit")
             config_data = config.get_json(silent=True) or {}
             policy_data = policy.get_json(silent=True) or {}
+            profile_data = profile.get_json(silent=True) or {}
             correlation_data = correlation.get_json(silent=True) or {}
             audit_data = audit.get_json(silent=True) or {}
             log_body = log.get_data(as_text=True)
             audit_records = audit_data.get("records", [])
+            bind_profile = profile_data.get("profile", {}) if isinstance(profile_data, dict) else {}
+            evidence_chain = correlation_data.get("evidence_chain", []) if isinstance(correlation_data, dict) else []
             return assert_condition(
                 service,
                 plugin_id,
                 config.status_code == 200
                 and policy.status_code == 200
+                and profile.status_code == 200
                 and log.status_code == 200
                 and correlation.status_code == 200
                 and audit.status_code == 200
                 and config_data.get("secret_value") == "redacted"
+                and config_data.get("bind_profile_api") == "/api/config/bind-profile"
                 and policy_data.get("redaction_policy", "").startswith("runtime config")
+                and policy_data.get("bind_profile_api") == "/api/config/bind-profile"
+                and bind_profile.get("secret_reference") == config_data.get("secret_reference")
                 and correlation_data.get("cache_profile_matches_account") is True
+                and isinstance(evidence_chain, list)
+                and len(evidence_chain) >= 3
+                and all(item.get("matches_bind_profile", True) is True for item in evidence_chain if item.get("source") == "runtime-config")
                 and "LabForge-Operator-Training-Secret!" in str(correlation_data.get("recovered_credential", ""))
                 and "vault-cache export" in log_body
                 and "LabForge-Operator-Training-Secret!" in log_body
-                and any(record.get("action") == "config-read" and record.get("secret_value_visible") is False for record in audit_records)
-                and any(record.get("action") == "startup-log-read" and record.get("secret_value_visible") is True for record in audit_records),
-                "/labforge/scaffold/config + secret-policy + startup-log + correlation + access-audit",
+                and any(record.get("action") == "config-read" and record.get("secret_value_visible") is False and record.get("provenance", {}).get("secret_value_source") == "runtime-config-redaction" for record in audit_records)
+                and any(record.get("action") == "startup-log-read" and record.get("secret_value_visible") is True and record.get("provenance", {}).get("secret_value_source") == "startup-cache-export" for record in audit_records),
+                "/labforge/scaffold/config + secret-policy + bind-profile + startup-log + correlation evidence + access-audit",
                 correlation,
             )
         if plugin_id == "solr-velocity-rce":
