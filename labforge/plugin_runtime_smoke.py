@@ -434,10 +434,13 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             retrieved = client.get(f"/labforge/scaffold/uploads/{filename}") if filename else uploaded
             review = client.get("/labforge/scaffold/uploads/review")
             storage = client.get("/labforge/scaffold/uploads/storage")
+            storage_object = client.get(f"/labforge/scaffold/uploads/storage/{filename}") if filename else uploaded
             access_audit = client.get("/labforge/scaffold/uploads/access-audit")
             review_data = review.get_json(silent=True) or {}
             records = review_data.get("records", [])
             storage_data = storage.get_json(silent=True) or {}
+            storage_object_data = storage_object.get_json(silent=True) or {}
+            object_data = storage_object_data.get("object", {}) if isinstance(storage_object_data, dict) else {}
             access_data = access_audit.get_json(silent=True) or {}
             access_records = access_data.get("records", []) if isinstance(access_data, dict) else []
             return assert_condition(
@@ -447,13 +450,17 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and uploaded.status_code == 201
                 and retrieved.status_code == 200
                 and storage.status_code == 200
-                and any(obj.get("filename") == filename and obj.get("retrieval_url") == f"/attachments/{filename}" for obj in storage_data.get("objects", []))
+                and storage_object.status_code == 200
+                and any(obj.get("filename") == filename and obj.get("retrieval_url") == f"/attachments/{filename}" and obj.get("detail_api") == f"/api/attachments/storage/{filename}" for obj in storage_data.get("objects", []))
+                and object_data.get("filename") == filename
+                and object_data.get("decision", {}).get("allowed_by_runtime") is True
+                and object_data.get("decision", {}).get("policy_match") is False
                 and access_audit.status_code == 200
-                and any(record.get("action") == "upload" and record.get("filename") == filename and record.get("status") == 201 for record in access_records)
-                and any(record.get("action") == "retrieve" and record.get("filename") == filename and record.get("status") == 200 for record in access_records)
+                and any(record.get("action") == "upload" and record.get("filename") == filename and record.get("status") == 201 and record.get("provenance", {}).get("storage_object_api") == f"/api/attachments/storage/{filename}" for record in access_records)
+                and any(record.get("action") == "retrieve" and record.get("filename") == filename and record.get("status") == 200 and record.get("provenance", {}).get("retrieval_url") == f"/attachments/{filename}" for record in access_records)
                 and b"labforge upload smoke" in retrieved.get_data()
-                and any(record.get("filename") == filename and record.get("policy_match") is False for record in records),
-                "/labforge/scaffold/uploads + policy + review + storage + access-audit",
+                and any(record.get("filename") == filename and record.get("policy_match") is False and record.get("decision", {}).get("allowed_by_runtime") is True for record in records),
+                "/labforge/scaffold/uploads + policy + review + storage-object + access-audit provenance",
                 access_audit,
             )
         if plugin_id == "diagnostic-command-injection":
