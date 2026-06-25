@@ -262,6 +262,65 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_uses_tunnel_url_as_internal_service_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "solver-tunnel-target",
+                        "title": "Solver Tunnel Target",
+                        "steps": [
+                            {
+                                "order": 1,
+                                "step_id": "plugin-internal-wiki-ssti-preview",
+                                "action_type": "vulnerability-behavior",
+                                "service": "internal-wiki",
+                                "plugin": "ssti-preview",
+                                "evidence": ["template_probe_confirmed"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "solver-tunnel-target",
+                        "title": "Solver Tunnel Target",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [
+                            {"service": "attacker-workstation", "protocol": "ssh", "connect": "ssh attacker@127.0.0.1 -p 2222"}
+                        ],
+                        "tunnel_commands": [
+                            {
+                                "service": "internal-wiki",
+                                "dns": "wiki",
+                                "internal_port": "6000",
+                                "local_port": 18080,
+                                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222",
+                                "url": "http://127.0.0.1:18080/",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = run_solver_plan(
+                solver_plan,
+                root / "solver-run",
+                access_manifest=access_manifest,
+                execute=False,
+            )
+
+            self.assertEqual(report.status, "planned")
+            self.assertEqual(report.service_targets["internal-wiki"], "http://127.0.0.1:18080")
+            self.assertEqual(report.terminal_targets, ["ssh attacker@127.0.0.1 -p 2222"])
+
     def test_solver_runner_fails_when_expected_stage_evidence_is_not_emitted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

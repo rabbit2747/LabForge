@@ -151,6 +151,7 @@ def service_targets_from(access: dict, endpoints: dict) -> dict[str, str]:
         access.get("learner_entrypoints", []) or [],
         access.get("attacker_entrypoints", []) or [],
         access.get("final_submission_endpoints", []) or [],
+        access.get("tunnel_commands", []) or [],
         endpoints.get("published_endpoints", []) or [],
     )
     for collection in collections:
