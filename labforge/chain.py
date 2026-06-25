@@ -34,6 +34,14 @@ class ChainLink(ChainModel):
     status: Literal["explicit", "inferred", "missing"] = "inferred"
 
 
+class EvidenceHandoff(ChainModel):
+    evidence: str
+    producer_stage: str
+    consumer_stage: str
+    distance: int = 1
+    status: Literal["direct", "skipped-stage", "missing-producer"] = "direct"
+
+
 class EvidenceRuntimeSource(ChainModel):
     evidence: str
     producer_stage: str = ""
@@ -50,6 +58,7 @@ class ChainManifest(ChainModel):
     status: Literal["passed", "warning", "failed"]
     nodes: list[ChainNode] = Field(default_factory=list)
     links: list[ChainLink] = Field(default_factory=list)
+    evidence_handoffs: list[EvidenceHandoff] = Field(default_factory=list)
     evidence_runtime_sources: list[EvidenceRuntimeSource] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     failures: list[str] = Field(default_factory=list)
@@ -121,6 +130,10 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
     continuity_failures, continuity_warnings = validate_chain_continuity(nodes)
     failures.extend(continuity_failures)
     warnings.extend(continuity_warnings)
+    evidence_handoffs, handoff_failures, handoff_warnings = build_evidence_handoffs(nodes)
+    failures.extend(handoff_failures)
+    warnings.extend(handoff_warnings)
+    links = refine_links_with_consumed_evidence(links, nodes, evidence_handoffs)
     evidence_runtime_sources, runtime_warnings = build_evidence_runtime_sources(spec, nodes)
     warnings.extend(runtime_warnings)
     clue_failures, clue_warnings = validate_clue_quality(nodes)
@@ -139,10 +152,89 @@ def build_chain_manifest(spec: LabSpec) -> ChainManifest:
         status=status,
         nodes=nodes,
         links=links,
+        evidence_handoffs=evidence_handoffs,
         evidence_runtime_sources=evidence_runtime_sources,
         warnings=warnings,
         failures=failures,
     )
+
+
+def build_evidence_handoffs(nodes: list[ChainNode]) -> tuple[list[EvidenceHandoff], list[str], list[str]]:
+    handoffs: list[EvidenceHandoff] = []
+    failures: list[str] = []
+    warnings: list[str] = []
+    latest_producer: dict[str, tuple[str, int]] = {}
+
+    for index, node in enumerate(nodes):
+        for evidence in node.required_inputs:
+            producer = latest_producer.get(evidence)
+            if not producer:
+                future_producers = [
+                    later.stage_id
+                    for later in nodes[index + 1 :]
+                    if evidence in later.produces
+                ]
+                if future_producers:
+                    failures.append(
+                        f"{node.stage_id} requires `{evidence}` before it is produced by later stage(s): {', '.join(future_producers)}"
+                    )
+                handoffs.append(
+                    EvidenceHandoff(
+                        evidence=evidence,
+                        producer_stage="",
+                        consumer_stage=node.stage_id,
+                        distance=0,
+                        status="missing-producer",
+                    )
+                )
+                continue
+            producer_stage, producer_index = producer
+            distance = index - producer_index
+            status: Literal["direct", "skipped-stage", "missing-producer"] = "direct" if distance == 1 else "skipped-stage"
+            if distance > 1:
+                warnings.append(
+                    f"{node.stage_id} consumes `{evidence}` from {producer_stage} across {distance - 1} intermediate stage(s)."
+                )
+            handoffs.append(
+                EvidenceHandoff(
+                    evidence=evidence,
+                    producer_stage=producer_stage,
+                    consumer_stage=node.stage_id,
+                    distance=distance,
+                    status=status,
+                )
+            )
+
+        for evidence in node.produces:
+            latest_producer[evidence] = (node.stage_id, index)
+
+    return handoffs, failures, warnings
+
+
+def refine_links_with_consumed_evidence(
+    links: list[ChainLink], nodes: list[ChainNode], handoffs: list[EvidenceHandoff]
+) -> list[ChainLink]:
+    node_by_stage = {node.stage_id: node for node in nodes}
+    consumed_by_pair: dict[tuple[str, str], list[str]] = {}
+    for handoff in handoffs:
+        if not handoff.producer_stage:
+            continue
+        consumed_by_pair.setdefault((handoff.producer_stage, handoff.consumer_stage), []).append(handoff.evidence)
+
+    refined: list[ChainLink] = []
+    for link in links:
+        evidence = consumed_by_pair.get((link.from_stage, link.to_stage))
+        if evidence is None:
+            source = node_by_stage.get(link.from_stage)
+            target = node_by_stage.get(link.to_stage)
+            if source and target and target.required_inputs:
+                evidence = [item for item in source.produces if item in target.required_inputs]
+            elif source:
+                evidence = list(source.produces)
+            else:
+                evidence = list(link.carried_evidence)
+        refined.append(link.model_copy(update={"carried_evidence": sorted(dict.fromkeys(evidence))}))
+    return refined
 
 
 def validate_chain_continuity(nodes: list[ChainNode]) -> tuple[list[str], list[str]]:
@@ -467,6 +559,11 @@ def service_chain_view(manifest: ChainManifest, service: str) -> dict[str, Any]:
         "adjacent_stages": [node.model_dump() for node in adjacent],
         "incoming": [link.model_dump() for link in incoming],
         "outgoing": [link.model_dump() for link in outgoing],
+        "evidence_handoffs": [
+            handoff.model_dump()
+            for handoff in manifest.evidence_handoffs
+            if handoff.producer_stage in stage_ids or handoff.consumer_stage in stage_ids
+        ],
         "warnings": manifest.warnings,
         "failures": manifest.failures,
     }
@@ -553,6 +650,20 @@ def render_chain_markdown(manifest: ChainManifest) -> str:
     for link in manifest.links:
         lines.append(
             f"| `{link.from_stage}` | `{link.to_stage}` | {escape_cell(', '.join(link.carried_evidence) or '-')} | {link.status} |"
+        )
+    lines += [
+        "",
+        "## Evidence Handoffs",
+        "",
+        "| Evidence | Producer | Consumer | Distance | Status |",
+        "|---|---|---|---|---|",
+    ]
+    if not manifest.evidence_handoffs:
+        lines.append("| - | - | - | - | - |")
+    for handoff in manifest.evidence_handoffs:
+        lines.append(
+            f"| `{handoff.evidence}` | `{handoff.producer_stage or '-'}` | `{handoff.consumer_stage}` | "
+            f"{handoff.distance} | {handoff.status} |"
         )
     lines += [
         "",

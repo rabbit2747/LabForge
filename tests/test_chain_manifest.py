@@ -49,6 +49,80 @@ class ChainManifestTests(unittest.TestCase):
 
         self.assertEqual(manifest.status, "failed")
         self.assertIn("stage-02 requires evidence not produced by earlier stages: missing_secret", manifest.failures)
+        self.assertTrue(
+            any(
+                handoff.consumer_stage == "stage-02"
+                and handoff.evidence == "missing_secret"
+                and handoff.status == "missing-producer"
+                for handoff in manifest.evidence_handoffs
+            )
+        )
+
+    def test_stage_chain_records_non_adjacent_evidence_handoffs(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="long-handoff",
+            title="Long Handoff",
+            services=[{"name": "portal"}, {"name": "wiki"}, {"name": "console"}],
+            stage_list=[
+                {
+                    "id": "stage-01",
+                    "title": "Portal discovery",
+                    "procedure": "Use portal records to collect durable_context for later review.",
+                    "evidence": ["durable_context", "portal_only_note"],
+                },
+                {
+                    "id": "stage-02",
+                    "title": "Wiki review",
+                    "procedure": "Use portal_only_note to identify wiki operating records.",
+                    "required_findings": ["portal_only_note"],
+                    "evidence": ["wiki_context"],
+                },
+                {
+                    "id": "stage-03",
+                    "title": "Console review",
+                    "procedure": "Use durable_context and wiki_context to review console approvals.",
+                    "required_findings": ["durable_context", "wiki_context"],
+                    "evidence": ["console_context"],
+                },
+            ],
+        )
+
+        manifest = build_chain_manifest(spec)
+
+        self.assertEqual(manifest.status, "warning")
+        handoff_by_evidence = {handoff.evidence: handoff for handoff in manifest.evidence_handoffs}
+        self.assertEqual(handoff_by_evidence["durable_context"].producer_stage, "stage-01")
+        self.assertEqual(handoff_by_evidence["durable_context"].consumer_stage, "stage-03")
+        self.assertEqual(handoff_by_evidence["durable_context"].distance, 2)
+        self.assertEqual(handoff_by_evidence["durable_context"].status, "skipped-stage")
+        self.assertTrue(any("durable_context" in item and "intermediate stage" in item for item in manifest.warnings))
+
+    def test_stage_chain_links_only_evidence_consumed_by_the_next_stage(self) -> None:
+        spec = SimpleNamespace(
+            lab_id="refined-links",
+            title="Refined Links",
+            services=[{"name": "portal"}, {"name": "wiki"}],
+            stage_list=[
+                {
+                    "id": "stage-01",
+                    "title": "Portal discovery",
+                    "procedure": "Use portal preview behavior to identify the wiki_route clue.",
+                    "evidence": ["wiki_route", "unused_noise"],
+                },
+                {
+                    "id": "stage-02",
+                    "title": "Wiki review",
+                    "procedure": "Use wiki_route to browse the internal knowledge base.",
+                    "required_findings": ["wiki_route"],
+                    "evidence": ["wiki_context"],
+                },
+            ],
+        )
+
+        manifest = build_chain_manifest(spec)
+
+        self.assertEqual(manifest.links[0].carried_evidence, ["wiki_route"])
+        self.assertNotIn("unused_noise", manifest.links[0].carried_evidence)
 
     def test_stage_chain_warns_when_learner_clue_uses_generic_fallback(self) -> None:
         spec = SimpleNamespace(
@@ -91,6 +165,7 @@ class ChainManifestTests(unittest.TestCase):
         self.assertGreaterEqual(view["stage_count"], 1)
         self.assertTrue(any(stage["stage_id"] == "stage-02" for stage in view["stages"]))
         self.assertTrue(view["incoming"] or view["outgoing"])
+        self.assertIn("evidence_handoffs", view)
 
     def test_stage_state_unlocks_when_required_evidence_is_acquired(self) -> None:
         spec = LabSpec.load(Path("examples/scenario-02-ad-domain-compromise"))
@@ -180,6 +255,7 @@ class ChainManifestTests(unittest.TestCase):
             self.assertTrue((out / "stage-chain.yaml").exists())
             self.assertTrue((out / "stage-chain.json").exists())
             self.assertIn("Stage Chain", (out / "stage-chain.md").read_text(encoding="utf-8"))
+            self.assertIn("Evidence Handoffs", (out / "stage-chain.md").read_text(encoding="utf-8"))
             self.assertIn("Evidence Runtime Sources", (out / "stage-chain.md").read_text(encoding="utf-8"))
 
 

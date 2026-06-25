@@ -636,6 +636,30 @@ def stage_handoffs_from_chain_manifest(chain_manifest) -> list[dict[str, Any]]:
         return []
     handoffs: list[dict[str, Any]] = []
     node_by_stage = {str(getattr(node, "stage_id", "")): node for node in getattr(chain_manifest, "nodes", []) or []}
+    evidence_handoffs = list(getattr(chain_manifest, "evidence_handoffs", []) or [])
+    if evidence_handoffs:
+        grouped: dict[tuple[str, str], list[Any]] = {}
+        for item in evidence_handoffs:
+            producer = str(getattr(item, "producer_stage", ""))
+            consumer = str(getattr(item, "consumer_stage", ""))
+            if not consumer:
+                continue
+            grouped.setdefault((producer, consumer), []).append(item)
+        for (from_stage, to_stage), items in grouped.items():
+            source = node_by_stage.get(from_stage)
+            target = node_by_stage.get(to_stage)
+            handoffs.append(
+                {
+                    "from_stage": from_stage,
+                    "from_title": str(getattr(source, "title", "")) if source else "",
+                    "to_stage": to_stage,
+                    "to_title": str(getattr(target, "title", "")) if target else "",
+                    "carried_evidence": sorted({str(getattr(item, "evidence", "")) for item in items if str(getattr(item, "evidence", ""))}),
+                    "status": ",".join(sorted({str(getattr(item, "status", "")) for item in items if str(getattr(item, "status", ""))})),
+                    "learner_clue": str(getattr(target, "learner_clue", "")) if target else "",
+                }
+            )
+        return handoffs
     for link in getattr(chain_manifest, "links", []) or []:
         from_stage = str(getattr(link, "from_stage", ""))
         to_stage = str(getattr(link, "to_stage", ""))

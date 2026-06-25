@@ -255,6 +255,44 @@ class PlaytestTests(unittest.TestCase):
         self.assertEqual(handoffs[0]["carried_evidence"], ["template_probe_confirmed"])
         self.assertEqual(handoffs[0]["learner_clue"], "Use template evidence to find wiki context.")
 
+    def test_stage_handoffs_from_chain_manifest_prefers_evidence_handoffs(self) -> None:
+        manifest = SimpleNamespace(
+            nodes=[
+                SimpleNamespace(stage_id="stage-01", title="Entry", learner_clue="Collect durable evidence."),
+                SimpleNamespace(stage_id="stage-02", title="Intermediate", learner_clue="Review normal operations."),
+                SimpleNamespace(stage_id="stage-03", title="Console", learner_clue="Use durable evidence in the console."),
+            ],
+            links=[
+                SimpleNamespace(
+                    from_stage="stage-01",
+                    to_stage="stage-02",
+                    carried_evidence=["intermediate_note"],
+                    status="inferred",
+                )
+            ],
+            evidence_handoffs=[
+                SimpleNamespace(
+                    evidence="durable_context",
+                    producer_stage="stage-01",
+                    consumer_stage="stage-03",
+                    status="skipped-stage",
+                ),
+                SimpleNamespace(
+                    evidence="wiki_context",
+                    producer_stage="stage-02",
+                    consumer_stage="stage-03",
+                    status="direct",
+                ),
+            ],
+        )
+
+        handoffs = stage_handoffs_from_chain_manifest(manifest)
+
+        self.assertTrue(any(item["from_stage"] == "stage-01" and item["to_stage"] == "stage-03" for item in handoffs))
+        long_handoff = next(item for item in handoffs if item["from_stage"] == "stage-01" and item["to_stage"] == "stage-03")
+        self.assertEqual(long_handoff["carried_evidence"], ["durable_context"])
+        self.assertEqual(long_handoff["status"], "skipped-stage")
+
     def test_trusted_update_handoff_chain_is_detected_across_services(self) -> None:
         spec = SimpleNamespace(
             artifacts_model=SimpleNamespace(
