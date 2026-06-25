@@ -594,6 +594,16 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        relationship_status, relationship, _, relationship_route = http_json_first(
+            "GET",
+            base_url,
+            [
+                "/api/business-objects/obj-9001/relationship?owner=learner",
+                "/labforge/scaffold/objects/obj-9001/relationship?owner=learner",
+            ],
+            None,
+            timeout_seconds,
+        )
         status, data, _, route = http_json_first(
             "GET",
             base_url,
@@ -616,6 +626,7 @@ def run_plugin_http_sequence(
             and record.get("action") == "direct-read"
             and record.get("allowed_by_entitlement") is False
             and record.get("visible_in_catalog") is False
+            and record.get("provenance", {}).get("policy_gap") is True
             for record in audit_records
         )
         ok = (
@@ -625,7 +636,12 @@ def run_plugin_http_sequence(
             and policy_status == 200
             and entitlement_status == 200
             and entitlement.get("allowed") is False
+            and entitlement.get("decision", {}).get("entitlement_allowed") is False
+            and relationship_status == 200
+            and relationship.get("catalog_visible") is False
+            and relationship.get("entitlement_allowed") is False
             and status == 200
+            and data.get("decision", {}).get("policy_gap") is True
             and audit_status == 200
             and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
             and direct_read_audited
@@ -639,10 +655,11 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; entitlement_route={entitlement_route}; "
+                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; entitlement_route={entitlement_route}; relationship_route={relationship_route}; "
                 f"route={route}; audit_route={audit_route}; catalog={catalog_status}; policy={policy_status}; "
-                f"entitlement={entitlement_status}; entitlement_allowed={entitlement.get('allowed')}; "
-                f"direct_read={status}; audit={audit_status}; direct_read_audited={direct_read_audited}"
+                f"entitlement={entitlement_status}; entitlement_allowed={entitlement.get('allowed')}; relationship={relationship_status}; "
+                f"relationship_visible={relationship.get('catalog_visible')}; direct_read={status}; policy_gap={data.get('decision', {}).get('policy_gap')}; "
+                f"audit={audit_status}; direct_read_audited={direct_read_audited}"
             ),
         )
     if plugin == "ssrf-internal-fetch":

@@ -279,6 +279,8 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             policy = client.get("/labforge/scaffold/objects/access-policy")
             entitlement = client.get("/labforge/scaffold/objects/obj-9001/entitlement?owner=learner")
             entitlement_data = entitlement.get_json(silent=True) or {}
+            relationship = client.get("/labforge/scaffold/objects/obj-9001/relationship?owner=learner")
+            relationship_data = relationship.get_json(silent=True) or {}
             response = client.get("/labforge/scaffold/objects/obj-9001?owner=learner")
             data = response.get_json(silent=True) or {}
             audit = client.get("/labforge/scaffold/objects/audit")
@@ -290,6 +292,7 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and record.get("action") == "direct-read"
                 and record.get("allowed_by_entitlement") is False
                 and record.get("visible_in_catalog") is False
+                and record.get("provenance", {}).get("policy_gap") is True
                 for record in audit_records
             )
             return assert_condition(
@@ -300,11 +303,17 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and policy.status_code == 200
                 and entitlement.status_code == 200
                 and entitlement_data.get("allowed") is False
+                and entitlement_data.get("decision", {}).get("entitlement_allowed") is False
+                and relationship.status_code == 200
+                and relationship_data.get("catalog_visible") is False
+                and relationship_data.get("entitlement_allowed") is False
                 and response.status_code == 200
+                and data.get("decision", {}).get("policy_gap") is True
+                and data.get("relationship_api") == "/api/business-objects/obj-9001/relationship?owner=learner"
                 and audit.status_code == 200
                 and "LABFORGE_SYNTHETIC_OBJECT" in str(data.get("content", ""))
                 and direct_read_audited,
-                "/labforge/scaffold/objects catalog + policy + entitlement + direct read + audit",
+                "/labforge/scaffold/objects catalog + policy + entitlement + relationship + direct read policy-gap audit",
                 response,
             )
         if plugin_id == "ssrf-internal-fetch":
