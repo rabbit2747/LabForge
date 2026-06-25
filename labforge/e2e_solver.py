@@ -55,6 +55,7 @@ class E2ESolverReport(E2ESolverModel):
     persistent_tunnels: list[E2ETunnelResult] = Field(default_factory=list)
     access_playtest: AccessPlaytestReport | None = None
     solver_run: SolverRunReport | None = None
+    execution_proof: dict = Field(default_factory=dict)
     cleanup_requested: bool = False
     next_actions: list[str] = Field(default_factory=list)
 
@@ -220,6 +221,12 @@ def run_e2e_solver(
         persistent_tunnels=persistent_tunnels,
         access_playtest=access_report,
         solver_run=solver_report,
+        execution_proof=build_execution_proof(
+            access_report,
+            solver_report,
+            persistent_tunnels,
+            execute=execute,
+        ),
         cleanup_requested=cleanup,
         next_actions=e2e_next_actions(provider_output, solver_plan, access_manifest, execute=execute, cleanup=cleanup),
     )
@@ -530,6 +537,63 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
     return findings or ["access_bundle=ready"]
 
 
+def build_execution_proof(
+    access_report: AccessPlaytestReport,
+    solver_report: SolverRunReport,
+    persistent_tunnels: list[E2ETunnelResult],
+    *,
+    execute: bool,
+) -> dict:
+    access_items = list(getattr(access_report, "items", []) or [])
+    solver_steps = list(getattr(solver_report, "steps", []) or [])
+    plugin_access_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("plugin")]
+    plugin_solver_steps = [
+        step
+        for step in solver_steps
+        if str(getattr(step, "action_type", "")) == "vulnerability-behavior"
+    ]
+    return {
+        "mode": "execute" if execute else "dry-run",
+        "access": proof_counts(access_items),
+        "solver": proof_counts(solver_steps),
+        "persistent_tunnels": proof_counts(persistent_tunnels),
+        "browser_targets": len(getattr(access_report, "browser_targets", []) or []),
+        "terminal_targets": len(getattr(access_report, "terminal_targets", []) or []),
+        "plugin_evidence_checks": {
+            "access_items": proof_counts(plugin_access_items),
+            "solver_steps": proof_counts(plugin_solver_steps),
+        },
+        "failed_or_warning": [
+            *proof_problem_items("access", access_items),
+            *proof_problem_items("solver", solver_steps),
+            *proof_problem_items("tunnel", persistent_tunnels),
+        ],
+    }
+
+
+def proof_counts(items: list) -> dict[str, int]:
+    counts = {"total": len(items), "passed": 0, "warning": 0, "failed": 0, "planned": 0, "skipped": 0, "other": 0}
+    for item in items:
+        status = str(getattr(item, "status", "other"))
+        if status in counts:
+            counts[status] += 1
+        else:
+            counts["other"] += 1
+    return counts
+
+
+def proof_problem_items(prefix: str, items: list) -> list[str]:
+    values: list[str] = []
+    for item in items:
+        status = str(getattr(item, "status", ""))
+        if status not in {"failed", "warning", "skipped"}:
+            continue
+        label = str(getattr(item, "check_id", "") or getattr(item, "step_id", "") or getattr(item, "service", "") or "-")
+        message = str(getattr(item, "message", "") or getattr(item, "expected", "") or "")
+        values.append(f"{prefix}:{label}:{status}:{message}")
+    return values
+
+
 def load_json(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -691,6 +755,24 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in report.execution_depth_findings or ["No execution depth findings."])
+    proof = report.execution_proof or {}
+    lines += [
+        "",
+        "## Execution Proof Summary",
+        "",
+        f"- Mode: `{proof.get('mode', '-')}`",
+        f"- Browser targets: `{proof.get('browser_targets', 0)}`",
+        f"- Terminal targets: `{proof.get('terminal_targets', 0)}`",
+        f"- Access checks: `{format_proof_counts(proof.get('access', {}))}`",
+        f"- Solver steps: `{format_proof_counts(proof.get('solver', {}))}`",
+        f"- Persistent tunnels: `{format_proof_counts(proof.get('persistent_tunnels', {}))}`",
+        f"- Plugin access evidence: `{format_proof_counts((proof.get('plugin_evidence_checks') or {}).get('access_items', {}))}`",
+        f"- Plugin solver evidence: `{format_proof_counts((proof.get('plugin_evidence_checks') or {}).get('solver_steps', {}))}`",
+        "",
+        "### Proof Problems",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in proof.get("failed_or_warning", []) or ["No failed, warning, or skipped proof items."])
     lines += [
         "",
         "## Lifecycle",
@@ -738,3 +820,16 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
 
 def escape_cell(value: str) -> str:
     return str(value).replace("|", "\\|").replace("\n", "<br>")
+
+
+def format_proof_counts(counts: dict) -> str:
+    if not isinstance(counts, dict):
+        return "total=0 passed=0 warning=0 failed=0"
+    return (
+        f"total={counts.get('total', 0)} "
+        f"passed={counts.get('passed', 0)} "
+        f"warning={counts.get('warning', 0)} "
+        f"failed={counts.get('failed', 0)} "
+        f"planned={counts.get('planned', 0)} "
+        f"skipped={counts.get('skipped', 0)}"
+    )
