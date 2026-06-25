@@ -1097,6 +1097,7 @@ def command_qa_release_gate(args: argparse.Namespace) -> int:
         cleanup_e2e=args.cleanup_e2e,
         e2e_timeout_seconds=args.e2e_timeout,
         browser_engine=args.browser_engine,
+        execute_tunnels=args.execute_tunnels,
     )
     print(f"Release gate status: {report.status}")
     print(f"- {(Path(args.out) / 'release-gate-report.md').resolve()}")
@@ -1153,6 +1154,7 @@ def command_qa_access_playtest(args: argparse.Namespace) -> int:
         execute=args.execute,
         timeout_seconds=args.timeout,
         browser_engine=args.browser_engine,
+        execute_tunnels=args.execute_tunnels,
     )
     print(f"Access playtest status: {report.status}")
     print(f"- {(Path(args.out) / 'access-playtest.md').resolve()}")
@@ -1188,6 +1190,7 @@ def command_qa_e2e_solver(args: argparse.Namespace) -> int:
         cleanup=args.cleanup,
         timeout_seconds=args.timeout,
         browser_engine=args.browser_engine,
+        execute_tunnels=args.execute_tunnels,
     )
     print(f"E2E solver status: {report.status}")
     print(f"- {(Path(args.out) / 'e2e-solver.md').resolve()}")
@@ -1657,6 +1660,7 @@ def main(argv: list[str] | None = None) -> int:
     qa_release_gate_parser.add_argument("--cleanup-e2e", action="store_true", help="Stop provider output after --execute-e2e probes finish.")
     qa_release_gate_parser.add_argument("--e2e-timeout", type=int, default=60, help="Provider lifecycle timeout in seconds when --execute-e2e is used.")
     qa_release_gate_parser.add_argument("--browser-engine", choices=["http", "playwright"], default="http", help="Browser entrypoint probe engine for E2E access checks.")
+    qa_release_gate_parser.add_argument("--execute-tunnels", action="store_true", help="When executing E2E checks, temporarily open generated SSH local-forward tunnels and verify their local ports.")
     qa_release_gate_parser.add_argument("--force", action="store_true", help="Overwrite generated QA working files")
     qa_release_gate_parser.set_defaults(func=command_qa_release_gate)
     qa_mvp_matrix_parser = qa_sub.add_parser(
@@ -1683,6 +1687,7 @@ def main(argv: list[str] | None = None) -> int:
     qa_access_playtest_parser.add_argument("--execute", action="store_true", help="Actually run curl/ssh access checks. Default is dry-run.")
     qa_access_playtest_parser.add_argument("--timeout", type=int, default=5, help="Per-check timeout in seconds when --execute is used.")
     qa_access_playtest_parser.add_argument("--browser-engine", choices=["http", "playwright"], default="http", help="Use HTTP probes or Playwright Chromium for browser entrypoint checks.")
+    qa_access_playtest_parser.add_argument("--execute-tunnels", action="store_true", help="With --execute, temporarily open generated SSH local-forward tunnels and verify their local ports.")
     qa_access_playtest_parser.set_defaults(func=command_qa_access_playtest)
     qa_solver_run_parser = qa_sub.add_parser("solver-run", help="Plan or execute solver-agent checks from solver-plan.json")
     qa_solver_run_parser.add_argument("solver_plan", help="Path to generated playtest/solver-plan.json")
@@ -1702,6 +1707,7 @@ def main(argv: list[str] | None = None) -> int:
     qa_e2e_solver_parser.add_argument("--cleanup", action="store_true", help="Stop provider output after solver probes.")
     qa_e2e_solver_parser.add_argument("--timeout", type=int, default=60, help="Provider lifecycle timeout in seconds when --execute is used.")
     qa_e2e_solver_parser.add_argument("--browser-engine", choices=["http", "playwright"], default="http", help="Use HTTP probes or Playwright Chromium for browser entrypoint checks.")
+    qa_e2e_solver_parser.add_argument("--execute-tunnels", action="store_true", help="With --execute, temporarily open generated SSH local-forward tunnels and verify their local ports.")
     qa_e2e_solver_parser.set_defaults(func=command_qa_e2e_solver)
 
     provider_parser = sub.add_parser("provider", help="Provider lifecycle utilities")

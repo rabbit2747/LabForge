@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from labforge.access_playtest import command_to_argv, parse_ssh_local_forward, run_access_playtest
+from labforge.access_playtest import command_to_argv, parse_ssh_local_forward, run_access_playtest, ssh_tunnel_argv
 
 
 class AccessPlaytestTests(unittest.TestCase):
@@ -491,6 +491,54 @@ class AccessPlaytestTests(unittest.TestCase):
             self.assertEqual(report.items[0].status, "passed")
             self.assertIn("execution_noninvasive=true", report.items[0].message)
 
+    def test_access_playtest_can_execute_tunnel_probe_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "learner-access.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "lab_id": "tunnel-live-smoke",
+                        "title": "Tunnel Live Smoke",
+                        "learner_entrypoints": [],
+                        "attacker_entrypoints": [],
+                        "health_checks": [],
+                        "terminal_checks": [],
+                        "tunnel_commands": [
+                            {
+                                "service": "wiki",
+                                "dns": "wiki",
+                                "internal_port": "6000",
+                                "local_port": 18080,
+                                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            process = FakeTunnelProcess()
+
+            with patch("labforge.access_playtest.shutil.which", return_value="ssh"), patch(
+                "labforge.access_playtest.subprocess.Popen",
+                return_value=process,
+            ) as popen_mock, patch("labforge.access_playtest.wait_for_tcp_port", return_value=True):
+                report = run_access_playtest(
+                    manifest,
+                    root / "access-playtest",
+                    execute=True,
+                    execute_tunnels=True,
+                )
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.items[0].kind, "ssh-local-forward")
+            self.assertIn("tunnel_open=true", report.items[0].message)
+            self.assertTrue(process.terminated)
+            argv = popen_mock.call_args.args[0]
+            self.assertEqual(argv[0], "ssh")
+            self.assertIn("-N", argv)
+            self.assertIn("ExitOnForwardFailure=yes", argv)
+
     def test_access_playtest_fails_tunnel_command_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -529,6 +577,14 @@ class AccessPlaytestTests(unittest.TestCase):
 
         self.assertEqual(parsed, {"local_port": "18080", "target_host": "wiki", "target_port": "6000"})
 
+    def test_ssh_tunnel_argv_adds_noninteractive_forward_options(self) -> None:
+        argv = ssh_tunnel_argv("ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 2222")
+
+        self.assertEqual(argv[:2], ["ssh", "-N"])
+        self.assertIn("BatchMode=yes", argv)
+        self.assertIn("ExitOnForwardFailure=yes", argv)
+        self.assertIn("18080:wiki:6000", argv)
+
 
 class BrowserSmokeHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
@@ -550,6 +606,27 @@ class StateSmokeHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         return
+
+
+class FakeTunnelProcess:
+    def __init__(self) -> None:
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def communicate(self, timeout=None):
+        return "", ""
 
 
 if __name__ == "__main__":

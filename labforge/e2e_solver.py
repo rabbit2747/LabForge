@@ -49,6 +49,7 @@ def run_e2e_solver(
     timeout_seconds: int = 60,
     host_preflight: HostDoctorReport | None = None,
     browser_engine: BrowserProbeEngine = "http",
+    execute_tunnels: bool = False,
 ) -> E2ESolverReport:
     provider_output = provider_output.resolve()
     solver_plan = solver_plan.resolve()
@@ -87,6 +88,7 @@ def run_e2e_solver(
             execute=False,
             timeout_seconds=min(timeout_seconds, 15),
             browser_engine=browser_engine,
+            execute_tunnels=False,
         )
         solver_report = run_solver_plan(
             solver_plan,
@@ -130,6 +132,7 @@ def run_e2e_solver(
             execute=execute,
             timeout_seconds=min(timeout_seconds, 15),
             browser_engine=browser_engine,
+            execute_tunnels=execute_tunnels,
         )
         solver_report = run_solver_plan(
             solver_plan,

@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import shlex
 import shutil
+import socket
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -53,6 +55,7 @@ def run_access_playtest(
     execute: bool = False,
     timeout_seconds: int = 5,
     browser_engine: BrowserProbeEngine = "http",
+    execute_tunnels: bool = False,
 ) -> AccessPlaytestReport:
     access_manifest = access_manifest.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -105,7 +108,15 @@ def run_access_playtest(
             items.append(run_terminal_sequence_check(f"terminal-seq-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
     for index, check in enumerate(data.get("tunnel_commands", []) or [], start=1):
         if isinstance(check, dict):
-            items.append(run_tunnel_command_check(f"tunnel-{index:02d}", check, execute=execute))
+            items.append(
+                run_tunnel_command_check(
+                    f"tunnel-{index:02d}",
+                    check,
+                    execute=execute,
+                    execute_tunnel=execute_tunnels,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
     for index, check in enumerate(data.get("plugin_checks", []) or [], start=1):
         if isinstance(check, dict):
             items.append(run_plugin_evidence_check(f"plugin-evidence-{index:02d}", check, execute=execute, timeout_seconds=timeout_seconds))
@@ -631,7 +642,7 @@ def run_terminal_sequence_check(check_id: str, check: dict, *, execute: bool, ti
     )
 
 
-def run_tunnel_command_check(check_id: str, check: dict, *, execute: bool) -> AccessPlaytestItem:
+def run_tunnel_command_check(check_id: str, check: dict, *, execute: bool, execute_tunnel: bool = False, timeout_seconds: int = 5) -> AccessPlaytestItem:
     service = str(check.get("service", ""))
     command = str(check.get("command", "")).strip()
     expected = "SSH local-forward command is well-formed and matches the declared internal target."
@@ -687,6 +698,8 @@ def run_tunnel_command_check(check_id: str, check: dict, *, execute: bool) -> Ac
             expected=expected,
             message="missing executable: ssh",
         )
+    if execute_tunnel:
+        return run_live_tunnel_probe(check_id, check, parsed, expected, timeout_seconds=timeout_seconds)
     return AccessPlaytestItem(
         check_id=check_id,
         service=service,
@@ -700,6 +713,116 @@ def run_tunnel_command_check(check_id: str, check: dict, *, execute: bool) -> Ac
             "execution_noninvasive=true"
         ),
     )
+
+
+def run_live_tunnel_probe(check_id: str, check: dict, parsed: dict[str, str], expected: str, *, timeout_seconds: int) -> AccessPlaytestItem:
+    service = str(check.get("service", ""))
+    command = str(check.get("command", "")).strip()
+    argv = ssh_tunnel_argv(command)
+    if not argv:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="failed",
+            expected=expected,
+            message="could not build non-interactive SSH tunnel argv",
+        )
+    process = None
+    try:
+        process = subprocess.Popen(  # noqa: S603 - lab-scoped SSH command parsed with shlex and executed without shell.
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        local_port = int(parsed["local_port"])
+        if wait_for_tcp_port("127.0.0.1", local_port, timeout_seconds):
+            return AccessPlaytestItem(
+                check_id=check_id,
+                service=service,
+                kind="ssh-local-forward",
+                command=command,
+                status="passed",
+                expected=expected,
+                message=(
+                    "tunnel_open=true; "
+                    f"local={parsed['local_port']}; target={parsed['target_host']}:{parsed['target_port']}; "
+                    "terminated_after_probe=true"
+                ),
+            )
+        stdout, stderr = collect_process_output(process)
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="failed",
+            expected=expected,
+            stdout=stdout,
+            stderr=stderr,
+            message=f"tunnel did not open on 127.0.0.1:{parsed['local_port']} within {timeout_seconds}s",
+        )
+    except (OSError, ValueError) as exc:
+        return AccessPlaytestItem(
+            check_id=check_id,
+            service=service,
+            kind="ssh-local-forward",
+            command=command,
+            status="failed",
+            expected=expected,
+            message=f"tunnel execution failed: {exc}",
+        )
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+def ssh_tunnel_argv(command: str) -> list[str]:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return []
+    if not parts or parts[0] != "ssh":
+        return []
+    options = [
+        "-N",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ConnectTimeout=5",
+    ]
+    return [parts[0], *options, *parts[1:]]
+
+
+def wait_for_tcp_port(host: str, port: int, timeout_seconds: int) -> bool:
+    deadline = time.monotonic() + max(timeout_seconds, 1)
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def collect_process_output(process: subprocess.Popen) -> tuple[str, str]:
+    try:
+        stdout, stderr = process.communicate(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        return "", ""
+    return (stdout or "").strip(), (stderr or "").strip()
 
 
 def parse_ssh_local_forward(command: str) -> dict[str, str] | None:
