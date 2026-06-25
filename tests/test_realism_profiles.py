@@ -395,8 +395,56 @@ class RealismProfileTests(unittest.TestCase):
             self.assertNotIn("capability-depth.risk-compliance.too-shallow", codes)
             self.assertNotIn("capability-service.trading-channel.missing", codes)
             self.assertNotIn("capability-operational-depth.trading-channel.missing", codes)
+            self.assertNotIn("capability-artifact-depth.trading-channel.missing", codes)
             self.assertNotIn("capability-service.risk-compliance.missing", codes)
             self.assertNotIn("capability-operational-depth.risk-compliance.missing", codes)
+            self.assertNotIn("capability-artifact-depth.risk-compliance.missing", codes)
+
+    def test_realism_requires_service_artifacts_for_industry_capability_depth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "banking-services-without-artifacts",
+                    "title": "Banking Services Without Artifacts",
+                    "summary": "Regional bank lab with loan operations and a loan application review flow.",
+                    "final_objective": "Collect synthetic loan evidence package.",
+                    "target_industry": "banking",
+                },
+                topology={
+                    "networks": [{"name": "digital banking"}, {"name": "loan operations"}, {"name": "data"}],
+                    "services": [
+                        {
+                            "name": "loan-origination-system",
+                            "role": "loan application and underwriting review service",
+                            "purpose": "Handles loan application intake, uploaded evidence documents, and underwriting notes.",
+                            "networks": ["digital banking", "loan operations", "data"],
+                        }
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Review loan application records.",
+                            "procedure": (
+                                "Use the loan origination workflow to inspect loan applications, uploaded evidence "
+                                "documents, and underwriting notes."
+                            ),
+                            "evidence": ["loan-application-workflow"],
+                            "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1083", "name": "File and Directory Discovery"}]},
+                        }
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation"]},
+            )
+
+            report = check_realism(LabSpec.load(root), industry="banking")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertIn("capability-artifact-depth.loan-operations.missing", codes)
 
 
 def write_lab_files(

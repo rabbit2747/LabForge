@@ -1038,8 +1038,18 @@ def scenario_search_text(intake: ScenarioIntake) -> str:
 
 
 def service_names_from_intake(intake: ScenarioIntake) -> list[str]:
+    profile = realism_profile_for_industry(intake.target_industry)
     values = [*intake.attacker_infrastructure, *intake.target_infrastructure]
     names = [normalize_service_name(value) for value in values]
+    existing = set(names)
+    for capability in profile.capabilities:
+        if not capability.required or not capability.recommended_services:
+            continue
+        service_name = normalize_service_name(capability.recommended_services[0])
+        if service_name in existing or has_overlapping_service_name(service_name, existing):
+            continue
+        names.append(service_name)
+        existing.add(service_name)
     if not names:
         names = ["attacker-workstation", "entry-service", "controlled-drop"]
     return sorted(set(names), key=names.index)

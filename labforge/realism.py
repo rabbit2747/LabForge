@@ -62,6 +62,7 @@ class IndustryCapabilityEvidence(RealismModel):
     service_evidence: list[str] = Field(default_factory=list)
     stage_evidence: list[str] = Field(default_factory=list)
     data_evidence: list[str] = Field(default_factory=list)
+    artifact_evidence: list[str] = Field(default_factory=list)
     workflow_evidence: list[str] = Field(default_factory=list)
     zone_evidence: list[str] = Field(default_factory=list)
     security_evidence: list[str] = Field(default_factory=list)
@@ -74,6 +75,7 @@ class IndustryCapabilityEvidence(RealismModel):
                 self.service_evidence,
                 self.stage_evidence,
                 self.data_evidence,
+                self.artifact_evidence,
                 self.workflow_evidence,
                 self.zone_evidence,
                 self.security_evidence,
@@ -840,6 +842,7 @@ def build_capability_evidence(profile: IndustryRealismProfile, spec: LabSpec) ->
         item.service_evidence = capability_service_evidence(capability, spec.services)
         item.stage_evidence = capability_item_evidence(capability, spec.stage_list)
         item.data_evidence = capability_data_evidence(capability, artifact_text)
+        item.artifact_evidence = capability_artifact_evidence(capability, spec)
         item.workflow_evidence = capability_workflow_evidence(capability, stage_text)
         item.zone_evidence = capability_zone_evidence(capability, zone_haystack, spec.services)
         item.security_evidence = capability_security_evidence(capability, spec.security_controls)
@@ -875,6 +878,37 @@ def capability_data_evidence(capability: IndustryCapability, artifact_text: str)
     terms = capability.recommended_data or capability.keywords
     matches = [term for term in terms if term.lower() in artifact_text]
     return [", ".join(matches[:4])] if matches else []
+
+
+def capability_artifact_evidence(capability: IndustryCapability, spec: LabSpec) -> list[str]:
+    if not spec.artifacts_model:
+        return []
+    evidence: list[str] = []
+    recommended_services = [value.lower() for value in capability.recommended_services]
+    data_terms = [value.lower() for value in capability.recommended_data]
+    workflow_terms = [value.lower() for value in capability.recommended_workflows]
+    keyword_terms = [value.lower() for value in capability.keywords]
+    for artifact in spec.artifacts_model.service_artifacts:
+        blob = " ".join(
+            context_values(
+                {
+                    "service": artifact.service,
+                    "runtime": artifact.runtime,
+                    "purpose": artifact.purpose,
+                    "seed_inputs": artifact.seed_inputs,
+                    "noise_inputs": artifact.noise_inputs,
+                    "evidence_logs": artifact.evidence_logs,
+                }
+            )
+        ).lower()
+        service_hit = any(service in blob for service in recommended_services)
+        data_hit = any(term in blob for term in data_terms)
+        workflow_hit = any(term in blob for term in workflow_terms)
+        keyword_hit = any(term in blob for term in keyword_terms)
+        has_business_depth = bool(artifact.seed_inputs and artifact.noise_inputs)
+        if has_business_depth and (service_hit or data_hit or workflow_hit or keyword_hit):
+            evidence.append(f"{artifact.service}: seed={len(artifact.seed_inputs)} noise={len(artifact.noise_inputs)}")
+    return evidence[:4]
 
 
 def capability_workflow_evidence(capability: IndustryCapability, stage_text: str) -> list[str]:
@@ -938,6 +972,20 @@ def capability_support_findings(
                 expected=", ".join([*capability.recommended_data, *capability.recommended_workflows] or capability.keywords),
                 code=f"capability-operational-depth.{capability.id}.missing",
                 remediation=capability_remediation(capability),
+            )
+        )
+    if capability.recommended_data and evidence.service_evidence and not evidence.artifact_evidence:
+        findings.append(
+            RealismFinding(
+                severity=severity,
+                category="capability-artifact-depth",
+                message=f"Industry capability `{capability.id}` has service coverage but no service artifact with seed/noise data.",
+                expected=", ".join(capability.recommended_data),
+                code=f"capability-artifact-depth.{capability.id}.missing",
+                remediation=(
+                    "Add service_artifacts with realistic seed_inputs, noise_inputs, and evidence_logs for this capability "
+                    "so the generated backend has business data behind the UI."
+                ),
             )
         )
     if capability.recommended_zones and evidence.service_evidence and not evidence.zone_evidence:
@@ -1232,16 +1280,16 @@ def realism_report_to_markdown(report: RealismReport) -> str:
         "",
         "### Capability Evidence Depth",
         "",
-        "| Capability | Service | Stage | Data | Workflow | Zone | Security |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Capability | Service | Stage | Data | Artifact | Workflow | Zone | Security |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     if not report.capability_evidence:
-        lines.append("| - | 0 | 0 | 0 | 0 | 0 | 0 |")
+        lines.append("| - | 0 | 0 | 0 | 0 | 0 | 0 | 0 |")
     for capability_id, evidence in report.capability_evidence.items():
         lines.append(
             f"| `{capability_id}` | {len(evidence.service_evidence)} | {len(evidence.stage_evidence)} | "
-            f"{len(evidence.data_evidence)} | {len(evidence.workflow_evidence)} | {len(evidence.zone_evidence)} | "
-            f"{len(evidence.security_evidence)} |"
+            f"{len(evidence.data_evidence)} | {len(evidence.artifact_evidence)} | {len(evidence.workflow_evidence)} | "
+            f"{len(evidence.zone_evidence)} | {len(evidence.security_evidence)} |"
         )
     lines += [
         "",
