@@ -773,6 +773,13 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        archive_status, archive_routes, _, archive_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/documents/archive-routes", "/labforge/scaffold/documents/archive-routes"],
+            None,
+            timeout_seconds,
+        )
         resolve_status, resolution, _, resolve_route = http_json_first(
             "GET",
             base_url,
@@ -806,15 +813,29 @@ def run_plugin_http_sequence(
         )
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
         resolved = resolution.get("resolution", {}) if isinstance(resolution, dict) else {}
-        traversal_recorded = any(isinstance(record, dict) and record.get("traversal") and record.get("status") == 200 for record in audit_records)
+        archive_route_ids = [
+            route.get("id")
+            for route in archive_routes.get("routes", [])
+            if isinstance(route, dict)
+        ] if isinstance(archive_routes, dict) else []
+        traversal_recorded = any(
+            isinstance(record, dict)
+            and record.get("traversal")
+            and record.get("status") == 200
+            and record.get("provenance", {}).get("archive_route_match") == "archive-route-restricted-records"
+            for record in audit_records
+        )
         ok = (
             landing_ok
             and catalog_status == 200
             and policy_status == 200
+            and archive_status == 200
+            and "archive-route-restricted-records" in archive_route_ids
             and resolve_status == 200
             and resolved.get("traversal") is True
             and resolved.get("inside_document_root") is True
             and resolved.get("inside_active_workspace") is False
+            and resolved.get("archive_route_match") == "archive-route-restricted-records"
             and public_status == 200
             and traversed_status == 200
             and audit_status == 200
@@ -830,10 +851,11 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; resolve_route={resolve_route}; "
+                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; archive_route={archive_route}; resolve_route={resolve_route}; "
                 f"public_route={public_route}; traversed_route={traversed_route}; audit_route={audit_route}; "
-                f"catalog={catalog_status}; policy={policy_status}; resolve={resolve_status}; normalized={resolved.get('normalized', '-')}; public={public_status}; "
-                f"traversed={traversed_status}; audit={audit_status}; traversal_recorded={traversal_recorded}"
+                f"catalog={catalog_status}; policy={policy_status}; archive={archive_status}; resolve={resolve_status}; normalized={resolved.get('normalized', '-')}; "
+                f"archive_match={resolved.get('archive_route_match')}; public={public_status}; traversed={traversed_status}; audit={audit_status}; "
+                f"traversal_recorded={traversal_recorded}"
             ),
         )
     if plugin == "unsafe-file-upload":

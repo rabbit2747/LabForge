@@ -388,30 +388,36 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
         if plugin_id == "path-traversal-download":
             catalog = client.get("/api/documents")
             policy = client.get("/labforge/scaffold/documents/policy")
+            archive_routes = client.get("/labforge/scaffold/documents/archive-routes")
             resolution = client.get("/labforge/scaffold/documents/resolve?name=../restricted/audit-export.txt")
             public = client.get("/labforge/scaffold/documents/download?name=welcome.txt")
             traversed = client.get("/labforge/scaffold/documents/download?name=../restricted/audit-export.txt")
             audit = client.get("/labforge/scaffold/documents/audit")
             catalog_data = catalog.get_json(silent=True) or {}
+            archive_data = archive_routes.get_json(silent=True) or {}
             resolution_data = resolution.get_json(silent=True) or {}
             resolved = resolution_data.get("resolution", {}) if isinstance(resolution_data, dict) else {}
             audit_data = audit.get_json(silent=True) or {}
             audit_records = audit_data.get("records", [])
+            route_ids = [route.get("id") for route in archive_data.get("routes", []) if isinstance(route, dict)]
             return assert_condition(
                 service,
                 plugin_id,
                 catalog.status_code == 200
                 and policy.status_code == 200
+                and archive_routes.status_code == 200
+                and "archive-route-restricted-records" in route_ids
                 and resolution.status_code == 200
                 and resolved.get("traversal") is True
                 and resolved.get("inside_document_root") is True
                 and resolved.get("inside_active_workspace") is False
+                and resolved.get("archive_route_match") == "archive-route-restricted-records"
                 and public.status_code == 200
                 and traversed.status_code == 200
                 and "LABFORGE_SYNTHETIC_RESTRICTED_DOCUMENT" in traversed.get_data(as_text=True)
-                and any(record.get("traversal") and record.get("status") == 200 for record in audit_records)
+                and any(record.get("traversal") and record.get("status") == 200 and record.get("provenance", {}).get("archive_route_match") == "archive-route-restricted-records" for record in audit_records)
                 and catalog_data.get("policy_api") == "/api/documents/policy",
-                "/api/documents + resolve + download + audit",
+                "/api/documents + archive-routes + resolve provenance + download + audit",
                 traversed,
             )
         if plugin_id == "unsafe-file-upload":
