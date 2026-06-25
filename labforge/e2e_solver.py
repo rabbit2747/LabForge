@@ -563,12 +563,84 @@ def build_execution_proof(
             "access_items": proof_counts(plugin_access_items),
             "solver_steps": proof_counts(plugin_solver_steps),
         },
+        "live_readiness": build_live_readiness_proof(
+            access_report,
+            solver_report,
+            persistent_tunnels,
+            execute=execute,
+        ),
         "failed_or_warning": [
             *proof_problem_items("access", access_items),
             *proof_problem_items("solver", solver_steps),
             *proof_problem_items("tunnel", persistent_tunnels),
         ],
     }
+
+
+def build_live_readiness_proof(
+    access_report: AccessPlaytestReport,
+    solver_report: SolverRunReport,
+    persistent_tunnels: list[E2ETunnelResult],
+    *,
+    execute: bool,
+) -> dict:
+    if not execute:
+        return {
+            "status": "planned",
+            "requirements": ["execute=false; live browser/terminal probing was not requested"],
+        }
+    access_items = list(getattr(access_report, "items", []) or [])
+    solver_steps = list(getattr(solver_report, "steps", []) or [])
+    tunnel_items = list(persistent_tunnels or [])
+    browser_targets = list(getattr(access_report, "browser_targets", []) or [])
+    terminal_targets = list(getattr(access_report, "terminal_targets", []) or [])
+    requirements: list[str] = []
+    failures: list[str] = []
+
+    browser_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("browser")]
+    if browser_targets:
+        passed = count_status(browser_items, "passed")
+        requirements.append(f"browser_targets={len(browser_targets)}; passed_browser_checks={passed}")
+        if passed < len(browser_targets):
+            failures.append("not all browser targets were proven reachable")
+
+    terminal_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("terminal")]
+    if terminal_targets:
+        passed = count_status(terminal_items, "passed")
+        requirements.append(f"terminal_targets={len(terminal_targets)}; passed_terminal_checks={passed}")
+        if passed < 1:
+            failures.append("terminal targets exist but no terminal check passed")
+
+    plugin_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("plugin")]
+    if plugin_items:
+        passed = count_status(plugin_items, "passed")
+        requirements.append(f"plugin_checks={len(plugin_items)}; passed_plugin_checks={passed}")
+        if passed < len(plugin_items):
+            failures.append("not all plugin evidence checks passed")
+
+    if tunnel_items:
+        passed = count_status(tunnel_items, "passed")
+        requirements.append(f"persistent_tunnels={len(tunnel_items)}; passed_tunnels={passed}")
+        if passed < len(tunnel_items):
+            failures.append("not all persistent tunnels opened")
+
+    passed_solver = count_status(solver_steps, "passed")
+    requirements.append(f"solver_steps={len(solver_steps)}; passed_solver_steps={passed_solver}")
+    if solver_steps and passed_solver < len(solver_steps):
+        failures.append("not all solver steps passed")
+    if not solver_steps:
+        failures.append("solver produced no executable steps")
+
+    status = "failed" if failures else "passed"
+    return {
+        "status": status,
+        "requirements": requirements,
+        "failures": failures,
+    }
+
+
+def count_status(items: list, status: str) -> int:
+    return len([item for item in items if str(getattr(item, "status", "")) == status])
 
 
 def proof_counts(items: list) -> dict[str, int]:
@@ -768,6 +840,16 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
         f"- Persistent tunnels: `{format_proof_counts(proof.get('persistent_tunnels', {}))}`",
         f"- Plugin access evidence: `{format_proof_counts((proof.get('plugin_evidence_checks') or {}).get('access_items', {}))}`",
         f"- Plugin solver evidence: `{format_proof_counts((proof.get('plugin_evidence_checks') or {}).get('solver_steps', {}))}`",
+        f"- Live readiness: `{(proof.get('live_readiness') or {}).get('status', '-')}`",
+        "",
+        "### Live Readiness",
+        "",
+    ]
+    live = proof.get("live_readiness") or {}
+    lines.extend(f"- {item}" for item in live.get("requirements", []) or ["No live readiness requirements recorded."])
+    if live.get("failures"):
+        lines.extend(f"- failure: {item}" for item in live.get("failures", []))
+    lines += [
         "",
         "### Proof Problems",
         "",

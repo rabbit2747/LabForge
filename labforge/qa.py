@@ -730,11 +730,16 @@ def e2e_solver_release_check(
                 f"status={report.status}",
                 f"mode={report.mode}",
                 f"execute={str(execute).lower()}",
-            f"browser_engine={browser_engine}",
-            f"execute_tunnels={str(execute_tunnels).lower()}",
-            f"report={out / 'e2e-solver.md'}",
+                f"browser_engine={browser_engine}",
+                f"execute_tunnels={str(execute_tunnels).lower()}",
+                f"live_readiness={((getattr(report, 'execution_proof', {}) or {}).get('live_readiness') or {}).get('status', 'missing') if isinstance(getattr(report, 'execution_proof', {}), dict) else 'missing'}",
+                f"report={out / 'e2e-solver.md'}",
             ],
         )
+    proof = getattr(report, "execution_proof", {}) if isinstance(getattr(report, "execution_proof", {}), dict) else {}
+    live = proof.get("live_readiness") or {}
+    access_counts = proof.get("access") or {}
+    solver_counts = proof.get("solver") or {}
     return QaCheck(
         name="e2e-solver-evidence",
         status="passed",
@@ -749,6 +754,9 @@ def e2e_solver_release_check(
             f"lifecycle_steps={len(report.lifecycle)}",
             f"access_status={report.access_playtest.status if report.access_playtest else 'missing'}",
             f"solver_status={report.solver_run.status if report.solver_run else 'missing'}",
+            f"live_readiness={live.get('status', 'missing')}",
+            f"executed_access_passed={access_counts.get('passed', 0)}",
+            f"executed_solver_passed={solver_counts.get('passed', 0)}",
             f"report={out / 'e2e-solver.md'}",
         ],
     )

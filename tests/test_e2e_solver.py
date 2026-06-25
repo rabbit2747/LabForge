@@ -249,6 +249,7 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(report.access_playtest.status, "planned")
             self.assertEqual(report.solver_run.status, "planned")
             self.assertEqual(report.execution_proof["mode"], "dry-run")
+            self.assertEqual(report.execution_proof["live_readiness"]["status"], "planned")
             self.assertGreaterEqual(report.execution_proof["access"]["planned"], 1)
             self.assertGreaterEqual(report.execution_proof["solver"]["planned"], 1)
             self.assertTrue(report.access_bundle_ready)
@@ -310,6 +311,7 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(check.status, "failed")
             self.assertIn("execute=true", check.messages)
             self.assertIn("browser_engine=playwright", check.messages)
+            self.assertIn("live_readiness=missing", check.messages)
 
     def test_e2e_solver_execute_runs_lifecycle_access_solver_and_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -463,6 +465,8 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(report.status, "passed")
             self.assertTrue(report.access_bundle_ready)
             self.assertEqual(report.execution_proof["mode"], "execute")
+            self.assertEqual(report.execution_proof["live_readiness"]["status"], "passed")
+            self.assertIn("solver_steps=1; passed_solver_steps=1", report.execution_proof["live_readiness"]["requirements"])
             self.assertEqual(report.execution_proof["access"]["passed"], 1)
             self.assertEqual(report.execution_proof["solver"]["passed"], 1)
             self.assertEqual(report.execution_proof["failed_or_warning"], [])
