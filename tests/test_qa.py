@@ -6,12 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from labforge.qa import (
+    QaCheck,
     critical_playtest_gap_messages,
     learner_access_plugin_evidence_messages,
     learner_access_stage_handoff_messages,
     human_readiness_gap_messages,
     human_readiness_check_count,
     plugin_evidence_check_count,
+    release_gate_live_metadata,
     stage_handoff_clue_messages,
     stage_handoff_count,
     stage_handoff_runtime_check_messages,
@@ -21,6 +23,54 @@ from labforge.io import write_text, dump_yaml
 
 
 class QaReleaseGateTests(unittest.TestCase):
+    def test_release_gate_live_metadata_marks_scaffold_for_dry_run_e2e(self) -> None:
+        metadata = release_gate_live_metadata(
+            [
+                QaCheck(
+                    name="e2e-solver-evidence",
+                    status="passed",
+                    messages=[
+                        "mode=dry-run",
+                        "execute=false",
+                        "browser_engine=none",
+                        "execute_tunnels=false",
+                        "live_readiness=not-run",
+                        "executed_access_passed=0",
+                        "executed_solver_passed=0",
+                    ],
+                )
+            ],
+            release_ready=True,
+        )
+
+        self.assertEqual(metadata["verification_level"], "scaffold")
+        self.assertFalse(metadata["live_verified"])
+        self.assertEqual(metadata["live_execution"]["status"], "planned")
+
+    def test_release_gate_live_metadata_marks_live_for_executed_e2e(self) -> None:
+        metadata = release_gate_live_metadata(
+            [
+                QaCheck(
+                    name="e2e-solver-evidence",
+                    status="passed",
+                    messages=[
+                        "mode=execute",
+                        "execute=true",
+                        "browser_engine=playwright",
+                        "execute_tunnels=true",
+                        "live_readiness=passed",
+                        "executed_access_passed=2",
+                        "executed_solver_passed=5",
+                    ],
+                )
+            ],
+            release_ready=True,
+        )
+
+        self.assertEqual(metadata["verification_level"], "live")
+        self.assertTrue(metadata["live_verified"])
+        self.assertEqual(metadata["live_execution"]["status"], "passed")
+
     def test_critical_playtest_gap_messages_fail_stage_implementation_gaps(self) -> None:
         report = SimpleNamespace(
             steps=[

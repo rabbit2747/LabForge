@@ -20,6 +20,7 @@ from .render import build_lab
 from .service_artifacts import materialize_service_runtimes, service_check
 from .service_verification import verify_services
 from .validate import validate_lab
+from .verified_mvp import live_execution_summary, verification_level_for
 from .vulnerability_coverage import (
     build_vulnerability_coverage_report,
     vulnerability_coverage_to_json,
@@ -54,6 +55,9 @@ class ReleaseGateReport(QaModel):
     checks: list[QaCheck] = Field(default_factory=list)
     output_dir: str
     release_ready: bool = False
+    verification_level: Literal["not-ready", "scaffold", "live"] = "not-ready"
+    live_verified: bool = False
+    live_execution: dict = Field(default_factory=dict)
 
 
 def run_qa_smoke(
@@ -265,6 +269,8 @@ def run_release_gate(
     )
 
     status: Literal["passed", "failed"] = "failed" if any(check.status != "passed" for check in checks) else "passed"
+    release_ready = status == "passed"
+    live_metadata = release_gate_live_metadata(checks, release_ready=release_ready)
     report = ReleaseGateReport(
         lab_id=spec.lab_id,
         provider=provider,
@@ -272,7 +278,10 @@ def run_release_gate(
         status=status,
         checks=checks,
         output_dir=str(out.resolve()),
-        release_ready=status == "passed",
+        release_ready=release_ready,
+        verification_level=live_metadata["verification_level"],
+        live_verified=live_metadata["live_verified"],
+        live_execution=live_metadata["live_execution"],
     )
     write_text(out / "release-gate-report.yaml", dump_yaml(report.model_dump()))
     write_text(out / "release-gate-report.md", render_release_gate_markdown(report))
@@ -298,6 +307,21 @@ def vulnerability_coverage_release_check(out: Path) -> QaCheck:
         status="passed" if report.status == "passed" else "failed",
         messages=messages,
     )
+
+
+def release_gate_live_metadata(checks: list[QaCheck], *, release_ready: bool) -> dict:
+    live_execution = live_execution_summary(
+        {
+            "release_ready": release_ready,
+            "checks": [check.model_dump() for check in checks],
+        }
+    )
+    verification_level = verification_level_for({"release_ready": release_ready}, live_execution)
+    return {
+        "verification_level": verification_level,
+        "live_verified": verification_level == "live",
+        "live_execution": live_execution,
+    }
 
 
 def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, profile: str) -> QaCheck:
@@ -975,7 +999,20 @@ def render_release_gate_markdown(report: ReleaseGateReport) -> str:
         f"- Profile: `{report.profile}`",
         f"- Status: `{report.status}`",
         f"- Release ready: `{str(report.release_ready).lower()}`",
+        f"- Verification level: `{report.verification_level}`",
+        f"- Live verified: `{str(report.live_verified).lower()}`",
         f"- Output directory: `{report.output_dir}`",
+        "",
+        "## Live Execution",
+        "",
+        f"- Status: `{report.live_execution.get('status', 'unknown')}`",
+        f"- Mode: `{report.live_execution.get('mode', 'unknown')}`",
+        f"- Execute enabled: `{str(report.live_execution.get('execute', False)).lower()}`",
+        f"- Browser engine: `{report.live_execution.get('browser_engine') or '-'}`",
+        f"- Tunnel execution: `{str(report.live_execution.get('execute_tunnels', False)).lower()}`",
+        f"- Live readiness: `{report.live_execution.get('live_readiness', 'unknown')}`",
+        f"- Access checks passed: `{report.live_execution.get('executed_access_passed', 0)}`",
+        f"- Solver checks passed: `{report.live_execution.get('executed_solver_passed', 0)}`",
         "",
         "| Check | Status | Messages |",
         "|---|---|---|",

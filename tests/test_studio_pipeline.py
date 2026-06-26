@@ -67,6 +67,9 @@ class StudioPipelineTest(unittest.TestCase):
             gate = release_detail["last_release_gate"]
             self.assertEqual(gate["status"], "passed")
             self.assertTrue(gate["release_ready"])
+            self.assertEqual(gate["verification_level"], "scaffold")
+            self.assertFalse(gate["live_verified"])
+            self.assertEqual(gate["live_execution"]["status"], "planned")
             self.assertEqual(
                 {check["name"]: check["status"] for check in gate["checks"]},
                 {
@@ -281,6 +284,18 @@ class StudioPipelineTest(unittest.TestCase):
                     profile=kwargs["profile"],
                     status="passed",
                     release_ready=True,
+                    verification_level="live",
+                    live_verified=True,
+                    live_execution={
+                        "status": "passed",
+                        "mode": "execute",
+                        "execute": True,
+                        "browser_engine": "playwright",
+                        "execute_tunnels": True,
+                        "live_readiness": "passed",
+                        "executed_access_passed": 3,
+                        "executed_solver_passed": 8,
+                    },
                     output_dir=str(scenario / "release-gate"),
                     checks=[
                         QaCheck(
@@ -313,6 +328,8 @@ class StudioPipelineTest(unittest.TestCase):
 
             gate = detail["last_release_gate"]
             self.assertEqual(gate["status"], "passed")
+            self.assertTrue(gate["live_verified"])
+            self.assertEqual(gate["verification_level"], "live")
             self.assertEqual(gate["checks"][0]["messages"][4], "live_readiness=passed")
 
 

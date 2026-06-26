@@ -349,6 +349,8 @@ def command_pipeline_verified_mvp(args: argparse.Namespace) -> int:
         print(f"- manifest: {(out / 'mvp' / 'verified-mvp.md').resolve()}")
         print(f"- manifest_json: {(out / 'mvp' / 'verified-mvp.json').resolve()}")
         print(f"- release_gate: {release_gate.status}")
+        print(f"- verification_level: {release_gate.verification_level}")
+        print(f"- live_verified: {str(release_gate.live_verified).lower()}")
     return 0 if result.status in {"complete", "warning"} and release_gate.release_ready else 1
 
 
@@ -1100,6 +1102,8 @@ def command_qa_release_gate(args: argparse.Namespace) -> int:
         execute_tunnels=args.execute_tunnels,
     )
     print(f"Release gate status: {report.status}")
+    print(f"- verification_level: {report.verification_level}")
+    print(f"- live_verified: {str(report.live_verified).lower()}")
     print(f"- {(Path(args.out) / 'release-gate-report.md').resolve()}")
     print(f"- {(Path(args.out) / 'release-gate-report.yaml').resolve()}")
     return 0 if report.status == "passed" else 1

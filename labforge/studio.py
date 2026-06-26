@@ -823,6 +823,9 @@ def release_gate_payload(path: Path, report: dict) -> dict:
     return {
         "status": str(report.get("status", "unknown")),
         "release_ready": bool(report.get("release_ready", False)),
+        "verification_level": str(report.get("verification_level", "not-ready")),
+        "live_verified": bool(report.get("live_verified", False)),
+        "live_execution": report.get("live_execution", {}),
         "provider": str(report.get("provider", "")),
         "profile": str(report.get("profile", "")),
         "report": "release-gate/release-gate-report.md",
@@ -1438,6 +1441,8 @@ def render_studio_html() -> str:
         <div class="meta" style="margin-bottom:10px;">
           <span class="status ${report.status === 'passed' ? 'passed' : ''}">status ${escapeHtml(report.status)}</span>
           <span>release ready ${report.release_ready ? 'yes' : 'no'}</span>
+          <span class="status ${report.live_verified ? 'passed' : ''}">live verified ${report.live_verified ? 'yes' : 'no'}</span>
+          <span>verification ${escapeHtml(report.verification_level || 'not-ready')}</span>
           <span>${escapeHtml(report.provider || 'docker-compose')} / ${escapeHtml(report.profile || 'protected')}</span>
         </div>
         ${live}
