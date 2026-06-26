@@ -14,6 +14,7 @@ from labforge.qa import (
     plugin_evidence_check_count,
     stage_handoff_clue_messages,
     stage_handoff_count,
+    stage_handoff_runtime_check_messages,
     stage_handoff_solver_coverage_messages,
 )
 from labforge.io import write_text, dump_yaml
@@ -142,6 +143,99 @@ class QaReleaseGateTests(unittest.TestCase):
         }
 
         self.assertEqual(stage_handoff_solver_coverage_messages(solver_plan, access_bundle), [])
+
+    def test_stage_handoff_runtime_check_messages_require_stage_detail_probe(self) -> None:
+        access_bundle = {
+            "stage_handoffs": [
+                {
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "to_services": ["internal-wiki"],
+                    "carried_evidence": ["template_probe_confirmed"],
+                    "learner_clue": "Use template_probe_confirmed from the support workflow to review internal notes.",
+                }
+            ],
+            "stage_chain_checks": [
+                {
+                    "service": "internal-wiki",
+                    "from_stage": "stage-01",
+                    "to_stage": "stage-02",
+                    "chain_url": "http://127.0.0.1:18080/api/chain",
+                    "expected_stage": "stage-02",
+                    "expected_from_stage": "stage-01",
+                    "expected_evidence": ["template_probe_confirmed"],
+                }
+            ],
+        }
+
+        messages = stage_handoff_runtime_check_messages(access_bundle)
+
+        self.assertEqual(
+            messages,
+            ["critical=stage-handoff:stage-01->stage-02:runtime check missing stage_url"],
+        )
+
+        access_bundle["stage_chain_checks"][0]["stage_url"] = "http://127.0.0.1:18080/api/stages/stage-02"
+
+        self.assertEqual(stage_handoff_runtime_check_messages(access_bundle), [])
+
+    def test_stage_handoff_runtime_check_messages_accept_source_service_fallback(self) -> None:
+        access_bundle = {
+            "stage_handoffs": [
+                {
+                    "from_stage": "stage-02",
+                    "to_stage": "stage-03",
+                    "from_services": ["investor-portal"],
+                    "to_services": ["api-gateway"],
+                    "carried_evidence": ["object_id_discovered"],
+                    "learner_clue": "Use object_id_discovered from investor portal review when validating API traffic.",
+                }
+            ],
+            "stage_chain_checks": [
+                {
+                    "service": "investor-portal",
+                    "check_scope": "source-service",
+                    "from_stage": "stage-02",
+                    "to_stage": "stage-03",
+                    "chain_url": "http://127.0.0.1:18081/api/chain",
+                    "stage_url": "http://127.0.0.1:18081/api/stages/stage-03",
+                    "expected_stage": "stage-03",
+                    "expected_from_stage": "stage-02",
+                    "expected_evidence": ["object_id_discovered"],
+                }
+            ],
+        }
+
+        self.assertEqual(stage_handoff_runtime_check_messages(access_bundle), [])
+
+    def test_stage_handoff_runtime_check_messages_accept_chain_observer_fallback(self) -> None:
+        access_bundle = {
+            "stage_handoffs": [
+                {
+                    "from_stage": "stage-03",
+                    "to_stage": "stage-04",
+                    "from_services": ["internal-api"],
+                    "to_services": ["trade-ops-console"],
+                    "carried_evidence": ["review_context_collected"],
+                    "learner_clue": "Use review_context_collected when moving into trade operations.",
+                }
+            ],
+            "stage_chain_checks": [
+                {
+                    "service": "controlled-drop",
+                    "check_scope": "chain-observer",
+                    "from_stage": "stage-03",
+                    "to_stage": "stage-04",
+                    "chain_url": "http://127.0.0.1:18084/api/chain",
+                    "stage_url": "http://127.0.0.1:18084/api/stages/stage-04",
+                    "expected_stage": "stage-04",
+                    "expected_from_stage": "stage-03",
+                    "expected_evidence": ["review_context_collected"],
+                }
+            ],
+        }
+
+        self.assertEqual(stage_handoff_runtime_check_messages(access_bundle), [])
 
     def test_stage_handoff_solver_coverage_messages_fail_when_handoff_evidence_is_not_verified(self) -> None:
         solver_plan = {
@@ -340,7 +434,24 @@ def write_stage_handoff_files(root: Path, *, stage_handoffs: list[dict]) -> None
             "expected_evidence": expected_evidence,
         }
     ] if expected_evidence else []
-    write_text(root / "lab-access-bundle.json", dump_yaml({"stage_handoffs": stage_handoffs, "plugin_checks": plugin_checks}))
+    stage_chain_checks = []
+    for handoff in stage_handoffs:
+        to_stage = str(handoff.get("to_stage", ""))
+        from_stage = str(handoff.get("from_stage", ""))
+        service = str((handoff.get("to_services") or ["internal-wiki"])[0])
+        stage_chain_checks.append(
+            {
+                "service": service,
+                "from_stage": from_stage,
+                "to_stage": to_stage,
+                "chain_url": "http://127.0.0.1:18080/api/chain",
+                "stage_url": f"http://127.0.0.1:18080/api/stages/{to_stage}",
+                "expected_stage": to_stage,
+                "expected_from_stage": from_stage,
+                "expected_evidence": handoff.get("carried_evidence", []),
+            }
+        )
+    write_text(root / "lab-access-bundle.json", dump_yaml({"stage_handoffs": stage_handoffs, "plugin_checks": plugin_checks, "stage_chain_checks": stage_chain_checks}))
 
 
 if __name__ == "__main__":

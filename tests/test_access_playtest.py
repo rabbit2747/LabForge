@@ -97,6 +97,8 @@ class AccessPlaytestTests(unittest.TestCase):
                             {
                                 "service": "investor-portal",
                                 "chain_url": "http://127.0.0.1:18081/api/chain",
+                                "stage_url": "http://127.0.0.1:18081/api/stages/stage-02",
+                                "expected_from_stage": "stage-01",
                                 "expected_stage": "stage-02",
                                 "expected_evidence": ["template_probe_confirmed"],
                                 "expected_clue": "Use template evidence.",
@@ -145,6 +147,8 @@ class AccessPlaytestTests(unittest.TestCase):
                                 {
                                     "service": "internal-wiki",
                                     "chain_url": f"{base_url}/api/chain",
+                                    "stage_url": f"{base_url}/api/stages/stage-02",
+                                    "expected_from_stage": "stage-01",
                                     "expected_stage": "stage-02",
                                     "expected_evidence": ["template_probe_confirmed"],
                                     "expected_clue": "Use template evidence to find wiki context.",
@@ -161,6 +165,7 @@ class AccessPlaytestTests(unittest.TestCase):
                 self.assertEqual(report.items[0].kind, "stage-chain")
                 self.assertEqual(report.items[0].status, "passed")
                 self.assertIn("stage_chain_context_present", report.items[0].message)
+                self.assertIn("/api/stages/stage-02", report.items[0].command)
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
@@ -773,10 +778,22 @@ class ChainContextHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
+        if self.path.startswith("/api/stages/stage-02"):
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "stage_id": "stage-02",
+                        "required_inputs": ["template_probe_confirmed"],
+                        "learner_clue": "Use template evidence to find wiki context.",
+                    }
+                ).encode("utf-8")
+            )
+            return
         self.wfile.write(
             json.dumps(
                 {
                     "service": "internal-wiki",
+                    "links": [{"from_stage": "stage-01", "to_stage": "stage-02", "carried_evidence": ["template_probe_confirmed"]}],
                     "stages": [
                         {
                             "stage_id": "stage-02",

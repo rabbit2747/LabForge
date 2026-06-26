@@ -1001,7 +1001,17 @@ def stage_chain_checks_from_stage_handoffs(
         to_stage = str(handoff.get("to_stage", "")).strip()
         carried = [str(item).strip() for item in handoff.get("carried_evidence", []) or [] if str(item).strip()]
         clue = str(handoff.get("learner_clue", "")).strip()
-        for service in handoff.get("to_services", []) or []:
+        target_services = [str(item).strip() for item in handoff.get("to_services", []) or [] if str(item).strip()]
+        source_services = [str(item).strip() for item in handoff.get("from_services", []) or [] if str(item).strip()]
+        candidate_services = [(service, "target-service") for service in target_services]
+        candidate_services.extend((service, "source-service") for service in source_services if service not in target_services)
+        if not any(service_base_urls.get(service, "").rstrip("/") for service, _scope in candidate_services):
+            for service in sorted(service_base_urls):
+                service_name = str(service).strip()
+                if service_name:
+                    candidate_services.append((service_name, "chain-observer"))
+                    break
+        for service, check_scope in candidate_services:
             service_name = str(service).strip()
             base_url = service_base_urls.get(service_name, "").rstrip("/")
             if not service_name or not base_url:
@@ -1013,10 +1023,14 @@ def stage_chain_checks_from_stage_handoffs(
             checks.append(
                 {
                     "service": service_name,
+                    "check_scope": check_scope,
                     "from_stage": from_stage,
                     "to_stage": to_stage,
                     "chain_url": f"{base_url}/api/chain",
+                    "stage_url": f"{base_url}/api/stages/{to_stage}" if to_stage else "",
+                    "state_url": f"{base_url}/api/state",
                     "expected_evidence": carried,
+                    "expected_from_stage": from_stage,
                     "expected_clue": clue,
                     "expected_stage": to_stage,
                     "learner_action": f"Read {service_name} chain context and confirm the handoff into {to_stage}.",

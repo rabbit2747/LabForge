@@ -350,10 +350,62 @@ class PlaytestTests(unittest.TestCase):
 
         self.assertEqual(len(checks), 1)
         self.assertEqual(checks[0]["service"], "internal-wiki")
+        self.assertEqual(checks[0]["check_scope"], "target-service")
         self.assertEqual(checks[0]["chain_url"], "http://127.0.0.1:18080/api/chain")
+        self.assertEqual(checks[0]["stage_url"], "http://127.0.0.1:18080/api/stages/stage-02")
+        self.assertEqual(checks[0]["state_url"], "http://127.0.0.1:18080/api/state")
+        self.assertEqual(checks[0]["expected_from_stage"], "stage-01")
         self.assertEqual(checks[0]["expected_stage"], "stage-02")
         self.assertEqual(checks[0]["expected_evidence"], ["template_probe_confirmed"])
         self.assertEqual(checks[0]["expected_clue"], "Use template evidence to find wiki context.")
+
+    def test_stage_chain_checks_from_handoffs_fall_back_to_source_service_context(self) -> None:
+        checks = stage_chain_checks_from_stage_handoffs(
+            [
+                {
+                    "from_stage": "stage-02",
+                    "to_stage": "stage-03",
+                    "from_services": ["investor-portal"],
+                    "to_services": ["unpublished-api"],
+                    "carried_evidence": ["object_id_discovered"],
+                    "learner_clue": "Use the discovered object reference in downstream API traffic.",
+                }
+            ],
+            service_base_urls={"investor-portal": "http://127.0.0.1:18081"},
+        )
+
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]["service"], "investor-portal")
+        self.assertEqual(checks[0]["check_scope"], "source-service")
+        self.assertEqual(checks[0]["chain_url"], "http://127.0.0.1:18081/api/chain")
+        self.assertEqual(checks[0]["stage_url"], "http://127.0.0.1:18081/api/stages/stage-03")
+        self.assertEqual(checks[0]["expected_from_stage"], "stage-02")
+        self.assertEqual(checks[0]["expected_stage"], "stage-03")
+        self.assertEqual(checks[0]["expected_evidence"], ["object_id_discovered"])
+
+    def test_stage_chain_checks_from_handoffs_use_chain_observer_when_handoff_services_are_internal(self) -> None:
+        checks = stage_chain_checks_from_stage_handoffs(
+            [
+                {
+                    "from_stage": "stage-03",
+                    "to_stage": "stage-04",
+                    "from_services": ["internal-api"],
+                    "to_services": ["trade-ops-console"],
+                    "carried_evidence": ["review_context_collected"],
+                    "learner_clue": "Use review_context_collected when moving into trade operations.",
+                }
+            ],
+            service_base_urls={"controlled-drop": "http://127.0.0.1:18084"},
+        )
+
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]["service"], "controlled-drop")
+        self.assertEqual(checks[0]["check_scope"], "chain-observer")
+        self.assertEqual(checks[0]["chain_url"], "http://127.0.0.1:18084/api/chain")
+        self.assertEqual(checks[0]["stage_url"], "http://127.0.0.1:18084/api/stages/stage-04")
+        self.assertEqual(checks[0]["expected_from_stage"], "stage-03")
+        self.assertEqual(checks[0]["expected_stage"], "stage-04")
+        self.assertEqual(checks[0]["expected_evidence"], ["review_context_collected"])
 
     def test_stage_handoffs_from_chain_manifest_prefers_evidence_handoffs(self) -> None:
         manifest = SimpleNamespace(

@@ -1034,11 +1034,17 @@ def run_plugin_evidence_check(check_id: str, check: dict, *, execute: bool, time
 def run_stage_chain_check(check_id: str, check: dict, *, execute: bool, timeout_seconds: int) -> AccessPlaytestItem:
     service = str(check.get("service", ""))
     chain_url = str(check.get("chain_url", "")).strip()
+    stage_url = str(check.get("stage_url", "")).strip()
     expected_stage = str(check.get("expected_stage", "")).strip()
+    expected_from_stage = str(check.get("expected_from_stage", "")).strip()
     expected_clue = str(check.get("expected_clue", "")).strip()
     expected_evidence = [str(item).strip() for item in check.get("expected_evidence", []) or [] if str(item).strip()]
     command = f"GET {chain_url}" if chain_url else "GET /api/chain"
+    if stage_url:
+        command = f"{command}; GET {stage_url}"
     expected_parts = []
+    if expected_from_stage:
+        expected_parts.append(f"from={expected_from_stage}")
     if expected_stage:
         expected_parts.append(f"stage={expected_stage}")
     if expected_evidence:
@@ -1089,8 +1095,37 @@ def run_stage_chain_check(check_id: str, check: dict, *, execute: bool, timeout_
             stdout=body[:500],
             message=f"stage-chain HTTP status={status}",
         )
-    haystack = json.dumps(data, ensure_ascii=False)
+    stage_status = 0
+    stage_data: dict = {}
+    stage_body = ""
+    if stage_url:
+        stage_status, stage_data, stage_body = http_json_get(stage_url, timeout_seconds)
+        if stage_status == 0:
+            return AccessPlaytestItem(
+                check_id=check_id,
+                service=service,
+                kind="stage-chain",
+                command=command,
+                status="failed",
+                expected=expected,
+                stderr=stage_body,
+                message="stage detail URL unreachable",
+            )
+        if stage_status != 200:
+            return AccessPlaytestItem(
+                check_id=check_id,
+                service=service,
+                kind="stage-chain",
+                command=command,
+                status="failed",
+                expected=expected,
+                stdout=stage_body[:500],
+                message=f"stage detail HTTP status={stage_status}",
+            )
+    haystack = json.dumps({"chain": data, "stage": stage_data}, ensure_ascii=False)
     missing: list[str] = []
+    if expected_from_stage and expected_from_stage not in haystack:
+        missing.append(f"from_stage:{expected_from_stage}")
     if expected_stage and expected_stage not in haystack:
         missing.append(f"stage:{expected_stage}")
     for evidence in expected_evidence:

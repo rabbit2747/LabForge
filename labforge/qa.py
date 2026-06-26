@@ -463,7 +463,67 @@ def learner_access_stage_handoff_messages(out: Path) -> list[str]:
     for item in handoffs:
         clue_messages.extend(stage_handoff_clue_messages(item))
     coverage_messages = stage_handoff_solver_coverage_messages(solver_plan, access_bundle)
-    return [*clue_messages, *coverage_messages]
+    runtime_messages = stage_handoff_runtime_check_messages(access_bundle)
+    return [*clue_messages, *coverage_messages, *runtime_messages]
+
+
+def stage_handoff_runtime_check_messages(access_bundle: dict) -> list[str]:
+    handoffs = [item for item in access_bundle.get("stage_handoffs", []) if isinstance(item, dict)]
+    checks = [item for item in access_bundle.get("stage_chain_checks", []) if isinstance(item, dict)]
+    if not handoffs:
+        return []
+    if not checks:
+        return ["critical=stage-handoff:no stage_chain_checks verify handoff runtime context"]
+    messages: list[str] = []
+    check_keys = {
+        (
+            str(check.get("from_stage", "")),
+            str(check.get("to_stage") or check.get("expected_stage", "")),
+            str(check.get("service", "")),
+        ): check
+        for check in checks
+    }
+    for handoff in handoffs:
+        from_stage = str(handoff.get("from_stage", ""))
+        to_stage = str(handoff.get("to_stage", ""))
+        to_services = [str(item) for item in handoff.get("to_services", []) or [] if str(item).strip()]
+        from_services = [str(item) for item in handoff.get("from_services", []) or [] if str(item).strip()]
+        acceptable_services = list(dict.fromkeys(to_services + from_services))
+        if not acceptable_services:
+            continue
+        matching = [check_keys.get((from_stage, to_stage, service)) for service in acceptable_services]
+        matching = [item for item in matching if isinstance(item, dict)]
+        if not matching:
+            matching = [
+                check
+                for check in checks
+                if str(check.get("from_stage", "")) == from_stage
+                and str(check.get("to_stage") or check.get("expected_stage", "")) == to_stage
+                and str(check.get("check_scope", "")) == "chain-observer"
+            ]
+        if not matching:
+            messages.append(
+                f"critical=stage-handoff:{from_stage}->{to_stage}:no runtime stage_chain_check for source or target service"
+            )
+            continue
+        for check in matching:
+            missing_fields = [
+                field
+                for field in ("chain_url", "stage_url", "expected_stage", "expected_from_stage")
+                if not str(check.get(field, "")).strip()
+            ]
+            if missing_fields:
+                messages.append(
+                    f"critical=stage-handoff:{from_stage}->{to_stage}:runtime check missing {', '.join(missing_fields)}"
+                )
+            expected = [str(item) for item in check.get("expected_evidence", []) or [] if str(item).strip()]
+            carried = [str(item) for item in handoff.get("carried_evidence", []) or [] if str(item).strip()]
+            missing_evidence = [item for item in carried if item not in expected]
+            if missing_evidence:
+                messages.append(
+                    f"critical=stage-handoff:{from_stage}->{to_stage}:runtime check missing carried evidence {', '.join(missing_evidence[:10])}"
+                )
+    return messages
 
 
 def stage_handoff_solver_coverage_messages(solver_plan: dict, access_bundle: dict) -> list[str]:
