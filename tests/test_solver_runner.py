@@ -1229,6 +1229,10 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("policy=200", report.steps[0].message)
+                self.assertIn("publish_plan=200", report.steps[0].message)
+                self.assertIn("channel_contract=200", report.steps[0].message)
+                self.assertIn("plan_recorded=True", report.steps[0].message)
+                self.assertIn("contract_recorded=True", report.steps[0].message)
                 self.assertIn("validation=200", report.steps[0].message)
                 self.assertIn("validation_allowed=True", report.steps[0].message)
                 self.assertIn("signed=200", report.steps[0].message)
@@ -2027,6 +2031,39 @@ class SignedUpdatePublishSmokeHandler(BaseHTTPRequestHandler):
                         "required_artifact_fields": ["name", "sha256", "url", "size_bytes"],
                         "sign_audit_api": "GET /api/sign/audit",
                         "signed_manifest_inventory_api": "GET /api/signed-manifests",
+                        "publish_plan_api": "GET /api/publish/plan",
+                        "channel_contract_api": "GET /api/channels/<channel>/contract",
+                        "default_channel": "smoke",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/publish/plan":
+            self.sign_audit_records.append({"action": "publish-plan-read", "accepted": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "default_channel": "smoke",
+                        "operator_sequence": [{"step": i, "action": f"step-{i}"} for i in range(1, 8)],
+                        "publish_request_shape": {"channel": "smoke", "signed_manifest": "<signed manifest from /api/sign>"},
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/channels/smoke/contract":
+            self.sign_audit_records.append({"action": "channel-contract-read", "accepted": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "channel": "smoke",
+                        "required_signed_manifest_fields": ["product", "channel", "version", "build_id", "artifact", "signature", "signing_identity"],
+                        "publish_api": "POST /api/publish",
                     }
                 ).encode("utf-8")
             )

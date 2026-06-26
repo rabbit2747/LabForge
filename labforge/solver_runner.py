@@ -1783,6 +1783,17 @@ def run_plugin_http_sequence(
             "artifact": {"name": "smoke.tar", "sha256": "0" * 64, "url": "http://build-server/smoke.tar", "size_bytes": 1},
         }
         policy_status, policy, _, policy_route = http_json_first("GET", base_url, ["/api/signing/policy", "/labforge/scaffold/signing/policy"], None, timeout_seconds)
+        plan_status, plan, _, plan_route = http_json_first("GET", base_url, ["/api/publish/plan", "/labforge/scaffold/publish/plan"], None, timeout_seconds)
+        publish_shape = plan.get("publish_request_shape", {}) if isinstance(plan, dict) else {}
+        publish_channel = str(publish_shape.get("channel") or policy.get("default_channel") or manifest["channel"])
+        manifest["channel"] = publish_channel
+        contract_status, contract, _, contract_route = http_json_first(
+            "GET",
+            base_url,
+            [f"/api/channels/{publish_channel}/contract", f"/labforge/scaffold/channels/{publish_channel}/contract"],
+            None,
+            timeout_seconds,
+        )
         validation_status, validation, _, validation_route = http_json_first("POST", base_url, ["/api/sign/validate", "/labforge/scaffold/sign/validate"], {}, timeout_seconds)
         if validation_status == 400:
             validation_status, validation, _, validation_route = http_json_first("POST", base_url, ["/api/sign/validate", "/labforge/scaffold/sign/validate"], {"canonical_manifest": manifest}, timeout_seconds)
@@ -1793,19 +1804,29 @@ def run_plugin_http_sequence(
         inventory_status, inventory, _, inventory_route = http_json_first("GET", base_url, ["/api/signed-manifests", "/labforge/scaffold/signed-manifests"], None, timeout_seconds)
         publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {}, timeout_seconds)
         if publish_status == 400:
-            publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], {"channel": "smoke", "signed_manifest": signed.get("signed_manifest")}, timeout_seconds)
+            publish_payload = dict(publish_shape) if isinstance(publish_shape, dict) else {}
+            publish_payload.update({"channel": publish_channel, "signed_manifest": signed.get("signed_manifest")})
+            publish_status, published, _, publish_route = http_json_first("POST", base_url, ["/api/publish", "/labforge/scaffold/publish"], publish_payload, timeout_seconds)
         audit_status, audit, _, audit_route = http_json_first("GET", base_url, ["/api/publish/audit", "/labforge/scaffold/publish/audit"], None, timeout_seconds)
-        channel_status, channel_state, _, channel_route = http_json_first("GET", base_url, ["/api/channels/smoke", "/labforge/scaffold/channels/smoke"], None, timeout_seconds)
+        channel_status, channel_state, _, channel_route = http_json_first("GET", base_url, [f"/api/channels/{publish_channel}", f"/labforge/scaffold/channels/{publish_channel}"], None, timeout_seconds)
         sign_records = sign_audit.get("records", []) if isinstance(sign_audit, dict) else []
+        plan_recorded = any(isinstance(item, dict) and item.get("action") == "publish-plan-read" and item.get("accepted") is True for item in sign_records)
+        contract_recorded = any(isinstance(item, dict) and item.get("action") == "channel-contract-read" and item.get("accepted") is True for item in sign_records)
         validation_recorded = any(isinstance(item, dict) and item.get("action") == "manifest-validate" and item.get("accepted") is True for item in sign_records)
         sign_recorded = any(isinstance(item, dict) and item.get("action") == "manifest-sign" and item.get("accepted") is True for item in sign_records)
         ok = (
             landing_ok
             and policy_status == 200
+            and plan_status == 200
+            and len(plan.get("operator_sequence", [])) >= 6
+            and contract_status == 200
+            and contract.get("channel") == publish_channel
             and validation_status == 200
             and validation.get("allowed") is True
             and signed_status == 200
             and sign_audit_status == 200
+            and plan_recorded
+            and contract_recorded
             and validation_recorded
             and sign_recorded
             and inventory_status == 200
@@ -1824,10 +1845,14 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; policy_route={policy_route}; validation_route={validation_route}; sign_route={sign_route}; "
+                f"{context_note}; policy_route={policy_route}; plan_route={plan_route}; contract_route={contract_route}; "
+                f"validation_route={validation_route}; sign_route={sign_route}; "
                 f"sign_audit_route={sign_audit_route}; inventory_route={inventory_route}; publish_route={publish_route}; audit_route={audit_route}; channel_route={channel_route}; "
-                f"policy={policy_status}; validation={validation_status}; validation_allowed={validation.get('allowed')}; "
-                f"signed={signed_status}; sign_audit={sign_audit_status}; validation_recorded={validation_recorded}; sign_recorded={sign_recorded}; "
+                f"policy={policy_status}; publish_plan={plan_status}; channel_contract={contract_status}; publish_channel={publish_channel}; "
+                f"operator_sequence={len(plan.get('operator_sequence', [])) if isinstance(plan, dict) else 0}; "
+                f"validation={validation_status}; validation_allowed={validation.get('allowed')}; "
+                f"signed={signed_status}; sign_audit={sign_audit_status}; plan_recorded={plan_recorded}; contract_recorded={contract_recorded}; "
+                f"validation_recorded={validation_recorded}; sign_recorded={sign_recorded}; "
                 f"signed_inventory={inventory_status}; signed_count={inventory.get('count', 0)}; published={publish_status}; audit={audit_status}; audit_records={audit.get('count', 0)}; "
                 f"channel={channel_status}; signed_source={signed.get('source', '-')}; build_id={published.get('manifest', {}).get('build_id', channel_state.get('manifest', {}).get('build_id', '-'))}"
             ),
