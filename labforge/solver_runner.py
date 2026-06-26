@@ -1671,13 +1671,29 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        request_status, release_request, _, request_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/build/release-request", "/labforge/scaffold/build/release-request"],
+            None,
+            timeout_seconds,
+        )
+        contract_status, contract, _, contract_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/build/execution-contract", "/labforge/scaffold/build/execution-contract"],
+            None,
+            timeout_seconds,
+        )
         patch_field = str(context.get("patch_ref_field") or metadata.get("required_patch_field") or "support_patch_ref")
-        payload = {
+        contract_shape = contract.get("request_shape", {}) if isinstance(contract, dict) else {}
+        payload = dict(contract_shape) if isinstance(contract_shape, dict) else {}
+        payload.update({
             "repo": metadata.get("repo") or context.get("repo") or "smoke/product-agent",
             "ref": metadata.get("ref") or context.get("ref") or "refs/heads/release/smoke",
             "channel": metadata.get("channel") or context.get("channel") or "smoke",
-            patch_field: "lab://smoke.patch",
-        }
+        })
+        payload.setdefault(patch_field, "lab://smoke.patch")
         policy_status, policy, _, policy_route = http_json_first(
             "POST",
             base_url,
@@ -1713,10 +1729,18 @@ def run_plugin_http_sequence(
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
         policy_recorded = any(isinstance(item, dict) and item.get("action") == "policy-check" and item.get("accepted") is True for item in audit_records)
         job_recorded = any(isinstance(item, dict) and item.get("action") == "job-create" and item.get("accepted") is True for item in audit_records)
+        request_recorded = any(isinstance(item, dict) and item.get("action") == "release-request-read" and item.get("accepted") is True for item in audit_records)
+        contract_recorded = any(isinstance(item, dict) and item.get("action") == "execution-contract-read" and item.get("accepted") is True for item in audit_records)
+        required_fields = contract.get("required_payload_fields", []) if isinstance(contract, dict) else []
         ok = (
             landing_ok
             and context_status == 200
             and metadata_status == 200
+            and request_status == 200
+            and release_request.get("status") == "approved"
+            and contract_status == 200
+            and patch_field in required_fields
+            and contract.get("request_shape", {}).get(patch_field)
             and policy_status == 200
             and policy.get("allowed") is True
             and status == 201
@@ -1726,6 +1750,8 @@ def run_plugin_http_sequence(
             and provenance_status == 200
             and provenance_payload.get("artifact_sha256") == artifact.get("sha256")
             and audit_status == 200
+            and request_recorded
+            and contract_recorded
             and policy_recorded
             and job_recorded
         )
@@ -1738,11 +1764,14 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; context_route={context_route}; metadata_route={metadata_route}; policy_route={policy_route}; route={route}; "
+                f"{context_note}; context_route={context_route}; metadata_route={metadata_route}; request_route={request_route}; "
+                f"contract_route={contract_route}; policy_route={policy_route}; route={route}; "
                 f"provenance_route={provenance_route}; audit_route={audit_route}; "
-                f"context={context_status}; metadata={metadata_status}; policy={policy_status}; policy_allowed={policy.get('allowed')}; "
+                f"context={context_status}; metadata={metadata_status}; release_request={request_status}; request_status={release_request.get('status')}; "
+                f"execution_contract={contract_status}; required_fields={len(required_fields)}; policy={policy_status}; policy_allowed={policy.get('allowed')}; "
                 f"http_status={status}; job_id={data.get('job_id', '-')}; artifact_fields={len(artifact)}; "
-                f"provenance={provenance_status}; audit={audit_status}; policy_recorded={policy_recorded}; job_recorded={job_recorded}"
+                f"provenance={provenance_status}; audit={audit_status}; request_recorded={request_recorded}; "
+                f"contract_recorded={contract_recorded}; policy_recorded={policy_recorded}; job_recorded={job_recorded}"
             ),
         )
     if plugin == "signed-update-publish":

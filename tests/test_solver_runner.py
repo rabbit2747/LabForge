@@ -1173,6 +1173,11 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("context=200", report.steps[0].message)
                 self.assertIn("metadata=200", report.steps[0].message)
+                self.assertIn("release_request=200", report.steps[0].message)
+                self.assertIn("request_status=approved", report.steps[0].message)
+                self.assertIn("execution_contract=200", report.steps[0].message)
+                self.assertIn("request_recorded=True", report.steps[0].message)
+                self.assertIn("contract_recorded=True", report.steps[0].message)
                 self.assertIn("policy=200", report.steps[0].message)
                 self.assertIn("policy_allowed=True", report.steps[0].message)
                 self.assertIn("http_status=201", report.steps[0].message)
@@ -1808,6 +1813,8 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
                     {
                         "build_api": "POST /api/build/jobs",
                         "release_metadata_api": "GET /api/build/release-metadata",
+                        "release_request_api": "GET /api/build/release-request",
+                        "execution_contract_api": "GET /api/build/execution-contract",
                         "policy_api": "POST /api/build/policy",
                         "audit_api": "GET /api/build/audit",
                         "provenance_api": "GET /api/build/jobs/<job_id>/provenance",
@@ -1815,6 +1822,46 @@ class BuildPipelineSmokeHandler(BaseHTTPRequestHandler):
                         "ref": "refs/heads/release/smoke",
                         "channel": "smoke",
                         "patch_ref_field": "support_patch_ref",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/build/release-request":
+            self.audit_records.append({"action": "release-request-read", "accepted": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "request_id": "REL-LAB-0001",
+                        "status": "approved",
+                        "repo": "smoke/product-agent",
+                        "ref": "refs/heads/release/smoke",
+                        "channel": "smoke",
+                        "required_patch_field": "support_patch_ref",
+                        "build_api": "POST /api/build/jobs",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/build/execution-contract":
+            self.audit_records.append({"action": "execution-contract-read", "accepted": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "contract_version": "release-build-contract-v2",
+                        "release_request_id": "REL-LAB-0001",
+                        "required_payload_fields": ["repo", "ref", "channel", "support_patch_ref"],
+                        "request_shape": {
+                            "repo": "smoke/product-agent",
+                            "ref": "refs/heads/release/smoke",
+                            "channel": "smoke",
+                            "support_patch_ref": "lab://smoke.patch",
+                        },
                     }
                 ).encode("utf-8")
             )
