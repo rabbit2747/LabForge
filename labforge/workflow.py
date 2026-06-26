@@ -97,6 +97,7 @@ def create_workflow_report(
         service_runtime_step(spec, lab_root),
         service_plan_step(lab_root, workspace_root),
         service_agent_step(lab_root, result_root),
+        live_readiness_task_step(lab_root, workspace_root, result_root),
         service_review_step(spec, result_root),
         service_apply_step(spec, result_root),
         service_verify_step(spec),
@@ -285,6 +286,53 @@ def service_agent_step(lab_root: Path, result_root: Path | None) -> WorkflowStep
         purpose="Create per-service packages and result contracts for implementation agents.",
         evidence=[f"result_dir={result_root}" if result_root else "result_dir=not-provided"],
         next_commands=[f"python -m labforge services agent-packages {quote_path(lab_root)} --out {quote_path(package_root)} --adapter manual"],
+    )
+
+
+def live_readiness_task_step(lab_root: Path, workspace_root: Path | None, result_root: Path | None) -> WorkflowStep:
+    task_path = workspace_root / "live-readiness-tasks.json" if workspace_root else None
+    package_root = result_root.parent.parent if result_root and result_root.name == "outputs" else Path("output") / f"{lab_root.name}-service-agents"
+    if not task_path or not task_path.exists():
+        return WorkflowStep(
+            id="live-readiness-tasks",
+            title="Connect Live Readiness Tasks",
+            status="pending",
+            purpose="Feed browser, terminal, tunnel, final submission, and solver readiness gaps into service-builder packages.",
+            evidence=["live_readiness_tasks=missing"],
+            next_commands=[f"python -m labforge pipeline gate {quote_path(workspace_root or lab_root.parent)}"],
+        )
+    try:
+        payload = load_yaml(task_path)
+    except Exception as exc:  # noqa: BLE001 - workflow should report malformed task files.
+        return WorkflowStep(
+            id="live-readiness-tasks",
+            title="Connect Live Readiness Tasks",
+            status="blocked",
+            purpose="Feed browser, terminal, tunnel, final submission, and solver readiness gaps into service-builder packages.",
+            evidence=[f"live_readiness_tasks={task_path}", f"error={exc}"],
+        )
+    tasks = payload.get("tasks", [])
+    if not isinstance(tasks, list):
+        tasks = []
+    if tasks:
+        return WorkflowStep(
+            id="live-readiness-tasks",
+            title="Connect Live Readiness Tasks",
+            status="ready",
+            purpose="Feed browser, terminal, tunnel, final submission, and solver readiness gaps into service-builder packages.",
+            evidence=[f"live_readiness_tasks={len(tasks)}", f"source={task_path}"],
+            next_commands=[
+                f"python -m labforge services agent-packages {quote_path(lab_root)} --out {quote_path(package_root)} --adapter manual --live-readiness-tasks {quote_path(task_path)}",
+                f"python -m labforge services run-agents {quote_path(package_root)} --adapter manual --dry-run",
+            ],
+            notes=[str(task.get("required_action", task.get("task_id", "live readiness task"))) for task in tasks[:5] if isinstance(task, dict)],
+        )
+    return WorkflowStep(
+        id="live-readiness-tasks",
+        title="Connect Live Readiness Tasks",
+        status="done",
+        purpose="Feed browser, terminal, tunnel, final submission, and solver readiness gaps into service-builder packages.",
+        evidence=[f"live_readiness_tasks=0", f"source={task_path}"],
     )
 
 

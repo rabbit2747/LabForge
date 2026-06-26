@@ -102,8 +102,11 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(any(report["name"] == "Solver Plan" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Playtest" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Playtest Walkthrough" for report in detail["reports"]))
+            self.assertTrue(any(report["name"] == "Live Readiness Tasks" for report in detail["reports"]))
             self.assertTrue((workspace / scenario_id / "live-readiness-tasks.json").exists())
             self.assertTrue((workspace / scenario_id / "live-readiness-tasks.md").exists())
+            self.assertIn("live_readiness_tasks", detail)
+            self.assertIn(detail["live_readiness_tasks"]["status"], {"pending", "no-tasks"})
             readiness_path = workspace / scenario_id / "live-readiness-tasks.json"
             readiness_payload = load_yaml(readiness_path)
             readiness_payload["tasks"] = [
@@ -128,6 +131,8 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(package["task_manifest"]["live_readiness_tasks"])
             self.assertIn("Live Readiness Tasks", package["task_prompt"])
             self.assertTrue(any(str(item).endswith("live-readiness-tasks.json") for item in package["context_files"]))
+            workflow = json.loads((workspace / scenario_id / "workflow" / "workflow-report.json").read_text(encoding="utf-8"))
+            self.assertIn("live-readiness-tasks", {step["id"] for step in workflow["steps"]})
             self.assertIn(detail["playtest"]["status"], {"passed", "warning"})
             self.assertTrue(detail["playtest"]["learner_entrypoints"])
             self.assertEqual(detail["pipeline_gate"]["decision"], "release-candidate")

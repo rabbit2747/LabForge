@@ -676,6 +676,7 @@ def read_scenario_detail(workspace: Path, scenario_id: str) -> dict:
     summary["service_status"] = read_service_status(path)
     summary["endpoints"] = read_endpoint_manifest(path)
     summary["pipeline_gate"] = read_pipeline_gate_summary(path)
+    summary["live_readiness_tasks"] = read_live_readiness_tasks(path)
     summary["release_gate"] = read_release_gate_summary(path)
     summary["playtest"] = read_playtest_summary(path)
     return summary
@@ -699,12 +700,37 @@ def read_fix_tasks(path: Path) -> list[dict]:
     return tasks if isinstance(tasks, list) else []
 
 
+def read_live_readiness_tasks(path: Path) -> dict:
+    task_path = path / "live-readiness-tasks.json"
+    if not task_path.exists():
+        return {"status": "missing", "tasks": [], "next_commands": []}
+    try:
+        payload = load_yaml(task_path)
+    except Exception as exc:  # noqa: BLE001 - Studio should render partial workspaces.
+        return {"status": "error", "tasks": [], "next_commands": [], "error": str(exc)}
+    tasks = payload.get("tasks", [])
+    commands = payload.get("next_commands", [])
+    if not isinstance(tasks, list):
+        tasks = []
+    if not isinstance(commands, list):
+        commands = []
+    return {
+        "status": str(payload.get("status", "unknown")),
+        "tasks": [task for task in tasks if isinstance(task, dict)],
+        "next_commands": [str(command) for command in commands],
+        "report": "live-readiness-tasks.md",
+        "json": "live-readiness-tasks.json",
+    }
+
+
 def available_reports(path: Path) -> list[dict[str, str]]:
     candidates = [
         ("Scenario Prompt", "lab/scenario-prompt.md"),
         ("Pipeline Summary", "pipeline-summary.md"),
         ("Pipeline Gate", "pipeline-gate.md"),
         ("Pipeline Result", "pipeline-result.yaml"),
+        ("Live Readiness Tasks", "live-readiness-tasks.md"),
+        ("Live Readiness Tasks JSON", "live-readiness-tasks.json"),
         ("Design Summary", "design-workspace-summary.md"),
         ("Design Review", "review/design-review-report.md"),
         ("Fix Tasks", "review/design-fix-tasks.md"),
@@ -1087,6 +1113,10 @@ def render_studio_html() -> str:
           <div id="fixTasks">${renderFixTasks(s.fix_tasks || [])}</div>
         </div>
         <div class="panel">
+          <h2>Live Readiness</h2>
+          <div id="liveReadinessTasks">${renderLiveReadinessTasks(s.live_readiness_tasks || {})}</div>
+        </div>
+        <div class="panel">
           <h2>Service Implementation</h2>
           <div id="serviceStatus">${renderServiceStatus(s.service_status || [])}</div>
         </div>`;
@@ -1335,6 +1365,30 @@ def render_studio_html() -> str:
           <td style="border-bottom:1px solid var(--line);padding:8px;"><b>${escapeHtml(t.title)}</b><br><span class="meta">${escapeHtml(t.required_action)}</span></td>
         </tr>`).join('')}</tbody>
       </table>`;
+    }
+
+    function renderLiveReadinessTasks(payload) {
+      const tasks = payload.tasks || [];
+      const commands = payload.next_commands || [];
+      const status = payload.status || 'unknown';
+      const rows = tasks.length ? tasks.map(task => `<tr>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><code>${escapeHtml(task.task_id || '-')}</code></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="status ${task.severity === 'passed' ? 'passed' : ''}">${escapeHtml(task.severity || '-')}</span></td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;">${escapeHtml(task.required_action || '-')}</td>
+          <td style="border-bottom:1px solid var(--line);padding:8px;"><span class="meta">${escapeHtml(task.expected_artifact || '-')}</span></td>
+        </tr>`).join('') : '<tr><td colspan="4" style="padding:8px;">No live readiness implementation tasks.</td></tr>';
+      const commandBlock = commands.length ? `<pre style="min-height:0;max-height:220px;">${escapeHtml(commands.join('\\n'))}</pre>` : '<div class="empty">No live readiness command suggested.</div>';
+      return `
+        <div class="meta" style="margin-bottom:10px;">
+          <span class="status ${status === 'no-tasks' ? 'passed' : ''}">status ${escapeHtml(status)}</span>
+          <span>tasks ${tasks.length}</span>
+        </div>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:14px;">
+          <thead><tr><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Task</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Severity</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Required Action</th><th style="text-align:left;border-bottom:1px solid var(--line);padding:8px;">Expected Artifact</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3 style="font-size:14px;margin:0 0 8px;">Service Builder Commands</h3>
+        ${commandBlock}`;
     }
 
     function renderServiceStatus(items) {

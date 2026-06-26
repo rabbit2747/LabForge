@@ -477,6 +477,17 @@ def create_lab_pipeline(
     write_text(out / "pipeline-summary.md", pipeline_result_to_markdown(result))
     gate = evaluate_pipeline_gate(out)
     write_pipeline_gate_report(gate, out)
+    workflow = create_workflow_report(
+        lab_dir,
+        provider=provider if provider != "auto" else "docker-compose",
+        profile=profile,
+        result_dir=service_agent_dir / ".ai" / "outputs",
+        agent_result_dir=Path(design.agent_workspace_dir) / "outputs",
+        package_dir=out / "supervisor-package",
+        workspace_dir=out,
+    )
+    write_text(workflow_dir / "workflow-report.md", workflow_report_to_markdown(workflow))
+    write_text(workflow_dir / "workflow-report.json", workflow.model_dump_json(indent=2))
     return result
 
 
