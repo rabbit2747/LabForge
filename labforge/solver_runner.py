@@ -1122,6 +1122,24 @@ def run_plugin_http_sequence(
             )
             upload_route = "/labforge/scaffold/uploads"
         filename = str(uploaded.get("filename", ""))
+        review_workbench_status, _, review_workbench_body, review_workbench_route = http_json_first(
+            "GET",
+            base_url,
+            ["/attachments/review", "/labforge/scaffold/uploads/review-workbench"],
+            None,
+            timeout_seconds,
+        )
+        review_decision_status, review_decision, _, review_decision_route = (
+            http_json_first(
+                "POST",
+                base_url,
+                [f"/api/attachments/review/{filename}/decision", f"/labforge/scaffold/uploads/review/{filename}/decision"],
+                {"decision": "quarantine"},
+                timeout_seconds,
+            )
+            if filename
+            else (0, {}, "", "")
+        )
         retrieved_status, _, retrieved_body, retrieve_route = (
             http_json_first("GET", base_url, [f"/attachments/{filename}", f"/labforge/scaffold/uploads/{filename}"], None, timeout_seconds)
             if filename
@@ -1161,14 +1179,25 @@ def run_plugin_http_sequence(
         access_records = access.get("records", []) if isinstance(access, dict) else []
         review_recorded = any(isinstance(record, dict) and record.get("filename") == filename and record.get("decision", {}).get("storage_object_id") for record in records)
         policy_mismatch_recorded = any(isinstance(record, dict) and record.get("filename") == filename and record.get("policy_match") is False and record.get("decision", {}).get("allowed_by_runtime") is True for record in records)
+        quarantine_recorded = any(isinstance(record, dict) and record.get("filename") == filename and record.get("status") == "quarantined_by_review" and record.get("decision", {}).get("runtime_enforcement_gap") is True for record in records)
         storage_recorded = any(isinstance(item, dict) and item.get("filename") == filename and item.get("retrieval_url") == f"/attachments/{filename}" and item.get("detail_api") == f"/api/attachments/storage/{filename}" for item in storage_objects)
-        storage_detail_ok = storage_object_status == 200 and storage_object_data.get("filename") == filename and storage_object_data.get("decision", {}).get("policy_match") is False
+        storage_detail_ok = (
+            storage_object_status == 200
+            and storage_object_data.get("filename") == filename
+            and storage_object_data.get("decision", {}).get("policy_match") is False
+            and storage_object_data.get("review_status") == "quarantined_by_review"
+        )
         upload_audited = any(isinstance(record, dict) and record.get("action") == "upload" and record.get("filename") == filename and record.get("status") == 201 and record.get("provenance", {}).get("storage_object_api") == f"/api/attachments/storage/{filename}" for record in access_records)
+        quarantine_audited = any(isinstance(record, dict) and record.get("action") == "review-quarantine" and record.get("filename") == filename and record.get("status") == 202 for record in access_records)
         retrieve_audited = any(isinstance(record, dict) and record.get("action") == "retrieve" and record.get("filename") == filename and record.get("status") == 200 and record.get("provenance", {}).get("retrieval_url") == f"/attachments/{filename}" for record in access_records)
         ok = (
             landing_ok
             and policy_status == 200
             and uploaded_status == 201
+            and review_workbench_status == 200
+            and "Attachment Review Workbench" in review_workbench_body
+            and review_decision_status == 202
+            and review_decision.get("runtime_enforcement_gap") is True
             and retrieved_status == 200
             and review_status == 200
             and storage_status == 200
@@ -1177,8 +1206,10 @@ def run_plugin_http_sequence(
             and "labforge upload smoke" in retrieved_body
             and review_recorded
             and policy_mismatch_recorded
+            and quarantine_recorded
             and storage_recorded
             and upload_audited
+            and quarantine_audited
             and retrieve_audited
         )
         return plugin_step(
@@ -1191,10 +1222,13 @@ def run_plugin_http_sequence(
             ok,
             (
                 f"{context_note}; policy_route={policy_route}; upload_route={upload_route}; "
-                f"retrieve_route={retrieve_route}; review_route={review_route}; storage_route={storage_route}; storage_object_route={storage_object_route}; access_route={access_route}; policy={policy_status}; "
-                f"uploaded={uploaded_status}; retrieved={retrieved_status}; review={review_status}; storage={storage_status}; storage_object={storage_object_status}; access={access_status}; "
+                f"review_workbench_route={review_workbench_route}; review_decision_route={review_decision_route}; retrieve_route={retrieve_route}; "
+                f"review_route={review_route}; storage_route={storage_route}; storage_object_route={storage_object_route}; access_route={access_route}; policy={policy_status}; "
+                f"uploaded={uploaded_status}; review_workbench={review_workbench_status}; review_decision={review_decision_status}; retrieved={retrieved_status}; "
+                f"review={review_status}; storage={storage_status}; storage_object={storage_object_status}; access={access_status}; "
                 f"filename={filename or '-'}; review_recorded={review_recorded}; policy_mismatch_recorded={policy_mismatch_recorded}; "
-                f"storage_recorded={storage_recorded}; upload_audited={upload_audited}; retrieve_audited={retrieve_audited}"
+                f"quarantine_recorded={quarantine_recorded}; storage_recorded={storage_recorded}; upload_audited={upload_audited}; "
+                f"quarantine_audited={quarantine_audited}; retrieve_audited={retrieve_audited}"
             ),
         )
     if plugin == "diagnostic-command-injection":

@@ -600,6 +600,93 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_unsafe_file_upload_review_against_generated_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = SimpleNamespace(
+                service="attachment-portal",
+                purpose="case attachment handling",
+                model_extra={
+                    "vulnerability_plugins": [
+                        {
+                            "id": "unsafe-file-upload",
+                            "upload_workflow": "case evidence attachment review",
+                            "accepted_extensions": [".txt", ".pdf"],
+                            "review_queue": "case-handler-review",
+                        }
+                    ]
+                },
+            )
+            files = render_vulnerability_scaffold_files(artifact, {"app.py": BASE_PLUGIN_APP})
+            app_path = root / "app.py"
+            app_path.write_text(files["app.py"], encoding="utf-8")
+            module, error = load_generated_app_module("attachment-portal", app_path)
+            self.assertIsNone(error or None)
+            self.assertIsNotNone(module)
+            isolate_generated_state(module, "attachment-portal")
+
+            from werkzeug.serving import make_server
+
+            server = make_server("127.0.0.1", 0, module.app)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-unsafe-upload",
+                            "title": "Solver Unsafe Upload",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-attachment-portal-unsafe-file-upload",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "attachment-portal",
+                                    "plugin": "unsafe-file-upload",
+                                    "evidence": [],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps(
+                        {
+                            "published_endpoints": [
+                                {
+                                    "service": "attachment-portal",
+                                    "protocol": "http",
+                                    "url": base_url,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(
+                    solver_plan,
+                    root / "solver-run",
+                    endpoint_manifest=endpoint_manifest,
+                    execute=True,
+                )
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed", report.steps[0].message)
+                self.assertIn("review_workbench=200", report.steps[0].message)
+                self.assertIn("review_decision=202", report.steps[0].message)
+                self.assertIn("quarantine_recorded=True", report.steps[0].message)
+                self.assertIn("quarantine_audited=True", report.steps[0].message)
+                self.assertIn("retrieve_audited=True", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_jwt_role_confusion_plugin_against_generated_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
