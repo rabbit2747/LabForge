@@ -309,6 +309,158 @@ class RealismProfileTests(unittest.TestCase):
             self.assertIn("capability-operational-depth.market-data.missing", codes)
             self.assertIn("capability-operational-depth.backoffice-settlement.missing", codes)
 
+    def test_realism_flags_missing_securities_business_layers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "partial-securities-stack",
+                    "title": "Partial Securities Stack",
+                    "summary": "Brokerage lab with order management and quote workflows only.",
+                    "final_objective": "Collect synthetic compliance evidence.",
+                    "target_industry": "securities",
+                },
+                topology={
+                    "networks": [
+                        {"name": "public or internet edge"},
+                        {"name": "dmz"},
+                        {"name": "application"},
+                        {"name": "core trading"},
+                        {"name": "data"},
+                        {"name": "security monitoring"},
+                    ],
+                    "services": [
+                        {
+                            "name": "order-management-system",
+                            "role": "trading order review console",
+                            "purpose": "Order entry and trade status review.",
+                            "networks": ["application", "core trading"],
+                        },
+                        {
+                            "name": "market-data-gateway",
+                            "role": "market data and quote feed cache",
+                            "purpose": "Quote refresh and ticker subscription workflow.",
+                            "networks": ["core trading"],
+                        },
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Review trading workflow.",
+                            "procedure": "Use order entry, trade status review, quote refresh, and ticker subscription records.",
+                            "evidence": ["trading-workflow"],
+                            "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1083", "name": "File and Directory Discovery"}]},
+                        }
+                    ]
+                },
+                artifacts={
+                    "service_artifacts": [
+                        {
+                            "service": "order-management-system",
+                            "source_path": "services/order-management-system",
+                            "runtime": "business-portal",
+                            "purpose": "Trading workflow runtime.",
+                            "seed_inputs": ["orders", "execution reports"],
+                            "noise_inputs": ["routine order review tickets"],
+                            "healthcheck": "GET /healthz",
+                            "reset": "reset.sh",
+                            "evidence_logs": ["order audit log"],
+                            "safety_boundaries": ["synthetic data only"],
+                        },
+                        {
+                            "service": "market-data-gateway",
+                            "source_path": "services/market-data-gateway",
+                            "runtime": "data-api",
+                            "purpose": "Market data runtime.",
+                            "seed_inputs": ["ticker snapshots", "price feed logs"],
+                            "noise_inputs": ["routine quote feed heartbeat logs"],
+                            "healthcheck": "GET /healthz",
+                            "reset": "reset.sh",
+                            "evidence_logs": ["feed audit log"],
+                            "safety_boundaries": ["synthetic data only"],
+                        },
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation"]},
+            )
+
+            report = check_realism(LabSpec.load(root), industry="securities")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertNotIn("business-layer.trading-core-layer.incomplete", codes)
+            self.assertIn("business-layer.client-access-layer.incomplete", codes)
+            self.assertIn("business-layer.post-trade-compliance-layer.incomplete", codes)
+            self.assertIn("business-layer.security-oversight-layer.incomplete", codes)
+
+    def test_realism_accepts_complete_securities_business_layers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "complete-securities-stack",
+                    "title": "Complete Securities Stack",
+                    "summary": (
+                        "Brokerage lab with investor portal, customer authentication, order management, market data, "
+                        "settlement, compliance export, trade data warehouse, and security monitoring."
+                    ),
+                    "final_objective": "Collect synthetic regulatory export evidence.",
+                    "target_industry": "securities",
+                },
+                topology={
+                    "networks": [
+                        {"name": "public or internet edge"},
+                        {"name": "dmz"},
+                        {"name": "application"},
+                        {"name": "core trading"},
+                        {"name": "data"},
+                        {"name": "management"},
+                        {"name": "security monitoring"},
+                    ],
+                    "services": [
+                        {"name": "investor-portal", "role": "investor support and disclosure portal", "purpose": "Customer notices and support request intake.", "networks": ["dmz"]},
+                        {"name": "customer-identity-gateway", "role": "customer auth MFA and session gateway", "purpose": "Customer login, MFA challenge, and session refresh.", "networks": ["dmz", "application"]},
+                        {"name": "order-management-system", "role": "trading order review console", "purpose": "Order entry, trade status review, and execution reports.", "networks": ["application", "core trading"]},
+                        {"name": "market-data-gateway", "role": "market data quote feed cache", "purpose": "Market data subscription, quote refresh, and ticker snapshots.", "networks": ["core trading"]},
+                        {"name": "settlement-service", "role": "clearing settlement and reconciliation batch", "purpose": "End-of-day settlement and reconciliation exception review.", "networks": ["application", "data"]},
+                        {"name": "compliance-export-service", "role": "regulatory reporting and surveillance export", "purpose": "Compliance export approval and trade surveillance review.", "networks": ["data"]},
+                        {"name": "trade-data-warehouse", "role": "trade history object-store and records archive", "purpose": "Customer records, trade history, and compliance exports.", "networks": ["data"]},
+                        {"name": "fraud-monitor", "role": "SOC SIEM IDS fraud security monitoring", "purpose": "Security events, fraud alerts, EDR telemetry, and audit review.", "networks": ["security monitoring"]},
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {"id": "stage-01", "title": "Review investor access.", "procedure": "Inspect customer notices, support request intake, customer login, MFA challenge, and session refresh.", "evidence": ["client-access"], "mitre": {"tactic": "Initial Access", "techniques": [{"id": "T1190", "name": "Exploit Public-Facing Application"}]}},
+                        {"id": "stage-02", "title": "Review trading core.", "procedure": "Correlate order entry, trade status review, execution reports, quote refresh, ticker snapshots, and market data subscription.", "evidence": ["trading-core"], "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1083", "name": "File and Directory Discovery"}]}},
+                        {"id": "stage-03", "title": "Review post-trade compliance.", "procedure": "Use settlement batches, clearing files, reconciliation exceptions, surveillance alerts, regulatory export objects, customer records, and trade history.", "evidence": ["post-trade-compliance"], "mitre": {"tactic": "Collection", "techniques": [{"id": "T1005", "name": "Data from Local System"}]}},
+                        {"id": "stage-04", "title": "Review monitoring.", "procedure": "Inspect SIEM, IDS, EDR telemetry, security events, fraud alerts, and audit evidence.", "evidence": ["security-oversight"], "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1082", "name": "System Information Discovery"}]}},
+                    ]
+                },
+                artifacts={
+                    "service_artifacts": [
+                        service_artifact("investor-portal", "business-portal", ["customer notices", "support requests"], ["routine disclosure updates"]),
+                        service_artifact("customer-identity-gateway", "identity-gateway", ["customer sessions", "MFA events"], ["benign login failures"]),
+                        service_artifact("order-management-system", "business-portal", ["orders", "execution reports"], ["non-target order records"]),
+                        service_artifact("market-data-gateway", "data-api", ["ticker snapshots", "price feed logs"], ["quote feed heartbeat logs"]),
+                        service_artifact("settlement-service", "audit-log-service", ["settlement batches", "clearing files"], ["reconciliation exceptions"]),
+                        service_artifact("compliance-export-service", "data-api", ["regulatory export objects", "audit evidence"], ["surveillance alerts"]),
+                        service_artifact("trade-data-warehouse", "object-store", ["customer records", "trade history", "compliance exports"], ["archive lifecycle events"]),
+                        service_artifact("fraud-monitor", "siem-log-viewer", ["security events", "fraud alerts", "EDR telemetry"], ["benign SOC alerts"]),
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation", "edr", "soc"]},
+            )
+
+            report = check_realism(LabSpec.load(root), industry="securities")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertFalse(any(code.startswith("business-layer.") for code in codes))
+
     def test_realism_accepts_capability_when_service_stage_and_data_support_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -561,6 +713,21 @@ def write_lab_files(
         (root / "security-controls.yaml").write_text(json.dumps(security_controls, ensure_ascii=False, indent=2), encoding="utf-8")
     if artifacts is not None:
         (root / "artifacts.yaml").write_text(json.dumps(artifacts, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def service_artifact(service: str, runtime: str, seed_inputs: list[str], noise_inputs: list[str]) -> dict:
+    return {
+        "service": service,
+        "source_path": f"services/{service}",
+        "runtime": runtime,
+        "purpose": f"{service} runtime.",
+        "seed_inputs": seed_inputs,
+        "noise_inputs": noise_inputs,
+        "healthcheck": "GET /healthz",
+        "reset": "reset.sh",
+        "evidence_logs": [f"{service} audit log"],
+        "safety_boundaries": ["synthetic data only"],
+    }
 
 
 if __name__ == "__main__":

@@ -23,6 +23,16 @@ placement, and security/telemetry evidence when the capability is security
 related. This prevents a securities, banking, healthcare, or manufacturing lab
 from becoming the same generic exercise with different labels.
 
+Industry profiles can also define business layer gates. A business layer is a
+larger operating slice of the target company, such as client access, trading
+core, post-trade compliance, and security oversight for a securities firm. A
+layer is not considered healthy just because one service name contains a
+keyword. It must be supported by concrete services and operational evidence
+such as stage procedures, workflow terms, seed data, service artifacts, or
+security telemetry. These gates are intentionally stricter than keyword
+matching because a lab should fail review when it has an exploit path but lacks
+the surrounding business systems that make the target environment believable.
+
 Final realism review belongs to the `industry-realism-reviewer` specialist
 agent. That agent must inspect the declared industry, infrastructure, services,
 UI/source, seed data, noise data, security controls, and generated diagrams
@@ -81,6 +91,10 @@ The report includes:
 - `anti_ctf_signals`: terms such as `flag`, `ctf`, `foothold shell`, `exploit
   here`, or over-explicit CVE hints that should be rewritten as normal business
   or operations language.
+- `business-layer.*.incomplete`: an industry business layer is missing or too
+  shallow. For example, a brokerage lab with order and quote APIs but no
+  investor access layer, settlement/compliance layer, or security oversight
+  should not pass as a realistic securities environment.
 - `findings[].remediation`: concrete guidance used by `design tasks` to create
   more specific fix tasks.
 

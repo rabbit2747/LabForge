@@ -39,6 +39,16 @@ class IndustryRealismProfile(RealismModel):
     provider_realism_expectations: list[str] = Field(default_factory=list)
 
 
+class IndustryBusinessLayer(RealismModel):
+    id: str
+    description: str
+    capability_ids: list[str] = Field(default_factory=list)
+    min_supported: int = 1
+    requires_operational_evidence: bool = True
+    requires_artifact_when_declared: bool = False
+    requires_security_evidence: bool = False
+
+
 class RealismFinding(RealismModel):
     severity: Literal["info", "warning", "error"]
     category: str
@@ -456,6 +466,194 @@ INDUSTRY_PROFILES: dict[str, IndustryRealismProfile] = {
 }
 
 
+INDUSTRY_BUSINESS_LAYERS: dict[str, list[IndustryBusinessLayer]] = {
+    "securities": [
+        IndustryBusinessLayer(
+            id="client-access-layer",
+            description="Investor-facing access must include both a public/investor surface and customer authentication/session context.",
+            capability_ids=["public-investor-web", "customer-auth"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="trading-core-layer",
+            description="Brokerage realism requires both order/trading workflow and market-data or quote-feed context.",
+            capability_ids=["trading-channel", "market-data"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="post-trade-compliance-layer",
+            description="Post-trade realism needs back-office, settlement, compliance, or regulatory data handling beyond the exploit path.",
+            capability_ids=["backoffice-settlement", "risk-compliance", "data-store"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="security-oversight-layer",
+            description="Regulated brokerage labs need SOC/SIEM/fraud/security telemetry or audit monitoring.",
+            capability_ids=["security-operations"],
+            min_supported=1,
+            requires_security_evidence=True,
+        ),
+    ],
+    "banking": [
+        IndustryBusinessLayer(
+            id="digital-customer-access-layer",
+            description="Banking realism requires both a customer-facing banking channel and customer identity/device/session controls.",
+            capability_ids=["public-banking-channel", "customer-identity"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="core-money-movement-layer",
+            description="Banking labs must model account/ledger context and payment or reconciliation movement.",
+            capability_ids=["core-account-ledger", "payments-batch"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="risk-compliance-layer",
+            description="Banking environments need fraud/AML and compliance reporting, not only generic data exfiltration.",
+            capability_ids=["fraud-aml-monitoring", "compliance-reporting"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="bank-security-layer",
+            description="Banking labs need explicit SOC/SIEM/EDR/IDS/audit telemetry.",
+            capability_ids=["bank-security-operations"],
+            min_supported=1,
+            requires_security_evidence=True,
+        ),
+    ],
+    "healthcare": [
+        IndustryBusinessLayer(
+            id="patient-access-layer",
+            description="Healthcare labs need patient-facing portal or appointment workflow context.",
+            capability_ids=["patient-portal"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="clinical-record-layer",
+            description="Healthcare labs need EHR/EMR or clinical workflow data, not only a generic web application.",
+            capability_ids=["ehr"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="revenue-identity-layer",
+            description="Healthcare realism should include billing/claims and identity/access control context.",
+            capability_ids=["billing", "identity"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="privacy-audit-layer",
+            description="Healthcare labs need privacy, audit, compliance, or access-review telemetry.",
+            capability_ids=["audit"],
+            min_supported=1,
+            requires_security_evidence=True,
+        ),
+    ],
+    "manufacturing": [
+        IndustryBusinessLayer(
+            id="corporate-entry-layer",
+            description="Manufacturing labs need a plausible IT/vendor/helpdesk entry before OT movement.",
+            capability_ids=["corporate-entry"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="production-operations-layer",
+            description="Manufacturing realism requires MES/production scheduling plus historian/telemetry context.",
+            capability_ids=["mes", "historian"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="engineering-ot-layer",
+            description="OT labs need engineering workstation, PLC, recipe, or jumpbox context.",
+            capability_ids=["engineering"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="ot-monitoring-layer",
+            description="Manufacturing/OT labs need security or operational monitoring evidence.",
+            capability_ids=["monitoring"],
+            min_supported=1,
+            requires_security_evidence=True,
+        ),
+    ],
+    "active-directory": [
+        IndustryBusinessLayer(
+            id="domain-foundation-layer",
+            description="AD labs need domain controller, Kerberos/LDAP/DNS/GPO context.",
+            capability_ids=["domain-controller"],
+            min_supported=1,
+        ),
+        IndustryBusinessLayer(
+            id="endpoint-server-layer",
+            description="AD labs need both domain-joined endpoints and member servers or file/application services.",
+            capability_ids=["windows-workstations", "member-servers"],
+            min_supported=2,
+        ),
+        IndustryBusinessLayer(
+            id="identity-operations-layer",
+            description="AD realism needs helpdesk, IAM, privileged access, or password reset workflow context.",
+            capability_ids=["identity-operations"],
+            min_supported=1,
+        ),
+        IndustryBusinessLayer(
+            id="windows-monitoring-layer",
+            description="AD labs need Windows event, SIEM, EDR, or domain audit telemetry.",
+            capability_ids=["windows-monitoring"],
+            min_supported=1,
+            requires_security_evidence=True,
+        ),
+    ],
+    "supply-chain": [
+        IndustryBusinessLayer(
+            id="vendor-entry-layer",
+            description="Supply-chain labs need support/customer entry plus internal vendor context.",
+            capability_ids=["support-entry"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="development-build-layer",
+            description="Supply-chain realism needs source-control and build/artifact systems.",
+            capability_ids=["source-control", "build-pipeline"],
+            min_supported=2,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="release-trust-layer",
+            description="Supply-chain labs need signing, manifest, update channel, or release trust workflow.",
+            capability_ids=["signing-release"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="downstream-customer-layer",
+            description="Supply-chain labs need customer integration or update consumer context.",
+            capability_ids=["customer-integration"],
+            min_supported=1,
+            requires_artifact_when_declared=True,
+        ),
+        IndustryBusinessLayer(
+            id="release-monitoring-layer",
+            description="Supply-chain labs need release/build audit or security monitoring telemetry.",
+            capability_ids=["release-monitoring"],
+            min_supported=1,
+            requires_security_evidence=True,
+        ),
+    ],
+}
+
+
 def list_realism_profiles() -> list[IndustryRealismProfile]:
     return list(INDUSTRY_PROFILES.values())
 
@@ -525,6 +723,8 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
             )
         if capability.required and evidence and keyword_matches >= capability.min_keyword_matches:
             findings.extend(capability_support_findings(capability, evidence, strict=strict))
+
+    findings.extend(business_layer_findings(profile, capability_evidence, spec, strict=strict))
 
     zone_text = " ".join(str(zone.get("name", zone.get("id", ""))).lower() for zone in spec.environment.get("zones", []))
     network_text = " ".join(str(network.get("name", "")).lower() for network in spec.networks)
@@ -1014,6 +1214,106 @@ def capability_support_findings(
     return findings
 
 
+def business_layer_findings(
+    profile: IndustryRealismProfile,
+    capability_evidence: dict[str, IndustryCapabilityEvidence],
+    spec: LabSpec,
+    *,
+    strict: bool,
+) -> list[RealismFinding]:
+    layers = INDUSTRY_BUSINESS_LAYERS.get(profile.industry, [])
+    if not layers:
+        return []
+    findings: list[RealismFinding] = []
+    severity: Literal["warning", "error"] = "error" if strict else "warning"
+    has_artifact_contract = bool(spec.artifacts_model and spec.artifacts_model.service_artifacts)
+    for layer in layers:
+        supported: list[str] = []
+        shallow: list[str] = []
+        for capability_id in layer.capability_ids:
+            evidence = capability_evidence.get(capability_id)
+            if not evidence:
+                continue
+            if capability_satisfies_business_layer(
+                evidence,
+                requires_operational_evidence=layer.requires_operational_evidence,
+                requires_artifact=layer.requires_artifact_when_declared and has_artifact_contract,
+                requires_security_evidence=layer.requires_security_evidence,
+            ):
+                supported.append(capability_id)
+            elif evidence.evidence_dimensions:
+                shallow.append(capability_id)
+        if len(supported) < layer.min_supported:
+            details = []
+            if supported:
+                details.append(f"supported: {', '.join(supported)}")
+            if shallow:
+                details.append(f"too shallow: {', '.join(shallow)}")
+            findings.append(
+                RealismFinding(
+                    severity=severity,
+                    category="business-layer",
+                    message=f"Industry business layer `{layer.id}` is incomplete: {layer.description}",
+                    expected=(
+                        f"At least {layer.min_supported} supported capability/capabilities from "
+                        f"{', '.join(layer.capability_ids)}"
+                    ),
+                    code=f"business-layer.{layer.id}.incomplete",
+                    remediation=business_layer_remediation(layer, profile, details),
+                )
+            )
+    return findings
+
+
+def capability_satisfies_business_layer(
+    evidence: IndustryCapabilityEvidence,
+    *,
+    requires_operational_evidence: bool,
+    requires_artifact: bool,
+    requires_security_evidence: bool,
+) -> bool:
+    if not evidence.service_evidence:
+        return False
+    if requires_operational_evidence:
+        operational_evidence = [
+            *evidence.stage_evidence,
+            *evidence.data_evidence,
+            *evidence.workflow_evidence,
+            *evidence.artifact_evidence,
+        ]
+        if not operational_evidence:
+            return False
+    if requires_artifact and not evidence.artifact_evidence:
+        return False
+    if requires_security_evidence and not evidence.security_evidence:
+        return False
+    return True
+
+
+def business_layer_remediation(layer: IndustryBusinessLayer, profile: IndustryRealismProfile, details: list[str]) -> str:
+    capability_map = {capability.id: capability for capability in profile.capabilities}
+    parts = [f"Model `{layer.id}` as a normal {profile.display_name} business layer."]
+    if details:
+        parts.append("Current evidence: " + "; ".join(details) + ".")
+    recommended_services: list[str] = []
+    recommended_data: list[str] = []
+    recommended_workflows: list[str] = []
+    for capability_id in layer.capability_ids:
+        capability = capability_map.get(capability_id)
+        if not capability:
+            continue
+        recommended_services.extend(capability.recommended_services[:2])
+        recommended_data.extend(capability.recommended_data[:2])
+        recommended_workflows.extend(capability.recommended_workflows[:2])
+    if recommended_services:
+        parts.append(f"Add or deepen services such as {', '.join(sorted(set(recommended_services))[:6])}.")
+    if recommended_data:
+        parts.append(f"Seed data such as {', '.join(sorted(set(recommended_data))[:6])}.")
+    if recommended_workflows:
+        parts.append(f"Expose workflows such as {', '.join(sorted(set(recommended_workflows))[:6])}.")
+    return " ".join(parts)
+
+
 def service_runtime_texture_findings(
     spec: LabSpec,
     profile: IndustryRealismProfile,
@@ -1333,14 +1633,42 @@ def realism_profiles_to_markdown() -> str:
     lines = [
         "# Realism Profiles",
         "",
-        "| Industry | Display Name | Required Capabilities | Common Technologies |",
-        "|---|---|---:|---:|",
+        "| Industry | Display Name | Required Capabilities | Business Layers | Common Technologies |",
+        "|---|---|---:|---:|---:|",
     ]
     for profile in list_realism_profiles():
+        layer_count = len(INDUSTRY_BUSINESS_LAYERS.get(profile.industry, []))
         lines.append(
-            f"| `{profile.industry}` | {profile.display_name} | {len(profile.capabilities)} | {len(profile.common_technologies)} |"
+            f"| `{profile.industry}` | {profile.display_name} | {len(profile.capabilities)} | {layer_count} | {len(profile.common_technologies)} |"
         )
-    lines.append("")
+    lines += [
+        "",
+        "## Business Layer Gates",
+        "",
+        "Business layers prevent a lab from passing realism review by mentioning isolated industry keywords. "
+        "A layer is supported only when its required capabilities have concrete services plus operational evidence "
+        "such as stage procedures, workflow language, business data, artifacts, or security telemetry.",
+        "",
+    ]
+    for profile in list_realism_profiles():
+        layers = INDUSTRY_BUSINESS_LAYERS.get(profile.industry, [])
+        if not layers:
+            continue
+        lines += [f"### {profile.display_name}", ""]
+        for layer in layers:
+            qualifiers = []
+            if layer.requires_operational_evidence:
+                qualifiers.append("operational evidence")
+            if layer.requires_artifact_when_declared:
+                qualifiers.append("service artifact evidence when artifacts are declared")
+            if layer.requires_security_evidence:
+                qualifiers.append("security-control or telemetry evidence")
+            lines.append(
+                f"- `{layer.id}`: {layer.description} "
+                f"Requires {layer.min_supported} of {', '.join(f'`{item}`' for item in layer.capability_ids)}"
+                f"{' with ' + ', '.join(qualifiers) if qualifiers else ''}."
+            )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -1412,6 +1740,21 @@ def realism_report_to_markdown(report: RealismReport) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in report.profile.required_security_controls or ["No profile-specific security-control requirements declared."])
+    layers = INDUSTRY_BUSINESS_LAYERS.get(report.profile.industry, [])
+    lines += [
+        "",
+        "### Required Business Layers",
+        "",
+    ]
+    if layers:
+        for layer in layers:
+            lines.append(
+                f"- `{layer.id}`: {layer.description} "
+                f"Requires {layer.min_supported} supported capability/capabilities from "
+                f"{', '.join(f'`{item}`' for item in layer.capability_ids)}."
+            )
+    else:
+        lines.append("- No profile-specific business layer requirements declared.")
     lines += [
         "",
         "### Provider Realism Expectations",
