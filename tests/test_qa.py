@@ -359,6 +359,30 @@ class QaReleaseGateTests(unittest.TestCase):
             self.assertEqual(human_readiness_gap_messages(root), [])
             self.assertEqual(human_readiness_check_count(root), 1)
 
+    def test_human_readiness_gap_messages_fail_when_report_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_text(
+                root / "human-readiness.json",
+                dump_yaml(
+                    {
+                        "status": "warning",
+                        "checks": [
+                            {
+                                "check_id": "human-access-01",
+                                "step_id": "access",
+                                "status": "warning",
+                                "messages": ["No final submission endpoint is available."],
+                            }
+                        ],
+                    }
+                ),
+            )
+
+            messages = human_readiness_gap_messages(root)
+
+            self.assertTrue(any("status=warning" in message for message in messages))
+
     def test_human_readiness_gap_messages_fail_when_report_has_failed_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

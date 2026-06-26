@@ -695,7 +695,7 @@ def human_readiness_gap_messages(out: Path) -> list[str]:
     report = load_yaml(report_path)
     messages: list[str] = []
     status = str(report.get("status", ""))
-    if status == "failed":
+    if status in {"failed", "warning"}:
         messages.append(f"critical=human-readiness:status={status}")
     elif not status:
         messages.append("critical=human-readiness:status=missing")
