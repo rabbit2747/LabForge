@@ -1859,20 +1859,31 @@ def run_plugin_http_sequence(
         )
     if plugin == "customer-update-callback":
         policy_status, policy, _, policy_route = http_json_first("GET", base_url, ["/api/customer/update-policy", "/labforge/scaffold/customer/update-policy"], None, timeout_seconds)
+        plan_status, plan, _, plan_route = http_json_first("GET", base_url, ["/api/customer/agent-plan", "/labforge/scaffold/customer/agent-plan"], None, timeout_seconds)
+        candidate_status, candidate, _, candidate_route = http_json_first("GET", base_url, ["/api/customer/update-candidate", "/labforge/scaffold/customer/update-candidate"], None, timeout_seconds)
         pre_status, _, _, pre_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
+        candidate_manifest = candidate.get("manifest", {}) if isinstance(candidate, dict) else {}
+        customer_channel = str(plan.get("customer_channel") or policy.get("channel") or "smoke")
         manifest = {
             "product": "product-agent",
-            "channel": "smoke",
+            "channel": customer_channel,
             "build_id": "build-smoke",
             "artifact": {"name": "product-agent-smoke.tar", "sha256": "0" * 64, "url": "http://update/product-agent-smoke.tar"},
             "signature": "smoke",
         }
-        poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"channel": "smoke"}, timeout_seconds)
+        if isinstance(candidate_manifest, dict) and candidate_manifest:
+            manifest = dict(candidate_manifest)
+        poll_shape = plan.get("poll_request_shape", {}) if isinstance(plan, dict) else {}
+        poll_payload = dict(poll_shape) if isinstance(poll_shape, dict) else {}
+        poll_payload.update({"channel": customer_channel, "manifest": manifest})
+        poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"channel": customer_channel}, timeout_seconds)
         if poll_status == 400:
-            poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], {"manifest": manifest}, timeout_seconds)
+            poll_status, poll, _, poll_route = http_json_first("POST", base_url, ["/api/customer/poll", "/labforge/scaffold/customer/poll"], poll_payload, timeout_seconds)
         export_status, export, _, export_route = http_json_first("GET", base_url, ["/api/customer/export", "/labforge/scaffold/customer/export"], None, timeout_seconds)
         audit_status, audit, _, audit_route = http_json_first("GET", base_url, ["/api/customer/audit", "/labforge/scaffold/customer/audit"], None, timeout_seconds)
         records = audit.get("records", []) if isinstance(audit, dict) else []
+        plan_recorded = any(isinstance(item, dict) and item.get("action") == "agent-plan-read" and item.get("accepted") is True for item in records)
+        candidate_recorded = any(isinstance(item, dict) and item.get("action") == "update-candidate-read" and item.get("accepted") is True for item in records)
         poll_recorded = any(isinstance(item, dict) and item.get("action") == "poll" and item.get("accepted") is True for item in records)
         apply_recorded = any(isinstance(item, dict) and item.get("action") == "update-applied" and item.get("accepted") is True for item in records)
         export_recorded = any(isinstance(item, dict) and item.get("action") == "export-read" and item.get("accepted") is True for item in records)
@@ -1880,11 +1891,17 @@ def run_plugin_http_sequence(
             landing_ok
             and policy_status == 200
             and policy.get("audit_api") == "GET /api/customer/audit"
+            and plan_status == 200
+            and len(plan.get("operator_sequence", [])) >= 5
+            and candidate_status == 200
+            and candidate.get("validation", {}).get("accepted") is True
             and pre_status == 403
             and poll_status == 202
             and export_status == 200
             and export.get("content") == "LABFORGE_SUPPLY_CHAIN_FINAL_OBJECT"
             and audit_status == 200
+            and plan_recorded
+            and candidate_recorded
             and poll_recorded
             and apply_recorded
             and export_recorded
@@ -1898,9 +1915,13 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; policy_route={policy_route}; pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; audit_route={audit_route}; "
-                f"policy={policy_status}; pre={pre_status}; poll={poll_status}; export={export_status}; audit={audit_status}; "
-                f"poll_recorded={poll_recorded}; apply_recorded={apply_recorded}; export_recorded={export_recorded}; build_id={poll.get('build_id', '-')}"
+                f"{context_note}; policy_route={policy_route}; plan_route={plan_route}; candidate_route={candidate_route}; "
+                f"pre_route={pre_route}; poll_route={poll_route}; export_route={export_route}; audit_route={audit_route}; "
+                f"policy={policy_status}; agent_plan={plan_status}; update_candidate={candidate_status}; "
+                f"operator_sequence={len(plan.get('operator_sequence', [])) if isinstance(plan, dict) else 0}; "
+                f"candidate_valid={candidate.get('validation', {}).get('accepted')}; pre={pre_status}; poll={poll_status}; export={export_status}; audit={audit_status}; "
+                f"plan_recorded={plan_recorded}; candidate_recorded={candidate_recorded}; poll_recorded={poll_recorded}; "
+                f"apply_recorded={apply_recorded}; export_recorded={export_recorded}; build_id={poll.get('build_id', '-')}"
             ),
         )
     return SolverRunStep(
