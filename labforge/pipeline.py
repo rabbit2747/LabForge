@@ -449,11 +449,16 @@ def create_lab_pipeline(
         f"python -m labforge services status {lab_dir}",
     ]
     if package_service_agents:
+        next_commands.append(
+            f"python -m labforge services agent-packages {lab_dir} --out {service_agent_dir} --adapter {adapter} --live-readiness-tasks {out / 'live-readiness-tasks.json'}"
+        )
         next_commands.append(f"python -m labforge services review-results {lab_dir} --results {service_agent_dir / '.ai' / 'outputs'} --force")
         next_commands.append(f"python -m labforge services apply-results {lab_dir} --results {service_agent_dir / '.ai' / 'outputs'} --force")
         next_commands.append(f"python -m labforge services run-agents {service_agent_dir} --adapter {adapter} --dry-run")
     else:
-        next_commands.append(f"python -m labforge services agent-packages {lab_dir} --out {service_agent_dir} --adapter {adapter}")
+        next_commands.append(
+            f"python -m labforge services agent-packages {lab_dir} --out {service_agent_dir} --adapter {adapter} --live-readiness-tasks {out / 'live-readiness-tasks.json'}"
+        )
 
     result = PipelineCreateResult(
         workspace=str(out),
@@ -999,6 +1004,7 @@ def gate_next_commands(workspace: Path, lab_dir: Path, decision: PipelineGateDec
         return [
             f"python -m labforge design run-task {workspace} --task <fix-task-id> --adapter manual",
             f"python -m labforge design review-fix-results {workspace}",
+            f"python -m labforge services agent-packages {lab_dir} --out {workspace / 'service-agents'} --adapter manual --live-readiness-tasks {workspace / 'live-readiness-tasks.json'}",
             f"python -m labforge services run-agents {workspace / 'service-agents'} --adapter manual --dry-run",
         ]
     if decision == "ready-for-supervisor":
@@ -1015,6 +1021,71 @@ def write_pipeline_gate_report(report: PipelineGateReport, workspace: Path) -> N
     write_text(workspace / "pipeline-gate.yaml", dump_yaml(report.model_dump()))
     write_text(workspace / "pipeline-gate.json", json.dumps(report.model_dump(), ensure_ascii=False, indent=2) + "\n")
     write_text(workspace / "pipeline-gate.md", pipeline_gate_to_markdown(report))
+    tasks = live_readiness_tasks_from_gate(report)
+    write_text(workspace / "live-readiness-tasks.json", json.dumps(tasks, ensure_ascii=False, indent=2) + "\n")
+    write_text(workspace / "live-readiness-tasks.md", live_readiness_tasks_to_markdown(tasks))
+
+
+def live_readiness_tasks_from_gate(report: PipelineGateReport) -> dict:
+    item = next((gate_item for gate_item in report.items if gate_item.name == "live-access-readiness"), None)
+    tasks: list[dict[str, str]] = []
+    if item:
+        for evidence in item.evidence:
+            if not evidence.startswith("fix_hint="):
+                continue
+            action = evidence.split("=", 1)[1].strip()
+            if not action:
+                continue
+            tasks.append(
+                {
+                    "task_id": f"live-readiness-{len(tasks) + 1:03d}",
+                    "assigned_agent": "service-builder",
+                    "source": "pipeline-gate:live-access-readiness",
+                    "severity": "warning" if item.status == "passed" else item.status,
+                    "required_action": action,
+                    "expected_artifact": "updated lab service/runtime, learner-access.json, lab-access-bundle.json, and solver-plan.json evidence",
+                }
+            )
+    status = "pending" if tasks else "no-tasks"
+    return {
+        "workspace": report.workspace,
+        "lab_dir": report.lab_dir,
+        "status": status,
+        "tasks": tasks,
+        "next_commands": [
+            f"python -m labforge services agent-packages {report.lab_dir} --out {Path(report.workspace) / 'service-agents'} --adapter manual --live-readiness-tasks {Path(report.workspace) / 'live-readiness-tasks.json'}",
+            f"python -m labforge services run-agents {Path(report.workspace) / 'service-agents'} --adapter manual --dry-run",
+            f"python -m labforge pipeline gate {report.workspace} --strict",
+        ]
+        if tasks
+        else [],
+    }
+
+
+def live_readiness_tasks_to_markdown(payload: dict) -> str:
+    lines = [
+        "# Live Readiness Tasks",
+        "",
+        f"- Workspace: `{payload.get('workspace', '-')}`",
+        f"- Lab directory: `{payload.get('lab_dir') or '-'}`",
+        f"- Status: `{payload.get('status', 'unknown')}`",
+        "",
+    ]
+    tasks = payload.get("tasks") or []
+    if tasks:
+        lines.extend(["| Task | Agent | Severity | Required Action | Expected Artifact |", "|---|---|---|---|---|"])
+        for task in tasks:
+            lines.append(
+                f"| `{task.get('task_id', '-')}` | `{task.get('assigned_agent', '-')}` | "
+                f"{task.get('severity', '-')} | {task.get('required_action', '-')} | {task.get('expected_artifact', '-')} |"
+            )
+    else:
+        lines.append("No live readiness task was generated.")
+    commands = payload.get("next_commands") or []
+    if commands:
+        lines.extend(["", "## Next Commands", ""])
+        lines.extend(f"```bash\n{command}\n```" for command in commands)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def pipeline_result_to_markdown(result: PipelineCreateResult) -> str:

@@ -9,8 +9,10 @@ from unittest.mock import patch
 
 from labforge.cli import command_pipeline_verified_mvp
 from labforge.cli import main
-from labforge.io import dump_yaml, write_text
-from labforge.pipeline import live_access_readiness_gate_item
+from labforge.implementation_plan import create_service_agent_packages
+from labforge.io import dump_yaml, load_yaml, write_text
+from labforge.model import LabSpec
+from labforge.pipeline import live_access_readiness_gate_item, live_readiness_tasks_from_gate, PipelineGateReport, PipelineGateItem
 from labforge.qa import QaCheck, ReleaseGateReport
 from labforge.studio import (
     create_pipeline_scenario,
@@ -47,6 +49,30 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertIn("solver", item.required_action)
             self.assertTrue(any("controlled-drop" in evidence for evidence in item.evidence))
 
+    def test_live_readiness_tasks_from_gate_convert_fix_hints_to_service_tasks(self) -> None:
+        report = PipelineGateReport(
+            workspace="C:/tmp/labforge-workspace",
+            lab_dir="C:/tmp/labforge-workspace/lab",
+            decision="needs-agent-work",
+            items=[
+                PipelineGateItem(
+                    name="live-access-readiness",
+                    status="warning",
+                    evidence=[
+                        "browser:required=1:status=declared",
+                        "fix_hint=add a controlled-drop or submission service and expose its learner URL",
+                    ],
+                )
+            ],
+        )
+
+        payload = live_readiness_tasks_from_gate(report)
+
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["tasks"][0]["assigned_agent"], "service-builder")
+        self.assertIn("controlled-drop", payload["tasks"][0]["required_action"])
+        self.assertTrue(any("--live-readiness-tasks" in command for command in payload["next_commands"]))
+
     def test_natural_language_pipeline_can_reach_release_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -76,6 +102,32 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(any(report["name"] == "Solver Plan" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Learner Playtest" for report in detail["reports"]))
             self.assertTrue(any(report["name"] == "Playtest Walkthrough" for report in detail["reports"]))
+            self.assertTrue((workspace / scenario_id / "live-readiness-tasks.json").exists())
+            self.assertTrue((workspace / scenario_id / "live-readiness-tasks.md").exists())
+            readiness_path = workspace / scenario_id / "live-readiness-tasks.json"
+            readiness_payload = load_yaml(readiness_path)
+            readiness_payload["tasks"] = [
+                {
+                    "task_id": "live-readiness-001",
+                    "assigned_agent": "service-builder",
+                    "severity": "warning",
+                    "required_action": "publish an SSH-capable attacker workstation and terminal command sequence",
+                    "expected_artifact": "learner-access.json and solver-plan.json evidence",
+                }
+            ]
+            write_text(readiness_path, dump_yaml(readiness_payload))
+            lab_dir = workspace / scenario_id / "lab"
+            service_agent_dir = workspace / scenario_id / "service-agents-live"
+            create_service_agent_packages(
+                LabSpec.load(lab_dir),
+                service_agent_dir,
+                live_readiness_tasks_path=readiness_path,
+            )
+            package_file = next((service_agent_dir / ".ai" / "service-build").glob("*.package.yaml"))
+            package = load_yaml(package_file)
+            self.assertTrue(package["task_manifest"]["live_readiness_tasks"])
+            self.assertIn("Live Readiness Tasks", package["task_prompt"])
+            self.assertTrue(any(str(item).endswith("live-readiness-tasks.json") for item in package["context_files"]))
             self.assertIn(detail["playtest"]["status"], {"passed", "warning"})
             self.assertTrue(detail["playtest"]["learner_entrypoints"])
             self.assertEqual(detail["pipeline_gate"]["decision"], "release-candidate")

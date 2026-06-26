@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_orchestration import AgentExecutionPackageSpec
-from .io import dump_yaml, write_text
+from .io import dump_yaml, load_yaml, write_text
 from .model import LabSpec
 from .service_blueprints import create_service_blueprints
 from .service_artifacts import declared_service_artifacts
@@ -307,7 +307,14 @@ def vulnerability_plugin_tasks(artifact: Any, base: str, task_prefix: str) -> li
     return tasks
 
 
-def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "manual", baseline_from_runtime: bool = False) -> list[Path]:
+def create_service_agent_packages(
+    spec: LabSpec,
+    out: Path,
+    *,
+    adapter: str = "manual",
+    baseline_from_runtime: bool = False,
+    live_readiness_tasks_path: Path | None = None,
+) -> list[Path]:
     plan = create_service_implementation_plan(spec)
     tasks_by_service: dict[str, list[ServiceImplementationTask]] = {}
     for task in plan.tasks:
@@ -315,6 +322,10 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
 
     written: list[Path] = []
     run_dir = out / ".ai" / "service-build"
+    live_readiness_tasks = load_live_readiness_tasks(live_readiness_tasks_path)
+    live_readiness_context = []
+    if live_readiness_tasks_path:
+        live_readiness_context.append(str(live_readiness_tasks_path.resolve()))
     context_files = [
         "lab.yaml",
         "scenario.yaml",
@@ -332,9 +343,10 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
         blueprint_context = f"{artifact.source_path}/blueprint.yaml"
         missing_context_files = [
             item
-            for item in [*context_files, artifact.source_path, blueprint_context, *plugin_contracts]
-            if not (spec.root / item).exists()
+            for item in [*context_files, artifact.source_path, blueprint_context, *plugin_contracts, *live_readiness_context]
+            if not context_file_exists(spec.root, item)
         ]
+        task_context_files = [*context_files, artifact.source_path, blueprint_context, *plugin_contracts, *live_readiness_context]
         task_manifest = {
             "task_id": task_id,
             "agent_id": "service-builder",
@@ -343,7 +355,7 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             "lab_id": spec.lab_id,
             "service": artifact.service,
             "mission": f"Implement the `{artifact.service}` service according to its LabForge service artifact contract.",
-            "context_files": [*context_files, artifact.source_path, blueprint_context, *plugin_contracts],
+            "context_files": task_context_files,
             "inputs": [
                 "service artifact contract",
                 "service blueprint",
@@ -351,6 +363,7 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
                 "stage requirements",
                 "seed and noise requirements",
                 "safety boundaries",
+                "live readiness tasks from the pipeline gate",
             ],
             "expected_outputs": [
                 "implemented routes/API surface",
@@ -374,6 +387,7 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             "implementation_tasks": [task.model_dump() for task in tasks_by_service.get(artifact.service, [])],
             "blueprint_file": blueprint_context,
             "vulnerability_plugins": vulnerability_plugin_context(artifact),
+            "live_readiness_tasks": live_readiness_tasks,
         }
         package = AgentExecutionPackageSpec(
             task_id=task_id,
@@ -384,13 +398,14 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
             task_prompt_file=f"generated/{task_id}.task.md",
             task_manifest_file=f"generated/{task_id}.yaml",
             output_file=output_file,
-            context_files=task_manifest["context_files"],
+            context_files=task_context_files,
             missing_context_files=missing_context_files,
             system_prompt=render_service_builder_system_prompt(),
             task_prompt=render_service_builder_task_prompt(
                 artifact,
                 tasks_by_service.get(artifact.service, []),
                 vulnerability_plugin_context(artifact),
+                live_readiness_tasks=live_readiness_tasks,
             ),
             task_manifest=task_manifest,
         )
@@ -408,6 +423,23 @@ def create_service_agent_packages(spec: LabSpec, out: Path, *, adapter: str = "m
         write_text(output_path, dump_yaml(result_payload))
         written.append(output_path)
     return written
+
+
+def load_live_readiness_tasks(path: Path | None) -> list[dict[str, Any]]:
+    if not path or not path.exists():
+        return []
+    payload = load_yaml(path)
+    tasks = payload.get("tasks", [])
+    if not isinstance(tasks, list):
+        return []
+    return [task for task in tasks if isinstance(task, dict)]
+
+
+def context_file_exists(root: Path, item: str) -> bool:
+    path = Path(item)
+    if path.is_absolute():
+        return path.exists()
+    return (root / item).exists()
 
 
 def service_agent_result_stub(task_id: str, artifact: Any) -> dict:
@@ -516,8 +548,10 @@ def render_service_builder_task_prompt(
     artifact: Any,
     tasks: list[ServiceImplementationTask],
     vulnerability_plugins: list[dict[str, Any]] | None = None,
+    live_readiness_tasks: list[dict[str, Any]] | None = None,
 ) -> str:
     vulnerability_plugins = vulnerability_plugins or []
+    live_readiness_tasks = live_readiness_tasks or []
     lines = [
         "## Task",
         "",
@@ -595,6 +629,29 @@ def render_service_builder_task_prompt(
     else:
         lines += [
             "No vulnerability plugin contracts were declared for this service.",
+            "",
+        ]
+    lines += [
+        "## Live Readiness Tasks",
+        "",
+    ]
+    if live_readiness_tasks:
+        lines += [
+            "The pipeline gate found gaps that prevent the generated lab from being confidently solved through live browser or terminal access. Treat these as implementation requirements, not optional documentation.",
+            "",
+        ]
+        for task in live_readiness_tasks:
+            lines += [
+                f"### `{task.get('task_id', 'live-readiness')}`",
+                "",
+                f"- Severity: `{task.get('severity', 'warning')}`",
+                f"- Required action: {task.get('required_action', '-')}",
+                f"- Expected artifact: {task.get('expected_artifact', '-')}",
+                "",
+            ]
+    else:
+        lines += [
+            "No live readiness tasks were provided for this service package.",
             "",
         ]
     lines += [
