@@ -506,6 +506,9 @@ class SolverRunnerTests(unittest.TestCase):
 
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
+                self.assertIn("workflow=200", report.steps[0].message)
+                self.assertIn("render_contract=200", report.steps[0].message)
+                self.assertIn("rich_text_body_field=True", report.steps[0].message)
                 self.assertIn("bot_status=200", report.steps[0].message)
                 self.assertIn("bot_run=202", report.steps[0].message)
                 self.assertIn("bot_ran=True", report.steps[0].message)

@@ -498,6 +498,20 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        workflow_status, workflow, _, workflow_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/reviewer/workflow", "/labforge/scaffold/reviewer/workflow"],
+            None,
+            timeout_seconds,
+        )
+        contract_status, contract, _, contract_route = http_json_first(
+            "GET",
+            base_url,
+            ["/operations/reviewer/render-contract", "/labforge/scaffold/reviewer/render-contract"],
+            None,
+            timeout_seconds,
+        )
         bot_status, bot, _, bot_status_route = http_json_first(
             "GET",
             base_url,
@@ -505,13 +519,23 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        contract_fields = contract.get("fields", []) if isinstance(contract, dict) else []
+        rich_text_body_field = any(
+            isinstance(field, dict)
+            and field.get("name") == "body"
+            and field.get("rendering") == "legacy-rich-text"
+            and field.get("reviewer_visible") is True
+            for field in contract_fields
+        )
+        callback_endpoint = str(contract.get("callback_intake_api") or workflow.get("callback_intake_api") or "POST /operations/reviewer/callback")
+        callback_path = callback_endpoint.split(" ", 1)[1] if " " in callback_endpoint else "/operations/reviewer/callback"
         created_status, created, _, create_route = http_json_first(
             "POST",
             base_url,
             ["/operations/review-items", "/labforge/scaffold/review-items"],
             {
                 "title": "Solver review",
-                "body": "<b>stored</b><script>fetch('/operations/reviewer/callback',{method:'POST',body:'callback-received'})</script>",
+                "body": f"<b>stored</b><script>fetch('{callback_path}',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{'source':'solver-review','note':'callback-received'}})}})</script>",
             },
             timeout_seconds,
         )
@@ -559,6 +583,10 @@ def run_plugin_http_sequence(
             landing_ok
             and policy_status == 200
             and policy.get("audit_api") == "GET /operations/reviewer/audit"
+            and workflow_status == 200
+            and workflow.get("render_contract_api") == "GET /operations/reviewer/render-contract"
+            and contract_status == 200
+            and rich_text_body_field
             and bot_status == 200
             and bot.get("enabled") is True
             and created_status == 201
@@ -588,8 +616,10 @@ def run_plugin_http_sequence(
             ok,
             (
                 f"{context_note}; policy_route={policy_route}; bot_status_route={bot_status_route}; create_route={create_route}; "
+                f"workflow_route={workflow_route}; contract_route={contract_route}; "
                 f"bot_run_route={bot_run_route}; open_route={open_route}; context_route={context_route}; callback_route={callback_route}; "
-                f"audit_route={audit_route}; policy={policy_status}; bot_status={bot_status}; created={created_status}; "
+                f"audit_route={audit_route}; policy={policy_status}; workflow={workflow_status}; render_contract={contract_status}; "
+                f"rich_text_body_field={rich_text_body_field}; bot_status={bot_status}; created={created_status}; "
                 f"bot_run={bot_run_status}; reviewed_count={bot_run.get('reviewed_count', 0)}; opened={opened_status}; "
                 f"context={context_status}; callback={callback_status}; audit={audit_status}; item_created={item_created}; bot_ran={bot_ran}; "
                 f"item_opened={item_opened}; context_recorded={context_recorded}; callback_recorded={callback_recorded}; item_id={item_id or '-'}"
