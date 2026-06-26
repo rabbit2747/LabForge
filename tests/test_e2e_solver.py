@@ -544,6 +544,67 @@ class E2ESolverTests(unittest.TestCase):
             self.assertIn("browser_engine=playwright", check.messages)
             self.assertIn("live_readiness=missing", check.messages)
 
+    def test_e2e_solver_release_check_emits_live_requirement_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider_output = root / "provider-output"
+            playtest = root / "playtest"
+            out = root / "e2e"
+            provider_output.mkdir()
+            playtest.mkdir()
+            (provider_output / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (provider_output / "endpoints.json").write_text("{}\n", encoding="utf-8")
+            (playtest / "solver-plan.json").write_text("{}\n", encoding="utf-8")
+            (playtest / "learner-access.json").write_text("{}\n", encoding="utf-8")
+
+            def fake_e2e(*_args, **_kwargs):
+                for relative in (
+                    "e2e-solver.md",
+                    "e2e-solver.yaml",
+                    "e2e-solver.json",
+                    "host-preflight.md",
+                    "host-preflight.json",
+                    "access-playtest/access-playtest.yaml",
+                    "solver-run/solver-run.yaml",
+                ):
+                    path = out / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("ok\n", encoding="utf-8")
+                return SimpleNamespace(
+                    status="passed",
+                    mode="execute",
+                    preflight_ready=True,
+                    lifecycle=[],
+                    access_playtest=SimpleNamespace(status="passed"),
+                    solver_run=SimpleNamespace(status="passed"),
+                    execution_proof={
+                        "live_readiness": {
+                            "status": "passed",
+                            "requirement_checks": [
+                                {"name": "browser", "required": 1, "passed": 1, "status": "passed"},
+                                {"name": "persistent-tunnel", "required": 1, "passed": 1, "status": "passed"},
+                            ],
+                        },
+                        "access": {"passed": 2},
+                        "solver": {"passed": 3},
+                    },
+                )
+
+            with patch("labforge.qa.run_e2e_solver", side_effect=fake_e2e):
+                check = e2e_solver_release_check(
+                    provider_output,
+                    playtest,
+                    out,
+                    provider="docker-compose",
+                    execute=True,
+                    execute_tunnels=True,
+                    browser_engine="playwright",
+                )
+
+            self.assertEqual(check.status, "passed")
+            self.assertIn("live_requirement=browser:required=1:passed=1:status=passed", check.messages)
+            self.assertIn("live_requirement=persistent-tunnel:required=1:passed=1:status=passed", check.messages)
+
     def test_e2e_solver_execute_runs_lifecycle_access_solver_and_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -718,6 +779,10 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(report.execution_proof["live_readiness"]["status"], "passed")
             self.assertIn("stage_chain_checks=1; passed_stage_chain_checks=1", report.execution_proof["live_readiness"]["requirements"])
             self.assertIn("solver_steps=1; passed_solver_steps=1", report.execution_proof["live_readiness"]["requirements"])
+            self.assertEqual(
+                {item["name"]: item["status"] for item in report.execution_proof["live_readiness"]["requirement_checks"]},
+                {"stage-chain": "passed", "solver": "passed"},
+            )
             self.assertEqual(report.execution_proof["access"]["passed"], 2)
             self.assertEqual(report.execution_proof["stage_chain_checks"]["passed"], 1)
             self.assertEqual(report.execution_proof["solver"]["passed"], 1)
@@ -727,6 +792,7 @@ class E2ESolverTests(unittest.TestCase):
             self.assertEqual(calls, [("validate", True), ("deploy", True), ("status", True), ("destroy", True)])
             self.assertTrue((out / "e2e-solver.md").exists())
             self.assertIn("Stage-chain evidence", (out / "e2e-solver.md").read_text(encoding="utf-8"))
+            self.assertIn("| `stage-chain` | `1` | `1` | passed |", (out / "e2e-solver.md").read_text(encoding="utf-8"))
 
     def test_e2e_solver_execute_fails_when_reports_do_not_cover_declared_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

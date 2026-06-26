@@ -677,6 +677,15 @@ def build_live_readiness_proof(
         return {
             "status": "planned",
             "requirements": ["execute=false; live browser/terminal probing was not requested"],
+            "requirement_checks": [
+                {
+                    "name": "live-execution",
+                    "required": 1,
+                    "passed": 0,
+                    "status": "planned",
+                    "message": "Run with execute=true to prove browser, terminal, tunnel, and solver behavior.",
+                }
+            ],
         }
     access_items = list(getattr(access_report, "items", []) or [])
     solver_steps = list(getattr(solver_report, "steps", []) or [])
@@ -684,12 +693,14 @@ def build_live_readiness_proof(
     browser_targets = list(getattr(access_report, "browser_targets", []) or [])
     terminal_targets = list(getattr(access_report, "terminal_targets", []) or [])
     requirements: list[str] = []
+    requirement_checks: list[dict] = []
     failures: list[str] = []
 
     browser_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("browser")]
     if browser_targets:
         passed = count_status(browser_items, "passed")
         requirements.append(f"browser_targets={len(browser_targets)}; passed_browser_checks={passed}")
+        requirement_checks.append(live_requirement_check("browser", len(browser_targets), passed))
         if passed < len(browser_targets):
             failures.append("not all browser targets were proven reachable")
 
@@ -697,6 +708,7 @@ def build_live_readiness_proof(
     if terminal_targets:
         passed = count_status(terminal_items, "passed")
         requirements.append(f"terminal_targets={len(terminal_targets)}; passed_terminal_checks={passed}")
+        requirement_checks.append(live_requirement_check("terminal", len(terminal_targets), passed))
         if passed < len(terminal_targets):
             failures.append("not all terminal targets were proven reachable")
 
@@ -704,6 +716,7 @@ def build_live_readiness_proof(
     if plugin_items:
         passed = count_status(plugin_items, "passed")
         requirements.append(f"plugin_checks={len(plugin_items)}; passed_plugin_checks={passed}")
+        requirement_checks.append(live_requirement_check("plugin-evidence", len(plugin_items), passed))
         if passed < len(plugin_items):
             failures.append("not all plugin evidence checks passed")
 
@@ -711,17 +724,20 @@ def build_live_readiness_proof(
     if stage_chain_items:
         passed = count_status(stage_chain_items, "passed")
         requirements.append(f"stage_chain_checks={len(stage_chain_items)}; passed_stage_chain_checks={passed}")
+        requirement_checks.append(live_requirement_check("stage-chain", len(stage_chain_items), passed))
         if passed < len(stage_chain_items):
             failures.append("not all stage-chain runtime checks passed")
 
     if tunnel_items:
         passed = count_status(tunnel_items, "passed")
         requirements.append(f"persistent_tunnels={len(tunnel_items)}; passed_tunnels={passed}")
+        requirement_checks.append(live_requirement_check("persistent-tunnel", len(tunnel_items), passed))
         if passed < len(tunnel_items):
             failures.append("not all persistent tunnels opened")
 
     passed_solver = count_status(solver_steps, "passed")
     requirements.append(f"solver_steps={len(solver_steps)}; passed_solver_steps={passed_solver}")
+    requirement_checks.append(live_requirement_check("solver", len(solver_steps), passed_solver))
     if solver_steps and passed_solver < len(solver_steps):
         failures.append("not all solver steps passed")
     if not solver_steps:
@@ -731,7 +747,23 @@ def build_live_readiness_proof(
     return {
         "status": status,
         "requirements": requirements,
+        "requirement_checks": requirement_checks,
         "failures": failures,
+    }
+
+
+def live_requirement_check(name: str, required: int, passed: int) -> dict:
+    if required <= 0:
+        status = "skipped"
+    elif passed >= required:
+        status = "passed"
+    else:
+        status = "failed"
+    return {
+        "name": name,
+        "required": required,
+        "passed": passed,
+        "status": status,
     }
 
 
@@ -946,6 +978,20 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
     lines.extend(f"- {item}" for item in live.get("requirements", []) or ["No live readiness requirements recorded."])
     if live.get("failures"):
         lines.extend(f"- failure: {item}" for item in live.get("failures", []))
+    checks = live.get("requirement_checks", []) or []
+    lines += [
+        "",
+        "| Requirement | Required | Passed | Status |",
+        "|---|---:|---:|---|",
+    ]
+    if checks:
+        for item in checks:
+            lines.append(
+                f"| `{item.get('name', '-')}` | `{item.get('required', 0)}` | "
+                f"`{item.get('passed', 0)}` | {item.get('status', '-')} |"
+            )
+    else:
+        lines.append("| `-` | `0` | `0` | skipped |")
     lines += [
         "",
         "### Proof Problems",

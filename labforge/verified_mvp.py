@@ -81,6 +81,7 @@ def live_execution_summary(release_gate: dict) -> dict:
     e2e_check = find_check(checks, "e2e-solver-evidence")
     messages = check_messages(e2e_check)
     parsed = parse_key_value_messages(messages)
+    requirements = parse_live_requirement_messages(messages)
     execute = parse_bool(parsed.get("execute"))
     executed_access_passed = parse_int(parsed.get("executed_access_passed"))
     executed_solver_passed = parse_int(parsed.get("executed_solver_passed"))
@@ -103,8 +104,31 @@ def live_execution_summary(release_gate: dict) -> dict:
         "live_readiness": parsed.get("live_readiness", "unknown"),
         "executed_access_passed": executed_access_passed,
         "executed_solver_passed": executed_solver_passed,
+        "requirements": requirements,
         "messages": messages,
     }
+
+
+def parse_live_requirement_messages(messages: list[str]) -> list[dict]:
+    requirements: list[dict] = []
+    for message in messages:
+        if not message.startswith("live_requirement="):
+            continue
+        payload = message.split("=", 1)[1]
+        parts = payload.split(":")
+        if not parts:
+            continue
+        item = {"name": parts[0], "required": 0, "passed": 0, "status": "unknown"}
+        for part in parts[1:]:
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            if key in {"required", "passed"}:
+                item[key] = parse_int(value)
+            elif key == "status":
+                item[key] = value
+        requirements.append(item)
+    return requirements
 
 
 def verification_level_for(release_gate: dict, live_execution: dict) -> str:
@@ -189,6 +213,16 @@ def render_verified_mvp_markdown(manifest: dict) -> str:
     lines.append(f"- Live readiness: `{live_execution.get('live_readiness', 'unknown')}`")
     lines.append(f"- Access checks passed: `{live_execution.get('executed_access_passed', 0)}`")
     lines.append(f"- Solver checks passed: `{live_execution.get('executed_solver_passed', 0)}`")
+    requirement_rows = live_execution.get("requirements") or []
+    lines.extend(["", "| Requirement | Required | Passed | Status |", "|---|---:|---:|---|"])
+    if requirement_rows:
+        for item in requirement_rows:
+            lines.append(
+                f"| `{item.get('name', '-')}` | `{item.get('required', 0)}` | "
+                f"`{item.get('passed', 0)}` | {item.get('status', '-')} |"
+            )
+    else:
+        lines.append("| `-` | `0` | `0` | not-recorded |")
     if live_execution.get("status") != "passed":
         lines.append("")
         lines.append(

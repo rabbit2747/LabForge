@@ -824,6 +824,11 @@ def e2e_solver_release_check(
     live = proof.get("live_readiness") or {}
     access_counts = proof.get("access") or {}
     solver_counts = proof.get("solver") or {}
+    live_requirement_messages = [
+        f"live_requirement={item.get('name', '-')}:required={item.get('required', 0)}:passed={item.get('passed', 0)}:status={item.get('status', '-')}"
+        for item in live.get("requirement_checks", []) or []
+        if isinstance(item, dict)
+    ]
     return QaCheck(
         name="e2e-solver-evidence",
         status="passed",
@@ -841,6 +846,7 @@ def e2e_solver_release_check(
             f"live_readiness={live.get('status', 'missing')}",
             f"executed_access_passed={access_counts.get('passed', 0)}",
             f"executed_solver_passed={solver_counts.get('passed', 0)}",
+            *live_requirement_messages,
             f"report={out / 'e2e-solver.md'}",
         ],
     )
@@ -992,6 +998,7 @@ def render_qa_smoke_markdown(report: QaSmokeReport) -> str:
 
 
 def render_release_gate_markdown(report: ReleaseGateReport) -> str:
+    live_requirements = report.live_execution.get("requirements", []) if isinstance(report.live_execution, dict) else []
     lines = [
         f"# Release Gate Report - {report.lab_id}",
         "",
@@ -1014,9 +1021,24 @@ def render_release_gate_markdown(report: ReleaseGateReport) -> str:
         f"- Access checks passed: `{report.live_execution.get('executed_access_passed', 0)}`",
         f"- Solver checks passed: `{report.live_execution.get('executed_solver_passed', 0)}`",
         "",
-        "| Check | Status | Messages |",
-        "|---|---|---|",
+        "| Requirement | Required | Passed | Status |",
+        "|---|---:|---:|---|",
     ]
+    if live_requirements:
+        for item in live_requirements:
+            lines.append(
+                f"| `{item.get('name', '-')}` | `{item.get('required', 0)}` | "
+                f"`{item.get('passed', 0)}` | {item.get('status', '-')} |"
+            )
+    else:
+        lines.append("| `-` | `0` | `0` | not-recorded |")
+    lines.extend(
+        [
+            "",
+            "| Check | Status | Messages |",
+            "|---|---|---|",
+        ]
+    )
     for check in report.checks:
         messages = "<br>".join(check.messages) if check.messages else "-"
         lines.append(f"| `{check.name}` | {check.status} | {messages} |")

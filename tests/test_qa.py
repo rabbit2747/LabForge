@@ -61,6 +61,8 @@ class QaReleaseGateTests(unittest.TestCase):
                         "live_readiness=passed",
                         "executed_access_passed=2",
                         "executed_solver_passed=5",
+                        "live_requirement=browser:required=1:passed=1:status=passed",
+                        "live_requirement=solver:required=5:passed=5:status=passed",
                     ],
                 )
             ],
@@ -70,6 +72,13 @@ class QaReleaseGateTests(unittest.TestCase):
         self.assertEqual(metadata["verification_level"], "live")
         self.assertTrue(metadata["live_verified"])
         self.assertEqual(metadata["live_execution"]["status"], "passed")
+        self.assertEqual(
+            metadata["live_execution"]["requirements"],
+            [
+                {"name": "browser", "required": 1, "passed": 1, "status": "passed"},
+                {"name": "solver", "required": 5, "passed": 5, "status": "passed"},
+            ],
+        )
 
     def test_critical_playtest_gap_messages_fail_stage_implementation_gaps(self) -> None:
         report = SimpleNamespace(
