@@ -600,6 +600,92 @@ class SolverRunnerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+    def test_solver_runner_executes_idor_object_access_against_generated_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = SimpleNamespace(
+                service="object-console",
+                purpose="business object access review",
+                model_extra={
+                    "vulnerability_plugins": [
+                        {
+                            "id": "idor-object-access",
+                            "object_model": "case-linked business objects",
+                            "target_dataset": "LABFORGE_SYNTHETIC_RESTRICTED_OBJECT",
+                        }
+                    ]
+                },
+            )
+            files = render_vulnerability_scaffold_files(artifact, {"app.py": BASE_PLUGIN_APP})
+            app_path = root / "app.py"
+            app_path.write_text(files["app.py"], encoding="utf-8")
+            module, error = load_generated_app_module("object-console", app_path)
+            self.assertIsNone(error or None)
+            self.assertIsNotNone(module)
+            isolate_generated_state(module, "object-console")
+
+            from werkzeug.serving import make_server
+
+            server = make_server("127.0.0.1", 0, module.app)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                solver_plan = root / "solver-plan.json"
+                endpoint_manifest = root / "endpoints.json"
+                solver_plan.write_text(
+                    json.dumps(
+                        {
+                            "lab_id": "solver-idor-object-access",
+                            "title": "Solver IDOR Object Access",
+                            "steps": [
+                                {
+                                    "order": 1,
+                                    "step_id": "plugin-object-console-idor-object-access",
+                                    "action_type": "vulnerability-behavior",
+                                    "service": "object-console",
+                                    "plugin": "idor-object-access",
+                                    "evidence": [],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                endpoint_manifest.write_text(
+                    json.dumps(
+                        {
+                            "published_endpoints": [
+                                {
+                                    "service": "object-console",
+                                    "protocol": "http",
+                                    "url": base_url,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                report = run_solver_plan(
+                    solver_plan,
+                    root / "solver-run",
+                    endpoint_manifest=endpoint_manifest,
+                    execute=True,
+                )
+
+                self.assertEqual(report.status, "passed")
+                self.assertEqual(report.steps[0].status, "passed", report.steps[0].message)
+                self.assertIn("review=200", report.steps[0].message)
+                self.assertIn("review_case_found=True", report.steps[0].message)
+                self.assertIn("target_object_id=obj-9001", report.steps[0].message)
+                self.assertIn("policy_gap=True", report.steps[0].message)
+                self.assertIn("direct_read_audited=True", report.steps[0].message)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
     def test_solver_runner_executes_unsafe_file_upload_review_against_generated_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -610,12 +610,25 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        review_status, review, _, review_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/business-objects/access-review?owner=learner", "/labforge/scaffold/objects/access-review?owner=learner"],
+            None,
+            timeout_seconds,
+        )
+        review_cases = review.get("cases", []) if isinstance(review, dict) else []
+        target_object_id = "obj-9001"
+        for case in review_cases:
+            if isinstance(case, dict) and case.get("risk") == "high" and case.get("object_id"):
+                target_object_id = str(case["object_id"])
+                break
         entitlement_status, entitlement, _, entitlement_route = http_json_first(
             "GET",
             base_url,
             [
-                "/api/business-objects/obj-9001/entitlement?owner=learner",
-                "/labforge/scaffold/objects/obj-9001/entitlement?owner=learner",
+                f"/api/business-objects/{target_object_id}/entitlement?owner=learner",
+                f"/labforge/scaffold/objects/{target_object_id}/entitlement?owner=learner",
             ],
             None,
             timeout_seconds,
@@ -624,8 +637,8 @@ def run_plugin_http_sequence(
             "GET",
             base_url,
             [
-                "/api/business-objects/obj-9001/relationship?owner=learner",
-                "/labforge/scaffold/objects/obj-9001/relationship?owner=learner",
+                f"/api/business-objects/{target_object_id}/relationship?owner=learner",
+                f"/labforge/scaffold/objects/{target_object_id}/relationship?owner=learner",
             ],
             None,
             timeout_seconds,
@@ -633,7 +646,7 @@ def run_plugin_http_sequence(
         status, data, _, route = http_json_first(
             "GET",
             base_url,
-            ["/api/business-objects/obj-9001?owner=learner", "/labforge/scaffold/objects/obj-9001?owner=learner"],
+            [f"/api/business-objects/{target_object_id}?owner=learner", f"/labforge/scaffold/objects/{target_object_id}?owner=learner"],
             None,
             timeout_seconds,
         )
@@ -648,18 +661,28 @@ def run_plugin_http_sequence(
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
         direct_read_audited = any(
             isinstance(record, dict)
-            and record.get("object_id") == "obj-9001"
+            and record.get("object_id") == target_object_id
             and record.get("action") == "direct-read"
             and record.get("allowed_by_entitlement") is False
             and record.get("visible_in_catalog") is False
             and record.get("provenance", {}).get("policy_gap") is True
             for record in audit_records
         )
+        review_case_found = any(
+            isinstance(case, dict)
+            and case.get("object_id") == target_object_id
+            and case.get("requester") == "learner"
+            and case.get("relationship_api")
+            and case.get("detail_api")
+            for case in review_cases
+        )
         ok = (
             landing_ok
             and catalog_status == 200
-            and "obj-9001" not in visible_ids
+            and target_object_id not in visible_ids
             and policy_status == 200
+            and review_status == 200
+            and review_case_found
             and entitlement_status == 200
             and entitlement.get("allowed") is False
             and entitlement.get("decision", {}).get("entitlement_allowed") is False
@@ -681,8 +704,9 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; entitlement_route={entitlement_route}; relationship_route={relationship_route}; "
+                f"{context_note}; catalog_route={catalog_route}; policy_route={policy_route}; review_route={review_route}; entitlement_route={entitlement_route}; relationship_route={relationship_route}; "
                 f"route={route}; audit_route={audit_route}; catalog={catalog_status}; policy={policy_status}; "
+                f"review={review_status}; review_case_found={review_case_found}; target_object_id={target_object_id}; "
                 f"entitlement={entitlement_status}; entitlement_allowed={entitlement.get('allowed')}; relationship={relationship_status}; "
                 f"relationship_visible={relationship.get('catalog_visible')}; direct_read={status}; policy_gap={data.get('decision', {}).get('policy_gap')}; "
                 f"audit={audit_status}; direct_read_audited={direct_read_audited}"
