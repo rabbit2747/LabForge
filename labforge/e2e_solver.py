@@ -411,7 +411,7 @@ def expected_access_check_count(access_manifest: dict) -> int:
     for item in access_manifest.get("final_submission_endpoints", []) or []:
         if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect"):
             count += 1
-    for key in ("health_checks", "terminal_checks", "terminal_sequences", "tunnel_commands", "plugin_checks"):
+    for key in ("health_checks", "terminal_checks", "terminal_sequences", "tunnel_commands", "plugin_checks", "stage_chain_checks"):
         count += len([item for item in access_manifest.get(key, []) or [] if isinstance(item, dict)])
     return count
 
@@ -547,6 +547,7 @@ def build_execution_proof(
     access_items = list(getattr(access_report, "items", []) or [])
     solver_steps = list(getattr(solver_report, "steps", []) or [])
     plugin_access_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("plugin")]
+    stage_chain_items = [item for item in access_items if str(getattr(item, "kind", "")) == "stage-chain"]
     plugin_solver_steps = [
         step
         for step in solver_steps
@@ -563,6 +564,7 @@ def build_execution_proof(
             "access_items": proof_counts(plugin_access_items),
             "solver_steps": proof_counts(plugin_solver_steps),
         },
+        "stage_chain_checks": proof_counts(stage_chain_items),
         "live_readiness": build_live_readiness_proof(
             access_report,
             solver_report,
@@ -617,6 +619,13 @@ def build_live_readiness_proof(
         requirements.append(f"plugin_checks={len(plugin_items)}; passed_plugin_checks={passed}")
         if passed < len(plugin_items):
             failures.append("not all plugin evidence checks passed")
+
+    stage_chain_items = [item for item in access_items if str(getattr(item, "kind", "")) == "stage-chain"]
+    if stage_chain_items:
+        passed = count_status(stage_chain_items, "passed")
+        requirements.append(f"stage_chain_checks={len(stage_chain_items)}; passed_stage_chain_checks={passed}")
+        if passed < len(stage_chain_items):
+            failures.append("not all stage-chain runtime checks passed")
 
     if tunnel_items:
         passed = count_status(tunnel_items, "passed")
@@ -840,6 +849,7 @@ def render_e2e_solver_markdown(report: E2ESolverReport) -> str:
         f"- Persistent tunnels: `{format_proof_counts(proof.get('persistent_tunnels', {}))}`",
         f"- Plugin access evidence: `{format_proof_counts((proof.get('plugin_evidence_checks') or {}).get('access_items', {}))}`",
         f"- Plugin solver evidence: `{format_proof_counts((proof.get('plugin_evidence_checks') or {}).get('solver_steps', {}))}`",
+        f"- Stage-chain evidence: `{format_proof_counts(proof.get('stage_chain_checks', {}))}`",
         f"- Live readiness: `{(proof.get('live_readiness') or {}).get('status', '-')}`",
         "",
         "### Live Readiness",

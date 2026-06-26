@@ -378,6 +378,18 @@ class E2ESolverTests(unittest.TestCase):
                                 "expected": "healthy",
                             }
                         ],
+                        "stage_chain_checks": [
+                            {
+                                "service": "portal",
+                                "from_stage": "stage-01",
+                                "to_stage": "stage-02",
+                                "chain_url": "http://127.0.0.1:18081/api/chain",
+                                "stage_url": "http://127.0.0.1:18081/api/stages/stage-02",
+                                "expected_stage": "stage-02",
+                                "expected_from_stage": "stage-01",
+                                "expected_evidence": ["portal_reachable"],
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -414,6 +426,13 @@ class E2ESolverTests(unittest.TestCase):
                             service="portal",
                             kind="http-health",
                             command="curl -i http://127.0.0.1:18081/healthz",
+                            status="passed",
+                        ),
+                        AccessPlaytestItem(
+                            check_id="stage-chain-01",
+                            service="portal",
+                            kind="stage-chain",
+                            command="GET http://127.0.0.1:18081/api/chain; GET http://127.0.0.1:18081/api/stages/stage-02",
                             status="passed",
                         )
                     ],
@@ -466,14 +485,17 @@ class E2ESolverTests(unittest.TestCase):
             self.assertTrue(report.access_bundle_ready)
             self.assertEqual(report.execution_proof["mode"], "execute")
             self.assertEqual(report.execution_proof["live_readiness"]["status"], "passed")
+            self.assertIn("stage_chain_checks=1; passed_stage_chain_checks=1", report.execution_proof["live_readiness"]["requirements"])
             self.assertIn("solver_steps=1; passed_solver_steps=1", report.execution_proof["live_readiness"]["requirements"])
-            self.assertEqual(report.execution_proof["access"]["passed"], 1)
+            self.assertEqual(report.execution_proof["access"]["passed"], 2)
+            self.assertEqual(report.execution_proof["stage_chain_checks"]["passed"], 1)
             self.assertEqual(report.execution_proof["solver"]["passed"], 1)
             self.assertEqual(report.execution_proof["failed_or_warning"], [])
-            self.assertIn("access_checks=expected:1:actual:1", report.execution_depth_findings)
+            self.assertIn("access_checks=expected:2:actual:2", report.execution_depth_findings)
             self.assertIn("solver_steps=expected:1:actual:1", report.execution_depth_findings)
             self.assertEqual(calls, [("validate", True), ("deploy", True), ("status", True), ("destroy", True)])
             self.assertTrue((out / "e2e-solver.md").exists())
+            self.assertIn("Stage-chain evidence", (out / "e2e-solver.md").read_text(encoding="utf-8"))
 
     def test_e2e_solver_execute_fails_when_reports_do_not_cover_declared_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
