@@ -727,6 +727,7 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
     learner_access_path = workspace / "playtest" / "learner-access.md"
     learner_access_json_path = workspace / "playtest" / "learner-access.json"
     human_readiness_path = workspace / "playtest" / "human-readiness.json"
+    access_bundle_path = workspace / "playtest" / "lab-access-bundle.json"
     if playtest_report_path.exists():
         playtest_report = load_yaml(playtest_report_path)
         playtest_status = str(playtest_report.get("status", "failed"))
@@ -796,6 +797,7 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                     required_action="Regenerate learner playtest so human-readiness evidence is produced.",
                 )
             )
+        items.append(live_access_readiness_gate_item(access_bundle_path))
     else:
         items.append(
             PipelineGateItem(
@@ -813,6 +815,7 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
                 required_action="Run learner playtest to generate human-readiness evidence.",
             )
         )
+        items.append(live_access_readiness_gate_item(access_bundle_path))
 
     service_agents_dir = workspace / "service-agents" / ".ai" / "service-build"
     service_outputs_dir = workspace / "service-agents" / ".ai" / "outputs"
@@ -881,6 +884,48 @@ def evaluate_pipeline_gate(workspace: Path) -> PipelineGateReport:
     )
     write_pipeline_gate_report(report, workspace)
     return report
+
+
+def live_access_readiness_gate_item(access_bundle_path: Path) -> PipelineGateItem:
+    if not access_bundle_path.exists():
+        return PipelineGateItem(
+            name="live-access-readiness",
+            status="missing",
+            evidence=[str(access_bundle_path)],
+            required_action="Regenerate learner playtest so lab-access-bundle.json includes live readiness requirements.",
+        )
+    access_bundle = load_yaml(access_bundle_path)
+    requirements = [item for item in access_bundle.get("live_readiness_requirements", []) if isinstance(item, dict)]
+    if not requirements:
+        return PipelineGateItem(
+            name="live-access-readiness",
+            status="warning",
+            evidence=["live_readiness_requirements=empty"],
+            required_action="Regenerate learner playtest with live readiness requirement output.",
+        )
+    evidence = [
+        f"{item.get('name', '-')}:required={item.get('required', 0)}:status={item.get('status', '-')}"
+        for item in requirements
+    ]
+    by_name = {str(item.get("name", "")): item for item in requirements}
+    core_missing = [
+        name
+        for name in ("browser", "solver")
+        if int(by_name.get(name, {}).get("required", 0) or 0) <= 0
+    ]
+    if core_missing:
+        return PipelineGateItem(
+            name="live-access-readiness",
+            status="warning",
+            evidence=evidence,
+            required_action=f"Add generated learner access and solver coverage for: {', '.join(core_missing)}.",
+        )
+    return PipelineGateItem(
+        name="live-access-readiness",
+        status="passed",
+        evidence=evidence,
+        required_action="",
+    )
 
 
 def is_advisory_playtest_warning(message: str) -> bool:

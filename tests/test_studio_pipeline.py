@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from labforge.cli import command_pipeline_verified_mvp
 from labforge.cli import main
+from labforge.io import dump_yaml, write_text
+from labforge.pipeline import live_access_readiness_gate_item
 from labforge.qa import QaCheck, ReleaseGateReport
 from labforge.studio import (
     create_pipeline_scenario,
@@ -21,6 +23,28 @@ from labforge.verified_mvp import write_verified_mvp_manifest
 
 
 class StudioPipelineTest(unittest.TestCase):
+    def test_live_access_readiness_gate_item_warns_without_core_browser_or_solver(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "lab-access-bundle.json"
+            write_text(
+                bundle,
+                dump_yaml(
+                    {
+                        "live_readiness_requirements": [
+                            {"name": "browser", "required": 0, "status": "missing"},
+                            {"name": "solver", "required": 0, "status": "missing"},
+                        ]
+                    }
+                ),
+            )
+
+            item = live_access_readiness_gate_item(bundle)
+
+            self.assertEqual(item.name, "live-access-readiness")
+            self.assertEqual(item.status, "warning")
+            self.assertIn("browser", item.required_action)
+            self.assertIn("solver", item.required_action)
+
     def test_natural_language_pipeline_can_reach_release_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -57,6 +81,10 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(detail["pipeline_gate"]["ready_for_release_gate"])
             self.assertEqual(
                 {item["name"]: item["status"] for item in detail["pipeline_gate"]["items"]}.get("human-playability"),
+                "passed",
+            )
+            self.assertEqual(
+                {item["name"]: item["status"] for item in detail["pipeline_gate"]["items"]}.get("live-access-readiness"),
                 "passed",
             )
             self.assertTrue(detail["pipeline_gate"]["next_commands"])
