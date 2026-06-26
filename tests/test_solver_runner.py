@@ -1326,6 +1326,10 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.status, "passed")
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("registry=200", report.steps[0].message)
+                self.assertIn("jobs=200", report.steps[0].message)
+                self.assertIn("job_links_source=True", report.steps[0].message)
+                self.assertIn("plan=200", report.steps[0].message)
+                self.assertIn("expected_policy=allow", report.steps[0].message)
                 self.assertIn("policy=200", report.steps[0].message)
                 self.assertIn("approved_source=http://metadata-service:8080/metadata", report.steps[0].message)
                 self.assertIn("blocked_fetch_status=400", report.steps[0].message)
@@ -2364,6 +2368,31 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                             }
                         ],
                         "blocked_examples": ["http://169.254.169.254/latest"],
+                        "validation_plan_api": "/api/source-registry/<source_id>/validation-plan",
+                        "scheduled_jobs_api": "/api/import-jobs",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/import-jobs":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "job_id": "import-001",
+                                "source_id": "src-metadata-service",
+                                "source_url": "http://metadata-service:8080/metadata",
+                                "owner": "integration-operations",
+                                "schedule": "15m",
+                                "last_result": "validated",
+                                "business_impact": "metadata enrichment used by import-worker",
+                                "validation_plan_api": "/api/source-registry/src-metadata-service/validation-plan",
+                            }
+                        ]
                     }
                 ).encode("utf-8")
             )
@@ -2383,7 +2412,27 @@ class SsrfSmokeHandler(BaseHTTPRequestHandler):
                             "status": "approved",
                         },
                         "fetch_api": "/operations/fetch?url=http://metadata-service:8080/metadata",
+                        "validation_plan_api": "/api/source-registry/src-metadata-service/validation-plan",
                         "expected_policy_result": "allow",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/source-registry/src-metadata-service/validation-plan":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "plan": {
+                            "source_id": "src-metadata-service",
+                            "source_url": "http://metadata-service:8080/metadata",
+                            "expected_policy_result": "allow",
+                            "manual_validation_url": "/operations/fetch?url=http://metadata-service:8080/metadata",
+                            "audit_api": "/api/fetch/audit",
+                            "precheck_steps": ["confirm registration", "confirm audit provenance"],
+                        }
                     }
                 ).encode("utf-8")
             )

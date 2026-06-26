@@ -926,6 +926,20 @@ def run_plugin_http_sequence(
         if not approved_source:
             approved_source = "http://metadata-service:8080/metadata"
             source_id = "src-metadata-service"
+        jobs_status, jobs, _, jobs_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/import-jobs"],
+            None,
+            timeout_seconds,
+        )
+        job_records = jobs.get("jobs", []) if isinstance(jobs, dict) else []
+        job_links_source = any(
+            isinstance(job, dict)
+            and job.get("source_id") == source_id
+            and str(job.get("validation_plan_api", "")).endswith(f"/{source_id}/validation-plan")
+            for job in job_records
+        )
         detail_status, detail, _, detail_route = http_json_first(
             "GET",
             base_url,
@@ -933,6 +947,14 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        plan_status, plan, _, plan_route = http_json_first(
+            "GET",
+            base_url,
+            [f"/api/source-registry/{source_id}/validation-plan"],
+            None,
+            timeout_seconds,
+        )
+        plan_data = plan.get("plan", {}) if isinstance(plan, dict) else {}
         policy_status, policy, _, policy_route = http_json_first(
             "GET",
             base_url,
@@ -985,7 +1007,12 @@ def run_plugin_http_sequence(
         ok = (
             landing_ok
             and registry_status == 200
+            and jobs_status == 200
+            and job_links_source
             and detail_status == 200
+            and plan_status == 200
+            and plan_data.get("expected_policy_result") == "allow"
+            and bool(plan_data.get("manual_validation_url"))
             and policy_status == 200
             and isinstance(sources, list)
             and len(sources) >= 1
@@ -1011,8 +1038,10 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; registry_route={registry_route}; detail_route={detail_route}; policy_route={policy_route}; blocked_route={blocked_route}; "
-                f"allowed_route={allowed_route}; audit_route={audit_route}; registry={registry_status}; detail={detail_status}; policy={policy_status}; "
+                f"{context_note}; registry_route={registry_route}; detail_route={detail_route}; jobs_route={jobs_route}; plan_route={plan_route}; "
+                f"policy_route={policy_route}; blocked_route={blocked_route}; allowed_route={allowed_route}; audit_route={audit_route}; "
+                f"registry={registry_status}; jobs={jobs_status}; job_links_source={job_links_source}; detail={detail_status}; "
+                f"plan={plan_status}; expected_policy={plan_data.get('expected_policy_result')}; policy={policy_status}; "
                 f"approved_source={approved_source}; source_id={source_id}; "
                 f"blocked_fetch_status={blocked_status}; blocked_allowed={blocked_data.get('allowed')}; "
                 f"allowed_fetch_status={allowed_status}; allowed={allowed_data.get('allowed')}; audit={audit_status}; "
