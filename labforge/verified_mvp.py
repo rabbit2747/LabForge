@@ -6,11 +6,17 @@ from pathlib import Path
 
 def write_verified_mvp_manifest(path: Path, detail: dict) -> dict:
     release_gate = detail.get("release_gate") or {}
+    live_execution = live_execution_summary(release_gate)
+    verification_level = verification_level_for(release_gate, live_execution)
     manifest = {
         "scenario_id": detail.get("scenario_id"),
         "title": detail.get("title"),
         "industry": detail.get("industry"),
-        "status": "verified" if release_gate.get("release_ready") else "not-ready",
+        "status": verified_status(release_gate, live_execution),
+        "verification_level": verification_level,
+        "playable_by_learner": verification_level == "live",
+        "requires_live_playtest": True,
+        "live_execution": live_execution,
         "pipeline_gate": detail.get("pipeline_gate", {}),
         "release_gate": release_gate,
         "playtest": detail.get("playtest", {}),
@@ -24,6 +30,98 @@ def write_verified_mvp_manifest(path: Path, detail: dict) -> dict:
     (out_dir / "verified-mvp.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     (out_dir / "verified-mvp.md").write_text(render_verified_mvp_markdown(manifest), encoding="utf-8", newline="\n")
     return manifest
+
+
+def release_gate_checks(release_gate: dict) -> list[dict]:
+    checks = release_gate.get("checks") if isinstance(release_gate, dict) else []
+    if not isinstance(checks, list):
+        return []
+    return [check for check in checks if isinstance(check, dict)]
+
+
+def find_check(checks: list[dict], name: str) -> dict | None:
+    for check in checks:
+        if check.get("name") == name:
+            return check
+    return None
+
+
+def check_messages(check: dict | None) -> list[str]:
+    if not isinstance(check, dict):
+        return []
+    messages = check.get("messages") or []
+    if not isinstance(messages, list):
+        return []
+    return [str(message) for message in messages]
+
+
+def parse_key_value_messages(messages: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for message in messages:
+        if "=" not in message:
+            continue
+        key, value = message.split("=", 1)
+        parsed[key.strip()] = value.strip()
+    return parsed
+
+
+def parse_bool(value: str | None) -> bool:
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def parse_int(value: str | None) -> int:
+    try:
+        return int(str(value or "0"))
+    except ValueError:
+        return 0
+
+
+def live_execution_summary(release_gate: dict) -> dict:
+    checks = release_gate_checks(release_gate)
+    e2e_check = find_check(checks, "e2e-solver-evidence")
+    messages = check_messages(e2e_check)
+    parsed = parse_key_value_messages(messages)
+    execute = parse_bool(parsed.get("execute"))
+    executed_access_passed = parse_int(parsed.get("executed_access_passed"))
+    executed_solver_passed = parse_int(parsed.get("executed_solver_passed"))
+    live_ready = parsed.get("live_readiness") == "passed"
+    check_passed = bool(e2e_check and e2e_check.get("status") == "passed")
+    if e2e_check is None:
+        status = "missing"
+    elif check_passed and execute and live_ready and executed_access_passed > 0 and executed_solver_passed > 0:
+        status = "passed"
+    elif not execute:
+        status = "planned"
+    else:
+        status = "failed"
+    return {
+        "status": status,
+        "mode": parsed.get("mode", "unknown"),
+        "execute": execute,
+        "browser_engine": parsed.get("browser_engine", ""),
+        "execute_tunnels": parse_bool(parsed.get("execute_tunnels")),
+        "live_readiness": parsed.get("live_readiness", "unknown"),
+        "executed_access_passed": executed_access_passed,
+        "executed_solver_passed": executed_solver_passed,
+        "messages": messages,
+    }
+
+
+def verification_level_for(release_gate: dict, live_execution: dict) -> str:
+    if not release_gate.get("release_ready"):
+        return "not-ready"
+    if live_execution.get("status") == "passed":
+        return "live"
+    return "scaffold"
+
+
+def verified_status(release_gate: dict, live_execution: dict) -> str:
+    level = verification_level_for(release_gate, live_execution)
+    if level == "live":
+        return "live-verified"
+    if level == "scaffold":
+        return "verified-scaffold"
+    return "not-ready"
 
 
 def learner_entrypoints_from_manifest(endpoint_manifest: dict) -> list[dict]:
@@ -54,6 +152,8 @@ def render_verified_mvp_markdown(manifest: dict) -> str:
         f"- Scenario ID: `{manifest.get('scenario_id')}`",
         f"- Industry: `{manifest.get('industry')}`",
         f"- Status: `{manifest.get('status')}`",
+        f"- Verification level: `{manifest.get('verification_level')}`",
+        f"- Playable by learner: `{str(manifest.get('playable_by_learner', False)).lower()}`",
         f"- Pipeline decision: `{pipeline_gate.get('decision', '-')}`",
         f"- Release ready: `{str(release_gate.get('release_ready', False)).lower()}`",
         "",
@@ -79,6 +179,22 @@ def render_verified_mvp_markdown(manifest: dict) -> str:
             lines.append(f"| `{check.get('name', '-')}` | {check.get('status', '-')} | {messages or '-'} |")
     else:
         lines.append("No release gate checks were recorded.")
+    live_execution = manifest.get("live_execution") or {}
+    lines.extend(["", "## Live Execution Evidence", ""])
+    lines.append(f"- Status: `{live_execution.get('status', 'unknown')}`")
+    lines.append(f"- Mode: `{live_execution.get('mode', 'unknown')}`")
+    lines.append(f"- Execute enabled: `{str(live_execution.get('execute', False)).lower()}`")
+    lines.append(f"- Browser engine: `{live_execution.get('browser_engine') or '-'}`")
+    lines.append(f"- Tunnel execution: `{str(live_execution.get('execute_tunnels', False)).lower()}`")
+    lines.append(f"- Live readiness: `{live_execution.get('live_readiness', 'unknown')}`")
+    lines.append(f"- Access checks passed: `{live_execution.get('executed_access_passed', 0)}`")
+    lines.append(f"- Solver checks passed: `{live_execution.get('executed_solver_passed', 0)}`")
+    if live_execution.get("status") != "passed":
+        lines.append("")
+        lines.append(
+            "This package is not yet live-verified. Run the release gate with live browser, terminal, "
+            "and tunnel execution before presenting it as a learner-playable lab."
+        )
     playtest = manifest.get("playtest") or {}
     lines.extend(["", "## Learner Playtest", ""])
     if playtest:

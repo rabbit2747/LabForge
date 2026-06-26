@@ -15,6 +15,7 @@ from labforge.studio import (
     run_release_gate_for_scenario,
     studio_state,
 )
+from labforge.verified_mvp import write_verified_mvp_manifest
 
 
 class StudioPipelineTest(unittest.TestCase):
@@ -180,6 +181,79 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((out / "mvp" / "verified-mvp.json").exists())
             self.assertTrue((out / "release-gate" / "release-gate-report.yaml").exists())
+
+    def test_verified_mvp_manifest_marks_scaffold_when_live_e2e_is_not_executed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            manifest = write_verified_mvp_manifest(
+                out,
+                {
+                    "scenario_id": "dry-run-smoke",
+                    "title": "Dry Run Smoke",
+                    "industry": "enterprise",
+                    "release_gate": {
+                        "release_ready": True,
+                        "checks": [
+                            {
+                                "name": "e2e-solver-evidence",
+                                "status": "passed",
+                                "messages": [
+                                    "mode=dry-run",
+                                    "execute=false",
+                                    "browser_engine=none",
+                                    "execute_tunnels=false",
+                                    "live_readiness=not-run",
+                                    "executed_access_passed=0",
+                                    "executed_solver_passed=0",
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+
+            self.assertEqual(manifest["status"], "verified-scaffold")
+            self.assertEqual(manifest["verification_level"], "scaffold")
+            self.assertFalse(manifest["playable_by_learner"])
+            self.assertEqual(manifest["live_execution"]["status"], "planned")
+            markdown = (out / "mvp" / "verified-mvp.md").read_text(encoding="utf-8")
+            self.assertIn("This package is not yet live-verified", markdown)
+
+    def test_verified_mvp_manifest_marks_live_when_browser_terminal_solver_evidence_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            manifest = write_verified_mvp_manifest(
+                out,
+                {
+                    "scenario_id": "live-smoke",
+                    "title": "Live Smoke",
+                    "industry": "enterprise",
+                    "release_gate": {
+                        "release_ready": True,
+                        "checks": [
+                            {
+                                "name": "e2e-solver-evidence",
+                                "status": "passed",
+                                "messages": [
+                                    "mode=execute",
+                                    "execute=true",
+                                    "browser_engine=playwright",
+                                    "execute_tunnels=true",
+                                    "live_readiness=passed",
+                                    "executed_access_passed=3",
+                                    "executed_solver_passed=8",
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+
+            self.assertEqual(manifest["status"], "live-verified")
+            self.assertEqual(manifest["verification_level"], "live")
+            self.assertTrue(manifest["playable_by_learner"])
+            self.assertEqual(manifest["live_execution"]["status"], "passed")
+            self.assertEqual(manifest["live_execution"]["browser_engine"], "playwright")
 
     def test_studio_release_gate_forwards_live_e2e_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
