@@ -333,6 +333,21 @@ writes `mvp/verified-mvp.md` plus `mvp/verified-mvp.json` in the selected
 workspace. Use it when a CI job, script, or non-web workflow needs the same
 result as Studio's **Create Verified MVP** button.
 
+By default this command produces a verified scaffold package. The package is
+release-gate checked, has endpoint and learner-access reports, and is suitable
+for supervisor review, but it is not marked learner-playable until live browser,
+terminal, tunnel, and solver evidence is recorded. To attempt a live verification
+run, pass the e2e options through the verified MVP command:
+
+```bash
+python -m labforge pipeline verified-mvp --prompt-file .\scenario.md --out output\scenario-live --industry enterprise --provider auto --adapter manual --force --execute-e2e --browser-engine playwright --execute-tunnels --cleanup-e2e
+```
+
+The generated `mvp/verified-mvp.json` includes `verification_level`,
+`playable_by_learner`, `live_execution`, and `live_blockers`. A package is
+learner-playable only when `verification_level` is `live` and
+`playable_by_learner` is `true`.
+
 The `pipeline gate` command can be rerun at any time to classify the workspace
 as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or
 `release-candidate`. Use `--strict` when automation should fail unless the

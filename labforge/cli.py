@@ -330,6 +330,11 @@ def command_pipeline_verified_mvp(args: argparse.Namespace) -> int:
         materialize=not args.no_materialize,
         force=True,
         agent_result_dir=out / "agents" / ".ai" / "outputs",
+        execute_e2e=args.execute_e2e,
+        cleanup_e2e=args.cleanup_e2e,
+        e2e_timeout_seconds=args.e2e_timeout,
+        browser_engine=args.browser_engine,
+        execute_tunnels=args.execute_tunnels,
     )
     from .studio import read_scenario_detail
 
@@ -1340,6 +1345,11 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_verified_parser.add_argument("--adapter", default="manual")
     pipeline_verified_parser.add_argument("--no-materialize", action="store_true", help="Skip safe runtime materialization")
     pipeline_verified_parser.add_argument("--no-service-agents", action="store_true", help="Skip service-builder package generation")
+    pipeline_verified_parser.add_argument("--execute-e2e", action="store_true", help="Run live browser, terminal, tunnel, and solver checks during the release gate")
+    pipeline_verified_parser.add_argument("--cleanup-e2e", action="store_true", help="Clean up live e2e runtime resources after execution")
+    pipeline_verified_parser.add_argument("--execute-tunnels", action="store_true", help="Open declared persistent tunnel commands during live e2e execution")
+    pipeline_verified_parser.add_argument("--e2e-timeout", type=int, default=120, help="Timeout in seconds for live e2e execution steps")
+    pipeline_verified_parser.add_argument("--browser-engine", choices=["http", "playwright"], default="http", help="Browser probing engine for live e2e execution")
     pipeline_verified_parser.add_argument("--format", choices=["text", "json"], default="text")
     pipeline_verified_parser.add_argument("--force", action="store_true")
     pipeline_verified_parser.set_defaults(func=command_pipeline_verified_mvp)

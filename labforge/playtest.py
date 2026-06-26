@@ -881,6 +881,9 @@ def contains_answer_key_language(text: str) -> bool:
         "flag",
         "just submit",
         "use the exact",
+        "simulated for the lab",
+        "intentionally simulated",
+        "training lab",
     )
     return any(term in normalized for term in blocked)
 

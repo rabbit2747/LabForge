@@ -636,7 +636,18 @@ def stage_handoff_clue_messages(handoff: dict) -> list[str]:
     normalized = clue.lower()
     if not clue:
         return [f"critical=stage-handoff:{from_stage}->{to_stage}:missing learner_clue"]
-    direct_answer_terms = ("flag", "ctf", "answer key", "copy paste", "copy/paste", "정답", "플래그")
+    direct_answer_terms = (
+        "flag",
+        "ctf",
+        "answer key",
+        "copy paste",
+        "copy/paste",
+        "simulated for the lab",
+        "intentionally simulated",
+        "training lab",
+        "정답",
+        "플래그",
+    )
     if any(term in normalized for term in direct_answer_terms):
         return [f"critical=stage-handoff:{from_stage}->{to_stage}:learner_clue contains answer-key wording"]
     if normalized.startswith("review normal business behavior related to"):

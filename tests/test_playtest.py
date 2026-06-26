@@ -201,6 +201,54 @@ class PlaytestTests(unittest.TestCase):
         self.assertIn("too thin", messages)
         self.assertIn("missing plugin evidence check", messages)
 
+    def test_human_readiness_report_flags_lab_framing_in_discovery_cues(self) -> None:
+        solver_plan = SolverPlan(
+            lab_id="lab-framing",
+            title="Lab Framing",
+            provider="docker-compose",
+            profile="protected",
+            status="planned",
+            steps=[
+                SolverPlanStep(
+                    order=1,
+                    step_id="plugin-mes-api-diagnostic-command-injection",
+                    title="mes-api: diagnostic-command-injection",
+                    service="mes-api",
+                    plugin="diagnostic-command-injection",
+                    action_type="vulnerability-behavior",
+                    learner_action="Use the maintenance route to inspect MES diagnostic routing decisions.",
+                    expected_result="The MES diagnostic route returns the production routing evidence needed for the next step.",
+                    evidence=["mes_route_context"],
+                    discovery_cues=["The MES route is intentionally simulated for the lab."],
+                    next_step_condition="Proceed when mes_route_context is present in service state.",
+                )
+            ],
+        )
+        report = SimpleNamespace(
+            lab_id="lab-framing",
+            title="Lab Framing",
+            learner_entrypoints=[PlaytestEndpoint(service="mes-api", protocol="http", connect="http://127.0.0.1:18081/")],
+            attacker_entrypoints=[],
+            final_submission_endpoints=[],
+        )
+        access = SimpleNamespace(
+            first_action="Review MES maintenance records.",
+            start_commands=[],
+            plugin_checks=[
+                {
+                    "service": "mes-api",
+                    "plugin": "diagnostic-command-injection",
+                    "expected_evidence": ["mes_route_context"],
+                }
+            ],
+        )
+
+        readiness = build_human_readiness_report(report, access, solver_plan)
+
+        self.assertEqual(readiness.status, "failed")
+        messages = " ".join(message for check in readiness.checks for message in check.messages)
+        self.assertIn("CTF-style wording", messages)
+
     def test_human_readiness_report_flags_ungrounded_operational_values(self) -> None:
         solver_plan = SolverPlan(
             lab_id="magic-values",

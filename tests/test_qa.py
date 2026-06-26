@@ -389,10 +389,24 @@ class QaReleaseGateTests(unittest.TestCase):
                     "from_services": ["engineering-wiki", "historian"],
                     "to_services": ["mes-api", "historian", "ot-jump-host"],
                     "carried_evidence": ["stage-04_completed"],
-                    "learner_clue": "Enumerate MES, historian, and jump-host surfaces that are intentionally simulated for the lab.",
+                    "learner_clue": "Use historian maintenance notes and MES route records to identify the jump-host surface used by production operations.",
                 }
             ),
             [],
+        )
+
+    def test_stage_handoff_clue_messages_reject_lab_framing_language(self) -> None:
+        self.assertEqual(
+            stage_handoff_clue_messages(
+                {
+                    "from_stage": "stage-04",
+                    "to_stage": "stage-05",
+                    "to_services": ["mes-api", "historian"],
+                    "carried_evidence": ["stage-04_completed"],
+                    "learner_clue": "Enumerate MES and historian surfaces that are intentionally simulated for the lab.",
+                }
+            ),
+            ["critical=stage-handoff:stage-04->stage-05:learner_clue contains answer-key wording"],
         )
 
     def test_human_readiness_gap_messages_pass_when_report_passes(self) -> None:

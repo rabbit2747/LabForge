@@ -16,6 +16,7 @@ def write_verified_mvp_manifest(path: Path, detail: dict) -> dict:
         "verification_level": verification_level,
         "playable_by_learner": verification_level == "live",
         "requires_live_playtest": True,
+        "live_blockers": live_blockers(live_execution),
         "live_execution": live_execution,
         "pipeline_gate": detail.get("pipeline_gate", {}),
         "release_gate": release_gate,
@@ -139,6 +140,28 @@ def verification_level_for(release_gate: dict, live_execution: dict) -> str:
     return "scaffold"
 
 
+def live_blockers(live_execution: dict) -> list[str]:
+    if live_execution.get("status") == "passed":
+        return []
+    blockers: list[str] = []
+    if not live_execution.get("execute"):
+        blockers.append("live e2e execution was not enabled")
+    if live_execution.get("browser_engine") in {"", None, "none"}:
+        blockers.append("no browser probing engine was recorded")
+    if not live_execution.get("execute_tunnels"):
+        blockers.append("persistent tunnel execution was not enabled")
+    for item in live_execution.get("requirements") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "passed":
+            blockers.append(
+                f"{item.get('name', 'unknown')} required={item.get('required', 0)} passed={item.get('passed', 0)}"
+            )
+    if not blockers and live_execution.get("status") != "passed":
+        blockers.append(f"live execution status is {live_execution.get('status', 'unknown')}")
+    return blockers
+
+
 def verified_status(release_gate: dict, live_execution: dict) -> str:
     level = verification_level_for(release_gate, live_execution)
     if level == "live":
@@ -225,6 +248,12 @@ def render_verified_mvp_markdown(manifest: dict) -> str:
         lines.append("| `-` | `0` | `0` | not-recorded |")
     if live_execution.get("status") != "passed":
         lines.append("")
+        blockers = manifest.get("live_blockers") or []
+        if blockers:
+            lines.append("### Live Blockers")
+            lines.append("")
+            lines.extend(f"- {blocker}" for blocker in blockers)
+            lines.append("")
         lines.append(
             "This package is not yet live-verified. Run the release gate with live browser, terminal, "
             "and tunnel execution before presenting it as a learner-playable lab."

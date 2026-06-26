@@ -4,8 +4,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from labforge.cli import command_pipeline_verified_mvp
 from labforge.cli import main
 from labforge.qa import QaCheck, ReleaseGateReport
 from labforge.studio import (
@@ -185,6 +187,66 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue((out / "mvp" / "verified-mvp.json").exists())
             self.assertTrue((out / "release-gate" / "release-gate-report.yaml").exists())
 
+    def test_verified_mvp_cli_forwards_live_e2e_options_to_release_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "live-cli"
+            lab = out / "lab"
+            lab.mkdir(parents=True)
+
+            pipeline_result = SimpleNamespace(
+                lab_dir=str(lab),
+                status="complete",
+                model_dump=lambda: {"status": "complete", "lab_dir": str(lab)},
+            )
+            release_gate = SimpleNamespace(
+                status="passed",
+                release_ready=True,
+                verification_level="live",
+                live_verified=True,
+                model_dump=lambda: {"status": "passed", "release_ready": True},
+            )
+
+            def fake_release_gate(*_args, **kwargs):
+                self.assertTrue(kwargs["execute_e2e"])
+                self.assertTrue(kwargs["cleanup_e2e"])
+                self.assertTrue(kwargs["execute_tunnels"])
+                self.assertEqual(kwargs["e2e_timeout_seconds"], 321)
+                self.assertEqual(kwargs["browser_engine"], "playwright")
+                return release_gate
+
+            args = SimpleNamespace(
+                prompt="Create a realistic enterprise lab.",
+                prompt_file=None,
+                out=str(out),
+                lab_id=None,
+                title=None,
+                industry="enterprise",
+                difficulty="intermediate",
+                provider="auto",
+                release_provider="",
+                profile="protected",
+                adapter="manual",
+                no_materialize=False,
+                no_service_agents=False,
+                execute_e2e=True,
+                cleanup_e2e=True,
+                execute_tunnels=True,
+                e2e_timeout=321,
+                browser_engine="playwright",
+                force=True,
+                format="text",
+            )
+
+            with (
+                patch("labforge.cli.create_lab_pipeline", return_value=pipeline_result),
+                patch("labforge.cli.run_release_gate", side_effect=fake_release_gate),
+                patch("labforge.studio.read_scenario_detail", return_value={"scenario_id": "live-cli"}),
+                patch("labforge.cli.write_verified_mvp_manifest", return_value={"status": "live-verified"}),
+            ):
+                code = command_pipeline_verified_mvp(args)
+
+            self.assertEqual(code, 0)
+
     def test_verified_mvp_manifest_marks_scaffold_when_live_e2e_is_not_executed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
@@ -219,7 +281,9 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(manifest["verification_level"], "scaffold")
             self.assertFalse(manifest["playable_by_learner"])
             self.assertEqual(manifest["live_execution"]["status"], "planned")
+            self.assertIn("live e2e execution was not enabled", manifest["live_blockers"])
             markdown = (out / "mvp" / "verified-mvp.md").read_text(encoding="utf-8")
+            self.assertIn("### Live Blockers", markdown)
             self.assertIn("This package is not yet live-verified", markdown)
 
     def test_verified_mvp_manifest_marks_live_when_browser_terminal_solver_evidence_passes(self) -> None:
@@ -257,6 +321,7 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertTrue(manifest["playable_by_learner"])
             self.assertEqual(manifest["live_execution"]["status"], "passed")
             self.assertEqual(manifest["live_execution"]["browser_engine"], "playwright")
+            self.assertEqual(manifest["live_blockers"], [])
 
     def test_studio_release_gate_forwards_live_e2e_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
