@@ -223,6 +223,7 @@ def run_e2e_solver(
         access_playtest=access_report,
         solver_run=solver_report,
         execution_proof=build_execution_proof(
+            load_json_object(access_manifest),
             access_report,
             solver_report,
             persistent_tunnels,
@@ -624,7 +625,16 @@ def validate_access_bundle(access_bundle: Path, provider_output: Path, solver_pl
     return findings or ["access_bundle=ready"]
 
 
+def load_json_object(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def build_execution_proof(
+    access_manifest: dict,
     access_report: AccessPlaytestReport,
     solver_report: SolverRunReport,
     persistent_tunnels: list[E2ETunnelResult],
@@ -653,6 +663,7 @@ def build_execution_proof(
         },
         "stage_chain_checks": proof_counts(stage_chain_items),
         "live_readiness": build_live_readiness_proof(
+            access_manifest,
             access_report,
             solver_report,
             persistent_tunnels,
@@ -667,6 +678,7 @@ def build_execution_proof(
 
 
 def build_live_readiness_proof(
+    access_manifest: dict,
     access_report: AccessPlaytestReport,
     solver_report: SolverRunReport,
     persistent_tunnels: list[E2ETunnelResult],
@@ -677,15 +689,7 @@ def build_live_readiness_proof(
         return {
             "status": "planned",
             "requirements": ["execute=false; live browser/terminal probing was not requested"],
-            "requirement_checks": [
-                {
-                    "name": "live-execution",
-                    "required": 1,
-                    "passed": 0,
-                    "status": "planned",
-                    "message": "Run with execute=true to prove browser, terminal, tunnel, and solver behavior.",
-                }
-            ],
+            "requirement_checks": dry_run_live_requirement_checks(access_manifest),
         }
     access_items = list(getattr(access_report, "items", []) or [])
     solver_steps = list(getattr(solver_report, "steps", []) or [])
@@ -696,43 +700,57 @@ def build_live_readiness_proof(
     requirement_checks: list[dict] = []
     failures: list[str] = []
 
-    browser_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("browser")]
-    if browser_targets:
+    browser_items = [item for item in access_items if str(getattr(item, "kind", "")) == "browser-http"]
+    expected_browser = expected_http_entrypoints(access_manifest, "learner_entrypoints")
+    if expected_browser:
         passed = count_status(browser_items, "passed")
-        requirements.append(f"browser_targets={len(browser_targets)}; passed_browser_checks={passed}")
-        requirement_checks.append(live_requirement_check("browser", len(browser_targets), passed))
-        if passed < len(browser_targets):
+        requirements.append(f"browser_targets={expected_browser}; passed_browser_checks={passed}")
+        requirement_checks.append(live_requirement_check("browser", expected_browser, passed))
+        if passed < expected_browser:
             failures.append("not all browser targets were proven reachable")
 
-    terminal_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("terminal")]
-    if terminal_targets:
+    final_items = [item for item in access_items if str(getattr(item, "kind", "")) == "final-http"]
+    expected_final = expected_http_entrypoints(access_manifest, "final_submission_endpoints")
+    if expected_final:
+        passed = count_status(final_items, "passed")
+        requirements.append(f"final_submission_targets={expected_final}; passed_final_checks={passed}")
+        requirement_checks.append(live_requirement_check("final-submission", expected_final, passed))
+        if passed < expected_final:
+            failures.append("not all final submission endpoints were proven reachable")
+
+    terminal_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("terminal") or str(getattr(item, "kind", "")) == "ssh-command-sequence"]
+    expected_terminal = expected_terminal_entrypoints(access_manifest) + expected_records(access_manifest, "terminal_checks") + expected_records(access_manifest, "terminal_sequences")
+    if expected_terminal:
         passed = count_status(terminal_items, "passed")
-        requirements.append(f"terminal_targets={len(terminal_targets)}; passed_terminal_checks={passed}")
-        requirement_checks.append(live_requirement_check("terminal", len(terminal_targets), passed))
-        if passed < len(terminal_targets):
+        requirements.append(f"terminal_targets={expected_terminal}; passed_terminal_checks={passed}")
+        requirement_checks.append(live_requirement_check("terminal", expected_terminal, passed))
+        if passed < expected_terminal:
             failures.append("not all terminal targets were proven reachable")
 
     plugin_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("plugin")]
-    if plugin_items:
+    expected_plugins = expected_records(access_manifest, "plugin_checks")
+    if expected_plugins:
         passed = count_status(plugin_items, "passed")
-        requirements.append(f"plugin_checks={len(plugin_items)}; passed_plugin_checks={passed}")
-        requirement_checks.append(live_requirement_check("plugin-evidence", len(plugin_items), passed))
-        if passed < len(plugin_items):
+        requirements.append(f"plugin_checks={expected_plugins}; passed_plugin_checks={passed}")
+        requirement_checks.append(live_requirement_check("plugin-evidence", expected_plugins, passed))
+        if passed < expected_plugins:
             failures.append("not all plugin evidence checks passed")
 
     stage_chain_items = [item for item in access_items if str(getattr(item, "kind", "")) == "stage-chain"]
-    if stage_chain_items:
+    expected_stage_chain = expected_records(access_manifest, "stage_chain_checks")
+    if expected_stage_chain:
         passed = count_status(stage_chain_items, "passed")
-        requirements.append(f"stage_chain_checks={len(stage_chain_items)}; passed_stage_chain_checks={passed}")
-        requirement_checks.append(live_requirement_check("stage-chain", len(stage_chain_items), passed))
-        if passed < len(stage_chain_items):
+        requirements.append(f"stage_chain_checks={expected_stage_chain}; passed_stage_chain_checks={passed}")
+        requirement_checks.append(live_requirement_check("stage-chain", expected_stage_chain, passed))
+        if passed < expected_stage_chain:
             failures.append("not all stage-chain runtime checks passed")
 
-    if tunnel_items:
+    expected_tunnels = expected_records(access_manifest, "tunnel_commands")
+    if expected_tunnels:
         passed = count_status(tunnel_items, "passed")
-        requirements.append(f"persistent_tunnels={len(tunnel_items)}; passed_tunnels={passed}")
-        requirement_checks.append(live_requirement_check("persistent-tunnel", len(tunnel_items), passed))
-        if passed < len(tunnel_items):
+        requirements.append(f"persistent_tunnels={expected_tunnels}; passed_tunnels={passed}")
+        requirement_checks.append(live_requirement_check("persistent-tunnel", expected_tunnels, passed))
+        if passed < expected_tunnels:
             failures.append("not all persistent tunnels opened")
 
     passed_solver = count_status(solver_steps, "passed")
@@ -752,9 +770,58 @@ def build_live_readiness_proof(
     }
 
 
-def live_requirement_check(name: str, required: int, passed: int) -> dict:
+def dry_run_live_requirement_checks(access_manifest: dict) -> list[dict]:
+    checks = [
+        live_requirement_check("live-execution", 1, 0, status_override="planned"),
+    ]
+    for name, required in live_contract_requirements(access_manifest).items():
+        if required > 0:
+            checks.append(live_requirement_check(name, required, 0, status_override="planned"))
+    return checks
+
+
+def live_contract_requirements(access_manifest: dict) -> dict[str, int]:
+    return {
+        "browser": expected_http_entrypoints(access_manifest, "learner_entrypoints"),
+        "final-submission": expected_http_entrypoints(access_manifest, "final_submission_endpoints"),
+        "terminal": expected_terminal_entrypoints(access_manifest)
+        + expected_records(access_manifest, "terminal_checks")
+        + expected_records(access_manifest, "terminal_sequences"),
+        "persistent-tunnel": expected_records(access_manifest, "tunnel_commands"),
+        "plugin-evidence": expected_records(access_manifest, "plugin_checks"),
+        "stage-chain": expected_records(access_manifest, "stage_chain_checks"),
+    }
+
+
+def expected_http_entrypoints(access_manifest: dict, key: str) -> int:
+    return len(
+        [
+            item
+            for item in access_manifest.get(key, []) or []
+            if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
+        ]
+    )
+
+
+def expected_terminal_entrypoints(access_manifest: dict) -> int:
+    return len(
+        [
+            item
+            for item in [*(access_manifest.get("attacker_entrypoints", []) or []), *(access_manifest.get("learner_entrypoints", []) or [])]
+            if isinstance(item, dict) and str(item.get("protocol", "")) == "ssh" and item.get("connect")
+        ]
+    )
+
+
+def expected_records(access_manifest: dict, key: str) -> int:
+    return len([item for item in access_manifest.get(key, []) or [] if isinstance(item, dict)])
+
+
+def live_requirement_check(name: str, required: int, passed: int, *, status_override: str = "") -> dict:
     if required <= 0:
         status = "skipped"
+    elif status_override:
+        status = status_override
     elif passed >= required:
         status = "passed"
     else:

@@ -9,7 +9,13 @@ from unittest.mock import patch
 
 from labforge.access_playtest import AccessPlaytestItem, AccessPlaytestReport
 from labforge.doctor import HostDoctorReport
-from labforge.e2e_solver import run_e2e_solver, validate_access_bundle, validate_execution_depth, validate_plugin_check_alignment
+from labforge.e2e_solver import (
+    build_live_readiness_proof,
+    run_e2e_solver,
+    validate_access_bundle,
+    validate_execution_depth,
+    validate_plugin_check_alignment,
+)
 from labforge.provider_lifecycle import ProviderLifecycleResult
 from labforge.qa import e2e_solver_release_check
 from labforge.solver_runner import SolverRunReport, SolverRunStep
@@ -37,6 +43,64 @@ class FakeTunnelProcess:
 
 
 class E2ESolverTests(unittest.TestCase):
+    def test_live_readiness_contract_requires_declared_final_terminal_and_tunnel_evidence(self) -> None:
+        access_manifest = {
+            "learner_entrypoints": [
+                {"service": "portal", "protocol": "http", "connect": "http://127.0.0.1:18080/"}
+            ],
+            "final_submission_endpoints": [
+                {"service": "controlled-drop", "protocol": "http", "connect": "http://127.0.0.1:18090/"}
+            ],
+            "attacker_entrypoints": [
+                {"service": "attacker-workstation", "protocol": "ssh", "connect": "ssh attacker@127.0.0.1 -p 2222"}
+            ],
+            "tunnel_commands": [
+                {"service": "wiki", "command": "ssh -L 18081:wiki:6000 attacker@127.0.0.1 -p 2222"}
+            ],
+        }
+        access_report = AccessPlaytestReport(
+            lab_id="contract",
+            title="Contract",
+            mode="execute",
+            status="warning",
+            access_manifest="access.json",
+            browser_targets=["http://127.0.0.1:18080/"],
+            terminal_targets=["ssh attacker@127.0.0.1 -p 2222"],
+            items=[
+                AccessPlaytestItem(
+                    check_id="browser-01",
+                    service="portal",
+                    kind="browser-http",
+                    command="GET /",
+                    status="passed",
+                )
+            ],
+        )
+        solver_report = SolverRunReport(
+            lab_id="contract",
+            title="Contract",
+            mode="execute",
+            status="passed",
+            solver_plan="solver.json",
+            steps=[
+                SolverRunStep(order=1, step_id="solver-01", action_type="access", status="passed")
+            ],
+        )
+
+        proof = build_live_readiness_proof(access_manifest, access_report, solver_report, [], execute=True)
+
+        self.assertEqual(proof["status"], "failed")
+        self.assertEqual(
+            {item["name"]: item["status"] for item in proof["requirement_checks"]},
+            {
+                "browser": "passed",
+                "final-submission": "failed",
+                "terminal": "failed",
+                "persistent-tunnel": "failed",
+                "solver": "passed",
+            },
+        )
+
     def test_access_bundle_validation_flags_missing_playability_material(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
