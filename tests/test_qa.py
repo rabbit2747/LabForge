@@ -12,6 +12,7 @@ from labforge.qa import (
     learner_access_stage_handoff_messages,
     human_readiness_gap_messages,
     human_readiness_check_count,
+    learner_access_live_requirement_messages,
     plugin_evidence_check_count,
     release_gate_live_metadata,
     stage_handoff_clue_messages,
@@ -79,6 +80,29 @@ class QaReleaseGateTests(unittest.TestCase):
                 {"name": "solver", "required": 5, "passed": 5, "status": "passed"},
             ],
         )
+
+    def test_learner_access_live_requirement_messages_summarize_access_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_text(
+                root / "lab-access-bundle.json",
+                dump_yaml(
+                    {
+                        "live_readiness_requirements": [
+                            {"name": "browser", "required": 1, "status": "declared"},
+                            {"name": "plugin-evidence", "required": 0, "status": "missing"},
+                        ]
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                learner_access_live_requirement_messages(root),
+                [
+                    "declared_live_requirement=browser:required=1:status=declared",
+                    "declared_live_requirement=plugin-evidence:required=0:status=missing",
+                ],
+            )
 
     def test_critical_playtest_gap_messages_fail_stage_implementation_gaps(self) -> None:
         report = SimpleNamespace(

@@ -369,6 +369,7 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
     human_messages = human_readiness_gap_messages(out)
     if human_messages:
         messages.extend(human_messages)
+    live_requirement_messages = learner_access_live_requirement_messages(out)
     if messages:
         return QaCheck(name="learner-playtest-evidence", status="failed", messages=messages)
     advisory = [f"advisory={item}" for item in report.warnings[:5]]
@@ -386,6 +387,7 @@ def learner_playtest_release_check(lab_root: Path, out: Path, *, provider: str, 
             f"plugin_evidence_checks={plugin_evidence_check_count(out)}",
             f"stage_handoffs={stage_handoff_count(out)}",
             f"human_readiness_checks={human_readiness_check_count(out)}",
+            *live_requirement_messages,
             *advisory,
         ],
     )
@@ -457,6 +459,20 @@ def plugin_evidence_check_count(out: Path) -> int:
     access_manifest = load_yaml(access_manifest_path)
     checks = access_manifest.get("plugin_checks", [])
     return len(checks) if isinstance(checks, list) else 0
+
+
+def learner_access_live_requirement_messages(out: Path) -> list[str]:
+    access_bundle_path = out / "lab-access-bundle.json"
+    if not access_bundle_path.exists():
+        return ["live_requirement_manifest=missing"]
+    access_bundle = load_yaml(access_bundle_path)
+    requirements = [item for item in access_bundle.get("live_readiness_requirements", []) if isinstance(item, dict)]
+    if not requirements:
+        return ["live_requirement_manifest=empty"]
+    return [
+        f"declared_live_requirement={item.get('name', '-')}:required={item.get('required', 0)}:status={item.get('status', '-')}"
+        for item in requirements
+    ]
 
 
 def learner_access_stage_handoff_messages(out: Path) -> list[str]:
