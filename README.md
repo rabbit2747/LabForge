@@ -348,6 +348,10 @@ The generated `mvp/verified-mvp.json` includes `verification_level`,
 learner-playable only when `verification_level` is `live` and
 `playable_by_learner` is `true`.
 
+Automation that must reject scaffold-only packages can add `--require-live`.
+With that flag, the command returns non-zero unless live e2e evidence proves the
+generated learner URLs, terminal access, tunnels, and solver path.
+
 The `pipeline gate` command can be rerun at any time to classify the workspace
 as `draft`, `blocked`, `needs-agent-work`, `ready-for-supervisor`, or
 `release-candidate`. Use `--strict` when automation should fail unless the

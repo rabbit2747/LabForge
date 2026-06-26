@@ -233,6 +233,7 @@ class StudioPipelineTest(unittest.TestCase):
                 execute_tunnels=True,
                 e2e_timeout=321,
                 browser_engine="playwright",
+                require_live=False,
                 force=True,
                 format="text",
             )
@@ -246,6 +247,65 @@ class StudioPipelineTest(unittest.TestCase):
                 code = command_pipeline_verified_mvp(args)
 
             self.assertEqual(code, 0)
+
+    def test_verified_mvp_cli_require_live_fails_for_scaffold_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "scaffold-cli"
+            lab = out / "lab"
+            lab.mkdir(parents=True)
+
+            pipeline_result = SimpleNamespace(
+                lab_dir=str(lab),
+                status="complete",
+                model_dump=lambda: {"status": "complete", "lab_dir": str(lab)},
+            )
+            release_gate = SimpleNamespace(
+                status="passed",
+                release_ready=True,
+                verification_level="scaffold",
+                live_verified=False,
+                model_dump=lambda: {"status": "passed", "release_ready": True},
+            )
+            args = SimpleNamespace(
+                prompt="Create a realistic enterprise lab.",
+                prompt_file=None,
+                out=str(out),
+                lab_id=None,
+                title=None,
+                industry="enterprise",
+                difficulty="intermediate",
+                provider="auto",
+                release_provider="",
+                profile="protected",
+                adapter="manual",
+                no_materialize=False,
+                no_service_agents=False,
+                execute_e2e=False,
+                cleanup_e2e=False,
+                execute_tunnels=False,
+                e2e_timeout=120,
+                browser_engine="http",
+                require_live=True,
+                force=True,
+                format="text",
+            )
+
+            with (
+                patch("labforge.cli.create_lab_pipeline", return_value=pipeline_result),
+                patch("labforge.cli.run_release_gate", return_value=release_gate),
+                patch("labforge.studio.read_scenario_detail", return_value={"scenario_id": "scaffold-cli"}),
+                patch(
+                    "labforge.cli.write_verified_mvp_manifest",
+                    return_value={
+                        "status": "verified-scaffold",
+                        "verification_level": "scaffold",
+                        "live_blockers": ["live e2e execution was not enabled"],
+                    },
+                ),
+            ):
+                code = command_pipeline_verified_mvp(args)
+
+            self.assertEqual(code, 1)
 
     def test_verified_mvp_manifest_marks_scaffold_when_live_e2e_is_not_executed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

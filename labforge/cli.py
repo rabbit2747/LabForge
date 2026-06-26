@@ -356,7 +356,16 @@ def command_pipeline_verified_mvp(args: argparse.Namespace) -> int:
         print(f"- release_gate: {release_gate.status}")
         print(f"- verification_level: {release_gate.verification_level}")
         print(f"- live_verified: {str(release_gate.live_verified).lower()}")
-    return 0 if result.status in {"complete", "warning"} and release_gate.release_ready else 1
+        if args.require_live and manifest.get("verification_level") != "live":
+            blockers = manifest.get("live_blockers") or ["live verification did not pass"]
+            print("- require_live: failed")
+            for blocker in blockers:
+                print(f"  - {blocker}")
+    if result.status not in {"complete", "warning"} or not release_gate.release_ready:
+        return 1
+    if args.require_live and manifest.get("verification_level") != "live":
+        return 1
+    return 0
 
 
 def command_design_review(args: argparse.Namespace) -> int:
@@ -1350,6 +1359,7 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_verified_parser.add_argument("--execute-tunnels", action="store_true", help="Open declared persistent tunnel commands during live e2e execution")
     pipeline_verified_parser.add_argument("--e2e-timeout", type=int, default=120, help="Timeout in seconds for live e2e execution steps")
     pipeline_verified_parser.add_argument("--browser-engine", choices=["http", "playwright"], default="http", help="Browser probing engine for live e2e execution")
+    pipeline_verified_parser.add_argument("--require-live", action="store_true", help="Return non-zero unless verified-mvp reaches live learner-playable status")
     pipeline_verified_parser.add_argument("--format", choices=["text", "json"], default="text")
     pipeline_verified_parser.add_argument("--force", action="store_true")
     pipeline_verified_parser.set_defaults(func=command_pipeline_verified_mvp)
