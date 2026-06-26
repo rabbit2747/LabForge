@@ -569,6 +569,7 @@ def check_realism(spec: LabSpec, *, industry: str | None = None, strict: bool = 
                         remediation=f"Add seed data, benign logs, stale documents, or routine tickets for `{artifact.service}`.",
                     )
                 )
+        findings.extend(service_runtime_texture_findings(spec, profile, strict=strict))
 
     for term in profile.required_ui_surfaces:
         if term.lower() not in haystack:
@@ -1011,6 +1012,100 @@ def capability_support_findings(
             )
         )
     return findings
+
+
+def service_runtime_texture_findings(
+    spec: LabSpec,
+    profile: IndustryRealismProfile,
+    *,
+    strict: bool,
+) -> list[RealismFinding]:
+    if not spec.artifacts_model:
+        return []
+    findings: list[RealismFinding] = []
+    severity: Literal["warning", "error"] = "error" if strict else "warning"
+    capability_keywords = sorted(
+        {
+            keyword.lower()
+            for capability in profile.capabilities
+            for keyword in [*capability.keywords, *capability.recommended_data, *capability.recommended_workflows]
+            if keyword.strip()
+        }
+    )
+    profile_markers = [profile.display_name.lower(), profile.industry.lower()]
+    for artifact in spec.artifacts_model.service_artifacts:
+        if artifact.service in {"attacker-workstation", "controlled-drop"}:
+            continue
+        service_root = spec.root / artifact.source_path
+        if not service_root.exists() or not service_root.is_dir():
+            continue
+        runtime_text = service_runtime_text(service_root)
+        if not runtime_text:
+            continue
+        runtime_lower = runtime_text.lower()
+        keyword_hits = [term for term in capability_keywords if term in runtime_lower]
+        marker_hits = [term for term in profile_markers if term and term in runtime_lower]
+        if not keyword_hits and not marker_hits:
+            findings.append(
+                RealismFinding(
+                    severity=severity,
+                    category="runtime-texture",
+                    message=f"Generated runtime files for `{artifact.service}` do not contain recognizable {profile.display_name} workflow language.",
+                    expected=", ".join(profile.required_ui_surfaces[:6] or [capability.id for capability in profile.capabilities[:4]]),
+                    code=f"runtime-texture.{artifact.service}.industry-language.missing",
+                    remediation=(
+                        "Materialize service UI, route labels, seed records, clues, and noise from the industry profile instead of "
+                        "generic placeholder service text."
+                    ),
+                )
+            )
+        records_path = service_root / "seed" / "records.json"
+        if records_path.exists():
+            records = load_json_file(records_path)
+            context = records.get("industry_context", {}) if isinstance(records, dict) else {}
+            lanes = context.get("workflow_lanes", []) if isinstance(context, dict) else []
+            display = str(context.get("display_name", "") if isinstance(context, dict) else "").lower()
+            if not lanes or (profile.display_name.lower() not in display and profile.industry.lower() not in runtime_lower):
+                findings.append(
+                    RealismFinding(
+                        severity=severity,
+                        category="runtime-texture",
+                        message=f"Seed records for `{artifact.service}` do not expose industry workflow lanes.",
+                        expected=f"`seed/records.json` should include industry_context for {profile.display_name}.",
+                        code=f"runtime-texture.{artifact.service}.workflow-lanes.missing",
+                        remediation="Add industry_context.workflow_lanes and business-shaped seed records that match the declared industry.",
+                    )
+                )
+    return findings
+
+
+def service_runtime_text(service_root: Path) -> str:
+    parts: list[str] = []
+    for relative in (
+        "app.py",
+        "README.md",
+        "labforge-service.yaml",
+        "seed/records.json",
+        "seed/clues.json",
+        "seed/chain.json",
+        "seed/stage-state.json",
+        "noise/events.jsonl",
+    ):
+        path = service_root / relative
+        if path.exists() and path.is_file():
+            try:
+                parts.append(path.read_text(encoding="utf-8", errors="ignore")[:50000])
+            except OSError:
+                continue
+    return "\n".join(parts)
+
+
+def load_json_file(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def is_security_capability(capability: IndustryCapability) -> bool:

@@ -446,6 +446,104 @@ class RealismProfileTests(unittest.TestCase):
 
             self.assertIn("capability-artifact-depth.loan-operations.missing", codes)
 
+    def test_realism_flags_generic_materialized_runtime_texture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab_files(
+                root,
+                scenario={
+                    "id": "generic-runtime-bank",
+                    "title": "Generic Runtime Bank",
+                    "summary": "Regional bank lab with loan operations and compliance export.",
+                    "final_objective": "Collect synthetic loan evidence package.",
+                    "target_industry": "banking",
+                },
+                topology={
+                    "networks": [{"name": "digital banking"}, {"name": "loan operations"}, {"name": "data"}, {"name": "security monitoring"}],
+                    "services": [
+                        {
+                            "name": "loan-origination-system",
+                            "role": "loan application and underwriting review service",
+                            "purpose": "Handles loan application intake, uploaded evidence documents, and underwriting notes.",
+                            "networks": ["digital banking", "loan operations", "data"],
+                        }
+                    ],
+                    "deployment": {"recommended_model": "docker-compose", "docker_only_supported": True},
+                },
+                stages={
+                    "stages": [
+                        {
+                            "id": "stage-01",
+                            "title": "Review loan application records.",
+                            "procedure": "Use the loan origination workflow to inspect loan applications, uploaded evidence documents, and underwriting notes.",
+                            "evidence": ["loan-application-workflow"],
+                            "mitre": {"tactic": "Discovery", "techniques": [{"id": "T1083", "name": "File and Directory Discovery"}]},
+                        }
+                    ]
+                },
+                artifacts={
+                    "service_artifacts": [
+                        {
+                            "service": "loan-origination-system",
+                            "source_path": "services/loan-origination-system",
+                            "runtime": "business-portal",
+                            "purpose": "Loan runtime.",
+                            "seed_inputs": ["loan applications", "underwriting notes"],
+                            "noise_inputs": ["routine operations events"],
+                            "healthcheck": "GET /healthz",
+                            "reset": "reset.sh",
+                            "evidence_logs": ["audit log"],
+                            "safety_boundaries": ["synthetic data only"],
+                        }
+                    ]
+                },
+                security_controls={"recommended": ["waf", "mfa", "siem", "ids", "audit", "segmentation"]},
+            )
+            service_root = root / "services" / "loan-origination-system"
+            (service_root / "seed").mkdir(parents=True)
+            (service_root / "noise").mkdir(parents=True)
+            (service_root / "app.py").write_text("Welcome to the generic admin dashboard.\n", encoding="utf-8")
+            (service_root / "seed" / "records.json").write_text(
+                json.dumps({"items": [{"id": "CASE-1", "type": "generic-record"}]}, indent=2),
+                encoding="utf-8",
+            )
+            (service_root / "seed" / "clues.json").write_text(json.dumps({"items": []}), encoding="utf-8")
+            (service_root / "noise" / "events.jsonl").write_text('{"event":"generic.updated"}\n', encoding="utf-8")
+
+            report = check_realism(LabSpec.load(root), industry="banking")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertIn("runtime-texture.loan-origination-system.industry-language.missing", codes)
+            self.assertIn("runtime-texture.loan-origination-system.workflow-lanes.missing", codes)
+
+    def test_realism_accepts_materialized_runtime_with_industry_workflow_lanes(self) -> None:
+        from labforge.intake import create_intake_from_prompt, scaffold_lab_from_intake
+        from labforge.service_artifacts import materialize_service_runtimes
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            intake_dir = root / "intake"
+            lab = root / "lab"
+            create_intake_from_prompt(
+                intake_dir,
+                prompt=(
+                    "Create a realistic banking lab where the learner starts from a public loan application portal, "
+                    "discovers the customer identity gateway, reviews JWT session behavior, and reaches a controlled compliance export."
+                ),
+                lab_id="banking-runtime-realism",
+                title="Banking Runtime Realism",
+                industry="banking",
+                force=True,
+            )
+            scaffold_lab_from_intake(intake_dir / "scenario-intake.yaml", lab, force=True)
+            spec = LabSpec.load(lab)
+            materialize_service_runtimes(spec, force=True)
+
+            report = check_realism(LabSpec.load(lab), industry="banking")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertFalse(any(code.startswith("runtime-texture.customer-identity-gateway") for code in codes))
+
 
 def write_lab_files(
     root: Path,
