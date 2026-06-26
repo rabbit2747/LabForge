@@ -908,6 +908,12 @@ def live_access_readiness_gate_item(access_bundle_path: Path) -> PipelineGateIte
         for item in requirements
     ]
     by_name = {str(item.get("name", "")): item for item in requirements}
+    missing_names = [
+        name
+        for name, item in by_name.items()
+        if int(item.get("required", 0) or 0) <= 0
+    ]
+    evidence.extend(live_access_fix_hints(missing_names))
     core_missing = [
         name
         for name in ("browser", "solver")
@@ -924,8 +930,30 @@ def live_access_readiness_gate_item(access_bundle_path: Path) -> PipelineGateIte
         name="live-access-readiness",
         status="passed",
         evidence=evidence,
-        required_action="",
+        required_action=(
+            "Optional live-readiness gaps remain: "
+            + ", ".join(live_access_fix_actions(missing_names))
+            if missing_names
+            else ""
+        ),
     )
+
+
+def live_access_fix_hints(missing_names: list[str]) -> list[str]:
+    return [f"fix_hint={action}" for action in live_access_fix_actions(missing_names)]
+
+
+def live_access_fix_actions(missing_names: list[str]) -> list[str]:
+    actions = {
+        "browser": "publish at least one learner-facing browser URL in the provider endpoint manifest",
+        "final-submission": "add a controlled-drop or submission service and expose its learner URL",
+        "terminal": "publish an SSH-capable attacker workstation and terminal command sequence",
+        "persistent-tunnel": "generate SSH local-forward commands for internal-only browser targets",
+        "plugin-evidence": "map vulnerability plugin steps to runtime evidence checks in learner-access.json",
+        "stage-chain": "generate runtime stage-chain checks for handoff evidence",
+        "solver": "generate an ordered solver plan with executable access and vulnerability steps",
+    }
+    return [actions.get(name, f"resolve missing live-readiness requirement `{name}`") for name in missing_names]
 
 
 def is_advisory_playtest_warning(message: str) -> bool:

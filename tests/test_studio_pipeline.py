@@ -32,6 +32,7 @@ class StudioPipelineTest(unittest.TestCase):
                     {
                         "live_readiness_requirements": [
                             {"name": "browser", "required": 0, "status": "missing"},
+                            {"name": "final-submission", "required": 0, "status": "missing"},
                             {"name": "solver", "required": 0, "status": "missing"},
                         ]
                     }
@@ -44,6 +45,7 @@ class StudioPipelineTest(unittest.TestCase):
             self.assertEqual(item.status, "warning")
             self.assertIn("browser", item.required_action)
             self.assertIn("solver", item.required_action)
+            self.assertTrue(any("controlled-drop" in evidence for evidence in item.evidence))
 
     def test_natural_language_pipeline_can_reach_release_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
