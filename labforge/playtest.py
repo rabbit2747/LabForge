@@ -190,6 +190,7 @@ class LabAccessBundle(PlaytestModel):
     plugin_checks: list[dict[str, Any]] = Field(default_factory=list)
     stage_chain_checks: list[dict[str, Any]] = Field(default_factory=list)
     stage_handoffs: list[dict[str, Any]] = Field(default_factory=list)
+    live_readiness_requirements: list[dict[str, Any]] = Field(default_factory=list)
     start_commands: list[dict[str, str]] = Field(default_factory=list)
     status_commands: list[dict[str, str]] = Field(default_factory=list)
     stop_commands: list[dict[str, str]] = Field(default_factory=list)
@@ -719,6 +720,15 @@ def build_lab_access_bundle(
         plugin_checks=plugin_checks,
         stage_chain_checks=stage_chain_checks,
         stage_handoffs=stage_handoffs,
+        live_readiness_requirements=lab_access_live_requirements(
+            learner_urls=[endpoint.connect for endpoint in report.learner_entrypoints if endpoint.protocol == "http" and endpoint.connect],
+            final_submission_urls=[endpoint.connect for endpoint in report.final_submission_endpoints if endpoint.protocol == "http" and endpoint.connect],
+            terminal_sequences=access.terminal_sequences,
+            tunnel_commands=tunnel_commands,
+            plugin_checks=plugin_checks,
+            stage_chain_checks=stage_chain_checks,
+            solver_plan=solver_plan,
+        ),
         start_commands=[command.model_dump() for command in access.start_commands],
         status_commands=[command.model_dump() for command in access.status_commands],
         stop_commands=[command.model_dump() for command in access.stop_commands],
@@ -731,6 +741,36 @@ def build_lab_access_bundle(
             *readiness_findings,
         ],
     )
+
+
+def lab_access_live_requirements(
+    *,
+    learner_urls: list[str],
+    final_submission_urls: list[str],
+    terminal_sequences: list[LearnerTerminalSequence],
+    tunnel_commands: list[LearnerTunnelCommand],
+    plugin_checks: list[dict[str, Any]],
+    stage_chain_checks: list[dict[str, Any]],
+    solver_plan: SolverPlan,
+) -> list[dict[str, Any]]:
+    requirements = [
+        ("browser", len(learner_urls), "Learner-facing browser URL"),
+        ("final-submission", len(final_submission_urls), "Final submission URL"),
+        ("terminal", len(terminal_sequences), "SSH or terminal command sequence"),
+        ("persistent-tunnel", len(tunnel_commands), "Internal target tunnel command"),
+        ("plugin-evidence", len(plugin_checks), "Vulnerability plugin evidence check"),
+        ("stage-chain", len(stage_chain_checks), "Runtime stage handoff evidence check"),
+        ("solver", len(solver_plan.steps), "Automated solver step"),
+    ]
+    return [
+        {
+            "name": name,
+            "required": count,
+            "status": "declared" if count > 0 else "missing",
+            "source": source,
+        }
+        for name, count, source in requirements
+    ]
 
 
 def build_human_readiness_report(
@@ -2423,6 +2463,19 @@ def render_lab_access_bundle_markdown(bundle: LabAccessBundle) -> str:
             )
     else:
         lines.append("- No stage handoffs generated.")
+    lines += ["", "## Live Verification Requirements", ""]
+    if bundle.live_readiness_requirements:
+        lines += [
+            "| Requirement | Declared Count | Status | Source |",
+            "|---|---:|---|---|",
+        ]
+        for item in bundle.live_readiness_requirements:
+            lines.append(
+                f"| `{item.get('name', '-')}` | `{item.get('required', 0)}` | "
+                f"{item.get('status', '-')} | {escape_cell(item.get('source', '-') or '-')} |"
+            )
+    else:
+        lines.append("- No live verification requirements generated.")
     lines += ["", "## Stage Chain Runtime Checks", ""]
     if bundle.stage_chain_checks:
         lines += [
