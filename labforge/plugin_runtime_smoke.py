@@ -257,17 +257,21 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
             opened = client.get(f"/labforge/scaffold/reviewer/items/{item_id}") if item_id else created
             context = client.get("/labforge/scaffold/reviewer/context")
             callback = client.post("/labforge/scaffold/reviewer/callback", json={"source": "runtime-smoke", "item_id": item_id})
+            browser_evidence = client.get("/labforge/scaffold/reviewer/browser-evidence")
             audit = client.get("/labforge/scaffold/reviewer/audit")
             policy_data = policy.get_json(silent=True) or {}
             context_data = context.get_json(silent=True) or {}
             callback_data = callback.get_json(silent=True) or {}
+            browser_evidence_data = browser_evidence.get_json(silent=True) or {}
             audit_data = audit.get_json(silent=True) or {}
             records = audit_data.get("records", []) if isinstance(audit_data, dict) else []
+            browser_records = browser_evidence_data.get("records", []) if isinstance(browser_evidence_data, dict) else []
             return assert_condition(
                 service,
                 plugin_id,
                 policy.status_code == 200
                 and policy_data.get("callback_api") == "POST /operations/reviewer/callback"
+                and policy_data.get("browser_evidence_api") == "GET /operations/reviewer/browser-evidence"
                 and created.status_code == 201
                 and opened.status_code == 200
                 and "stored" in opened.get_data(as_text=True)
@@ -276,13 +280,16 @@ def run_single_plugin_smoke(service: str, plugin_id: str, client: Any) -> Plugin
                 and isinstance(context_data.get("session_context"), dict)
                 and callback.status_code == 202
                 and callback_data.get("accepted") is True
+                and callback_data.get("browser_evidence_api") == "GET /operations/reviewer/browser-evidence"
+                and browser_evidence.status_code == 200
+                and any(record.get("source") == "runtime-smoke" and record.get("item_id") == item_id for record in browser_records)
                 and audit.status_code == 200
                 and any(record.get("action") == "item-created" and record.get("accepted") is True for record in records)
                 and any(record.get("action") == "item-opened" and record.get("accepted") is True for record in records)
                 and any(record.get("action") == "context-read" and record.get("accepted") is True for record in records)
                 and any(record.get("action") == "callback-received" and record.get("accepted") is True for record in records),
-                "/labforge/scaffold/reviewer/policy + review-items + reviewer context/callback/audit",
-                audit,
+                "/labforge/scaffold/reviewer/policy + review-items + reviewer context/callback/browser-evidence/audit",
+                browser_evidence,
             )
         if plugin_id == "idor-object-access":
             catalog = client.get("/labforge/scaffold/objects?owner=learner")
