@@ -351,6 +351,147 @@ class E2ESolverTests(unittest.TestCase):
             self.assertIn("missing=plugin_checks_passed:1", joined)
             self.assertIn("stage_chain_checks=expected:1:actual:1:passed:1", joined)
 
+    def test_validate_execution_depth_requires_live_browser_terminal_and_tunnel_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "steps": [
+                            {"step_id": "entry", "action_type": "access"},
+                            {"step_id": "pivot", "action_type": "access"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "learner_entrypoints": [
+                            {
+                                "service": "support-portal",
+                                "protocol": "http",
+                                "connect": "http://127.0.0.1:28181/",
+                            }
+                        ],
+                        "attacker_entrypoints": [
+                            {
+                                "service": "attacker-workstation",
+                                "protocol": "ssh",
+                                "connect": "ssh attacker@127.0.0.1 -p 28184",
+                            }
+                        ],
+                        "final_submission_endpoints": [
+                            {
+                                "service": "controlled-drop",
+                                "protocol": "http",
+                                "connect": "http://127.0.0.1:29100/submit",
+                            }
+                        ],
+                        "terminal_checks": [
+                            {
+                                "service": "attacker-workstation",
+                                "kind": "ssh-connect",
+                                "command": "ssh attacker@127.0.0.1 -p 28184",
+                            }
+                        ],
+                        "terminal_sequences": [
+                            {
+                                "service": "attacker-workstation",
+                                "connect": "ssh attacker@127.0.0.1 -p 28184",
+                                "commands": ["echo labforge-terminal-ready"],
+                                "expected_texts": ["labforge-terminal-ready"],
+                            }
+                        ],
+                        "tunnel_commands": [
+                            {
+                                "service": "internal-wiki",
+                                "command": "ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 28184",
+                                "url": "http://127.0.0.1:18080/",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_report = AccessPlaytestReport(
+                lab_id="live-evidence",
+                title="Live Evidence",
+                mode="execute",
+                status="passed",
+                access_manifest=str(access_manifest),
+                browser_targets=["http://127.0.0.1:28181/"],
+                terminal_targets=["ssh attacker@127.0.0.1 -p 28184"],
+                items=[
+                    AccessPlaytestItem(
+                        check_id="browser-01",
+                        service="support-portal",
+                        kind="browser-http",
+                        command="http://127.0.0.1:28181/",
+                        status="warning",
+                    ),
+                    AccessPlaytestItem(
+                        check_id="final-01",
+                        service="controlled-drop",
+                        kind="final-http",
+                        command="http://127.0.0.1:29100/submit",
+                        status="passed",
+                    ),
+                    AccessPlaytestItem(
+                        check_id="terminal-01",
+                        service="attacker-workstation",
+                        kind="ssh-connect",
+                        command="ssh attacker@127.0.0.1 -p 28184",
+                        status="passed",
+                    ),
+                    AccessPlaytestItem(
+                        check_id="terminal-seq-01",
+                        service="attacker-workstation",
+                        kind="ssh-command-sequence",
+                        command="ssh attacker@127.0.0.1 -p 28184 'echo labforge-terminal-ready'",
+                        status="failed",
+                    ),
+                    AccessPlaytestItem(
+                        check_id="tunnel-01",
+                        service="internal-wiki",
+                        kind="ssh-local-forward",
+                        command="ssh -L 18080:wiki:6000 attacker@127.0.0.1 -p 28184",
+                        status="passed",
+                    ),
+                ],
+            )
+            solver_report = SolverRunReport(
+                lab_id="live-evidence",
+                title="Live Evidence",
+                mode="execute",
+                status="passed",
+                solver_plan=str(solver_plan),
+                steps=[
+                    SolverRunStep(order=1, step_id="entry", action_type="access", status="passed"),
+                    SolverRunStep(order=2, step_id="pivot", action_type="access", status="passed"),
+                ],
+            )
+
+            findings = validate_execution_depth(
+                solver_plan,
+                access_manifest,
+                access_report,
+                solver_report,
+                [],
+                execute=True,
+            )
+
+            joined = " ".join(findings)
+            self.assertIn("learner_http_entrypoints=expected:1:actual:1:passed:0", joined)
+            self.assertIn("missing=learner_http_entrypoints_passed:1", joined)
+            self.assertIn("terminal_sequences=expected:1:actual:1:passed:0", joined)
+            self.assertIn("missing=terminal_sequences_passed:1", joined)
+            self.assertIn("persistent_tunnels=expected:1:actual:0:passed:0", joined)
+            self.assertIn("missing=persistent_tunnels:1", joined)
+
     def test_release_gate_execute_e2e_requires_passed_solver_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

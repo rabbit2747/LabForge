@@ -194,6 +194,7 @@ def run_e2e_solver(
         access_manifest,
         access_report,
         solver_report,
+        persistent_tunnels,
         execute=execute,
     )
     report = E2ESolverReport(
@@ -375,6 +376,7 @@ def validate_execution_depth(
     access_manifest: Path,
     access_report: AccessPlaytestReport,
     solver_report: SolverRunReport,
+    persistent_tunnels: list[E2ETunnelResult] | None = None,
     *,
     execute: bool,
 ) -> list[str]:
@@ -396,7 +398,7 @@ def validate_execution_depth(
         findings.append(f"missing=solver_steps:{expected_solver - actual_solver}")
     plugin_alignment_findings = validate_plugin_check_alignment(plan, access)
     findings.extend(plugin_alignment_findings)
-    findings.extend(validate_access_execution_evidence(access, access_report))
+    findings.extend(validate_access_execution_evidence(access, access_report, persistent_tunnels or []))
     if expected_access == 0:
         findings.append("warning=access_manifest_declares_no_checks")
     if expected_solver == 0:
@@ -404,28 +406,87 @@ def validate_execution_depth(
     return findings
 
 
-def validate_access_execution_evidence(access_manifest: dict, access_report: AccessPlaytestReport) -> list[str]:
+def validate_access_execution_evidence(
+    access_manifest: dict,
+    access_report: AccessPlaytestReport,
+    persistent_tunnels: list[E2ETunnelResult] | None = None,
+) -> list[str]:
     access_items = list(getattr(access_report, "items", []) or [])
+    persistent_tunnels = persistent_tunnels or []
     findings: list[str] = []
-    required_kinds = {
-        "plugin_checks": "plugin-evidence",
-        "stage_chain_checks": "stage-chain",
-    }
-    for manifest_key, item_kind in required_kinds.items():
-        expected = len([item for item in access_manifest.get(manifest_key, []) or [] if isinstance(item, dict)])
+    required_kinds = [
+        (
+            "learner_http_entrypoints",
+            "browser-http",
+            [
+                item
+                for item in access_manifest.get("learner_entrypoints", []) or []
+                if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
+            ],
+        ),
+        (
+            "final_submission_endpoints",
+            "final-http",
+            [
+                item
+                for item in access_manifest.get("final_submission_endpoints", []) or []
+                if isinstance(item, dict) and str(item.get("protocol", "")) == "http" and item.get("connect")
+            ],
+        ),
+        (
+            "terminal_checks",
+            None,
+            [item for item in access_manifest.get("terminal_checks", []) or [] if isinstance(item, dict)],
+        ),
+        (
+            "terminal_sequences",
+            "ssh-command-sequence",
+            [item for item in access_manifest.get("terminal_sequences", []) or [] if isinstance(item, dict)],
+        ),
+        (
+            "tunnel_commands",
+            "ssh-local-forward",
+            [item for item in access_manifest.get("tunnel_commands", []) or [] if isinstance(item, dict)],
+        ),
+        (
+            "plugin_checks",
+            "plugin-evidence",
+            [item for item in access_manifest.get("plugin_checks", []) or [] if isinstance(item, dict)],
+        ),
+        (
+            "stage_chain_checks",
+            "stage-chain",
+            [item for item in access_manifest.get("stage_chain_checks", []) or [] if isinstance(item, dict)],
+        ),
+    ]
+    for manifest_key, item_kind, expected_records in required_kinds:
+        expected = len(expected_records)
         if expected == 0:
             continue
-        actual = len([item for item in access_items if str(getattr(item, "kind", "")) == item_kind])
-        passed = len([
-            item
-            for item in access_items
-            if str(getattr(item, "kind", "")) == item_kind and str(getattr(item, "status", "")) == "passed"
-        ])
+        if item_kind is None:
+            expected_kinds = {
+                str(item.get("kind", "command")).strip() or "command"
+                for item in expected_records
+                if isinstance(item, dict)
+            }
+            matching_items = [item for item in access_items if str(getattr(item, "kind", "")) in expected_kinds]
+        else:
+            matching_items = [item for item in access_items if str(getattr(item, "kind", "")) == item_kind]
+        actual = len(matching_items)
+        passed = len([item for item in matching_items if str(getattr(item, "status", "")) == "passed"])
         findings.append(f"{manifest_key}=expected:{expected}:actual:{actual}:passed:{passed}")
         if actual < expected:
             findings.append(f"missing={manifest_key}:{expected - actual}")
         if passed < expected:
             findings.append(f"missing={manifest_key}_passed:{expected - passed}")
+    expected_tunnels = len([item for item in access_manifest.get("tunnel_commands", []) or [] if isinstance(item, dict)])
+    if expected_tunnels:
+        passed_persistent = count_status(list(persistent_tunnels), "passed")
+        findings.append(f"persistent_tunnels=expected:{expected_tunnels}:actual:{len(persistent_tunnels)}:passed:{passed_persistent}")
+        if len(persistent_tunnels) < expected_tunnels:
+            findings.append(f"missing=persistent_tunnels:{expected_tunnels - len(persistent_tunnels)}")
+        if passed_persistent < expected_tunnels:
+            findings.append(f"missing=persistent_tunnels_passed:{expected_tunnels - passed_persistent}")
     return findings
 
 
@@ -636,8 +697,8 @@ def build_live_readiness_proof(
     if terminal_targets:
         passed = count_status(terminal_items, "passed")
         requirements.append(f"terminal_targets={len(terminal_targets)}; passed_terminal_checks={passed}")
-        if passed < 1:
-            failures.append("terminal targets exist but no terminal check passed")
+        if passed < len(terminal_targets):
+            failures.append("not all terminal targets were proven reachable")
 
     plugin_items = [item for item in access_items if str(getattr(item, "kind", "")).startswith("plugin")]
     if plugin_items:
