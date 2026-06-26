@@ -396,10 +396,36 @@ def validate_execution_depth(
         findings.append(f"missing=solver_steps:{expected_solver - actual_solver}")
     plugin_alignment_findings = validate_plugin_check_alignment(plan, access)
     findings.extend(plugin_alignment_findings)
+    findings.extend(validate_access_execution_evidence(access, access_report))
     if expected_access == 0:
         findings.append("warning=access_manifest_declares_no_checks")
     if expected_solver == 0:
         findings.append("warning=solver_plan_declares_no_steps")
+    return findings
+
+
+def validate_access_execution_evidence(access_manifest: dict, access_report: AccessPlaytestReport) -> list[str]:
+    access_items = list(getattr(access_report, "items", []) or [])
+    findings: list[str] = []
+    required_kinds = {
+        "plugin_checks": "plugin-evidence",
+        "stage_chain_checks": "stage-chain",
+    }
+    for manifest_key, item_kind in required_kinds.items():
+        expected = len([item for item in access_manifest.get(manifest_key, []) or [] if isinstance(item, dict)])
+        if expected == 0:
+            continue
+        actual = len([item for item in access_items if str(getattr(item, "kind", "")) == item_kind])
+        passed = len([
+            item
+            for item in access_items
+            if str(getattr(item, "kind", "")) == item_kind and str(getattr(item, "status", "")) == "passed"
+        ])
+        findings.append(f"{manifest_key}=expected:{expected}:actual:{actual}:passed:{passed}")
+        if actual < expected:
+            findings.append(f"missing={manifest_key}:{expected - actual}")
+        if passed < expected:
+            findings.append(f"missing={manifest_key}_passed:{expected - passed}")
     return findings
 
 

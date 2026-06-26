@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from labforge.access_playtest import AccessPlaytestItem, AccessPlaytestReport
 from labforge.doctor import HostDoctorReport
-from labforge.e2e_solver import run_e2e_solver, validate_access_bundle, validate_plugin_check_alignment
+from labforge.e2e_solver import run_e2e_solver, validate_access_bundle, validate_execution_depth, validate_plugin_check_alignment
 from labforge.provider_lifecycle import ProviderLifecycleResult
 from labforge.qa import e2e_solver_release_check
 from labforge.solver_runner import SolverRunReport, SolverRunStep
@@ -260,6 +260,96 @@ class E2ESolverTests(unittest.TestCase):
             self.assertTrue((root / "e2e" / "e2e-solver.json").exists())
             self.assertTrue((root / "e2e" / "host-preflight.md").exists())
             self.assertTrue((root / "e2e" / "host-preflight.json").exists())
+
+    def test_validate_execution_depth_requires_passed_plugin_and_stage_chain_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver_plan = root / "solver-plan.json"
+            access_manifest = root / "learner-access.json"
+            solver_plan.write_text(
+                json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "step_id": "plugin-support-portal-ssti-preview",
+                                "action_type": "vulnerability-behavior",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_manifest.write_text(
+                json.dumps(
+                    {
+                        "plugin_checks": [
+                            {
+                                "step_id": "plugin-support-portal-ssti-preview",
+                                "service": "support-portal",
+                                "plugin": "ssti-preview",
+                            }
+                        ],
+                        "stage_chain_checks": [
+                            {
+                                "service": "wiki",
+                                "chain_url": "http://127.0.0.1:18080/api/chain",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            access_report = AccessPlaytestReport(
+                lab_id="depth",
+                title="Depth",
+                mode="execute",
+                status="warning",
+                access_manifest=str(access_manifest),
+                items=[
+                    AccessPlaytestItem(
+                        check_id="plugin-evidence-01",
+                        service="support-portal",
+                        kind="plugin-evidence",
+                        command="GET /api/state",
+                        status="warning",
+                    ),
+                    AccessPlaytestItem(
+                        check_id="stage-chain-01",
+                        service="wiki",
+                        kind="stage-chain",
+                        command="GET /api/chain",
+                        status="passed",
+                    ),
+                ],
+            )
+            solver_report = SolverRunReport(
+                lab_id="depth",
+                title="Depth",
+                mode="execute",
+                status="passed",
+                solver_plan=str(solver_plan),
+                steps=[
+                    SolverRunStep(
+                        order=1,
+                        step_id="plugin-support-portal-ssti-preview",
+                        action_type="vulnerability-behavior",
+                        status="passed",
+                    )
+                ],
+            )
+
+            findings = validate_execution_depth(
+                solver_plan,
+                access_manifest,
+                access_report,
+                solver_report,
+                execute=True,
+            )
+
+            joined = " ".join(findings)
+            self.assertIn("plugin_checks=expected:1:actual:1:passed:0", joined)
+            self.assertIn("missing=plugin_checks_passed:1", joined)
+            self.assertIn("stage_chain_checks=expected:1:actual:1:passed:1", joined)
 
     def test_release_gate_execute_e2e_requires_passed_solver_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
