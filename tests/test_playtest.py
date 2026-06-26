@@ -201,6 +201,100 @@ class PlaytestTests(unittest.TestCase):
         self.assertIn("too thin", messages)
         self.assertIn("missing plugin evidence check", messages)
 
+    def test_human_readiness_report_flags_ungrounded_operational_values(self) -> None:
+        solver_plan = SolverPlan(
+            lab_id="magic-values",
+            title="Magic Values",
+            provider="docker-compose",
+            profile="protected",
+            status="planned",
+            steps=[
+                SolverPlanStep(
+                    order=1,
+                    step_id="plugin-release-console-stored-xss-review",
+                    title="release-console: stored-xss-review",
+                    service="release-console",
+                    plugin="stored-xss-review",
+                    action_type="vulnerability-behavior",
+                    learner_action="Use the review workflow to read /api/manager/build-requests/BR-4421/context from the manager session.",
+                    expected_result="The response from /api/manager/build-requests/BR-4421/context exposes the build context.",
+                    evidence=["review_context_collected"],
+                    discovery_cues=["The manager review page includes routine approval notes and reviewer context."],
+                    next_step_condition="Proceed when review_context_collected is present in service state.",
+                )
+            ],
+        )
+        report = SimpleNamespace(
+            lab_id="magic-values",
+            title="Magic Values",
+            learner_entrypoints=[PlaytestEndpoint(service="release-console", protocol="http", connect="http://127.0.0.1:18081/")],
+            attacker_entrypoints=[],
+            final_submission_endpoints=[],
+        )
+        access = SimpleNamespace(
+            first_action="Open http://127.0.0.1:18081/",
+            start_commands=[SimpleNamespace(label="start", shell="sh", command="./scripts/start.sh")],
+            plugin_checks=[{"service": "release-console", "plugin": "stored-xss-review"}],
+            terminal_sequences=[],
+            internal_targets=[],
+            tunnel_commands=[],
+        )
+
+        readiness = build_human_readiness_report(report, access, solver_plan)
+
+        self.assertEqual(readiness.status, "failed")
+        messages = " ".join(message for check in readiness.checks for message in check.messages)
+        self.assertIn("not grounded", messages)
+        self.assertIn("/api/manager/build-requests/BR-4421/context", messages)
+
+    def test_human_readiness_accepts_operational_values_grounded_by_discovery(self) -> None:
+        solver_plan = SolverPlan(
+            lab_id="grounded-values",
+            title="Grounded Values",
+            provider="docker-compose",
+            profile="protected",
+            status="planned",
+            steps=[
+                SolverPlanStep(
+                    order=1,
+                    step_id="plugin-release-console-stored-xss-review",
+                    title="release-console: stored-xss-review",
+                    service="release-console",
+                    plugin="stored-xss-review",
+                    action_type="vulnerability-behavior",
+                    learner_action="Use the review workflow to request /api/manager/build-requests/BR-4421/context from the manager session.",
+                    expected_result="The manager-only context route returns the synthetic build context needed for the next stage.",
+                    evidence=["review context page links BR-4421", "review_context_collected"],
+                    discovery_cues=[
+                        "The review inbox page references BR-4421 as the active build request.",
+                        "The browser network panel shows /api/manager/build-requests/BR-4421/context when the manager view loads.",
+                    ],
+                    next_step_condition="Proceed when review_context_collected is present in service state.",
+                )
+            ],
+        )
+        report = SimpleNamespace(
+            lab_id="grounded-values",
+            title="Grounded Values",
+            learner_entrypoints=[PlaytestEndpoint(service="release-console", protocol="http", connect="http://127.0.0.1:18081/")],
+            attacker_entrypoints=[],
+            final_submission_endpoints=[],
+        )
+        access = SimpleNamespace(
+            first_action="Open http://127.0.0.1:18081/",
+            start_commands=[SimpleNamespace(label="start", shell="sh", command="./scripts/start.sh")],
+            plugin_checks=[{"service": "release-console", "plugin": "stored-xss-review"}],
+            terminal_sequences=[],
+            internal_targets=[],
+            tunnel_commands=[],
+        )
+
+        readiness = build_human_readiness_report(report, access, solver_plan)
+
+        self.assertEqual(readiness.status, "warning")
+        messages = " ".join(message for check in readiness.checks for message in check.messages)
+        self.assertNotIn("not grounded", messages)
+
     def test_solver_readiness_findings_require_terminal_tunnel_plugin_and_handoff_material(self) -> None:
         report = SimpleNamespace(
             learner_entrypoints=[],

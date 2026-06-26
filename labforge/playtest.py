@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Literal
@@ -851,6 +852,12 @@ def human_solver_step_readiness_check(
             messages.append("vulnerability step has no next_step_condition.")
         if (step.service, step.plugin) not in plugin_check_keys:
             messages.append(f"missing plugin evidence check for {step.service}:{step.plugin}.")
+        ungrounded_terms = ungrounded_operational_values(step)
+        if ungrounded_terms:
+            messages.append(
+                "vulnerability step uses operational values that are not grounded in discovery cues, evidence, automation hints, or next-step conditions: "
+                + ", ".join(ungrounded_terms[:6])
+            )
     if step.action_type == "command-sequence":
         if not step.terminal:
             messages.append("terminal command sequence has no SSH target.")
@@ -876,6 +883,59 @@ def contains_answer_key_language(text: str) -> bool:
         "use the exact",
     )
     return any(term in normalized for term in blocked)
+
+
+def ungrounded_operational_values(step: SolverPlanStep) -> list[str]:
+    candidate_text = " ".join([step.learner_action, step.expected_result])
+    grounding_text = " ".join(
+        [
+            *step.discovery_cues,
+            *step.evidence,
+            step.automation_hint,
+            step.next_step_condition,
+            " ".join(step.commands),
+        ]
+    )
+    candidates = extract_operational_values(candidate_text)
+    grounded = extract_operational_values(grounding_text)
+    grounding_lower = grounding_text.lower()
+    missing: list[str] = []
+    for value in candidates:
+        normalized = value.lower().rstrip(".,);]")
+        if not normalized:
+            continue
+        if normalized in grounded or normalized in grounding_lower:
+            continue
+        if route_parent_is_grounded(normalized, grounding_lower):
+            continue
+        missing.append(value)
+    return list(dict.fromkeys(missing))
+
+
+def extract_operational_values(text: str) -> set[str]:
+    values: set[str] = set()
+    patterns = (
+        r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+",
+        r"\b[A-Za-z0-9_.-]+:\d{2,5}\b",
+        r"(?:/api|/operations|/solr|/documents|/attachments|/objects|/admin)[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*",
+        r"\b[A-Z]{2,8}-\d{3,8}(?:-[A-Z0-9]+)?\b",
+    )
+    for pattern in patterns:
+        for match in re.findall(pattern, text):
+            cleaned = str(match).strip().rstrip(".,);]")
+            if cleaned:
+                values.add(cleaned)
+    return values
+
+
+def route_parent_is_grounded(value: str, grounding_text: str) -> bool:
+    if not value.startswith("/"):
+        return False
+    parts = [part for part in value.split("/") if part]
+    if len(parts) < 2:
+        return False
+    parent = "/" + "/".join(parts[:2])
+    return parent in grounding_text
 
 
 def lab_access_solver_readiness_findings(
