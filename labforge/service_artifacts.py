@@ -139,6 +139,7 @@ class ServiceResultBatchApplyReport(ServiceArtifactModel):
     applied_count: int = 0
     skipped_count: int = 0
     failed_count: int = 0
+    live_readiness_evidence: list[dict | str] = Field(default_factory=list)
     items: list[ServiceResultBatchApplyItem] = Field(default_factory=list)
 
 
@@ -648,6 +649,7 @@ def apply_service_results(
 ) -> ServiceResultBatchApplyReport:
     resolved = result_dir.resolve()
     items: list[ServiceResultBatchApplyItem] = []
+    live_readiness_evidence: list[dict | str] = []
 
     result_files = sorted(resolved.glob("*.result.yaml"))
     if not result_files:
@@ -679,6 +681,9 @@ def apply_service_results(
             )
             continue
 
+        result_payload = load_yaml(result_file)
+        result = ServiceResultSpec.model_validate(result_payload)
+        live_readiness_evidence.extend(result.live_readiness_evidence)
         apply_report = apply_service_result(spec, result_file, force=force, dry_run=dry_run)
         if apply_report.status == "passed":
             items.append(
@@ -718,6 +723,7 @@ def apply_service_results(
         applied_count=applied_count,
         skipped_count=skipped_count,
         failed_count=failed_count,
+        live_readiness_evidence=live_readiness_evidence,
         items=items,
     )
 
@@ -889,6 +895,7 @@ def service_result_batch_apply_to_markdown(report: ServiceResultBatchApplyReport
         f"- Applied: `{report.applied_count}`",
         f"- Skipped: `{report.skipped_count}`",
         f"- Failed: `{report.failed_count}`",
+        f"- Live readiness evidence: `{len(report.live_readiness_evidence)}`",
         "",
         "| Service | Status | Result File | Files | Reason |",
         "|---|---|---|---:|---|",
@@ -900,6 +907,21 @@ def service_result_batch_apply_to_markdown(report: ServiceResultBatchApplyReport
         )
     if not report.items:
         lines.append("| - | failed | - | 0 | No service results were found. |")
+
+    if report.live_readiness_evidence:
+        lines += [
+            "",
+            "## Live Readiness Evidence",
+            "",
+        ]
+        for item in report.live_readiness_evidence:
+            if isinstance(item, dict):
+                task_id = item.get("task_id", "-")
+                artifact = item.get("artifact", "-")
+                evidence = item.get("evidence", item.get("detail", "-"))
+                lines.append(f"- `{task_id}` `{artifact}`: {evidence}")
+            else:
+                lines.append(f"- {item}")
 
     applied_items = [item for item in report.items if item.applied]
     if applied_items:

@@ -8,7 +8,7 @@ from pathlib import Path
 from labforge.implementation_plan import create_service_agent_packages
 from labforge.io import dump_yaml, load_yaml, write_text
 from labforge.model import LabSpec
-from labforge.service_artifacts import review_service_result
+from labforge.service_artifacts import apply_service_results, review_service_result, service_result_batch_apply_to_markdown
 
 
 class ServiceArtifactLiveReadinessTests(unittest.TestCase):
@@ -66,6 +66,30 @@ class ServiceArtifactLiveReadinessTests(unittest.TestCase):
             self.assertEqual(review.status, "ready")
             self.assertTrue(review.ready_to_apply)
             self.assertTrue(any("live readiness evidence supplied" in item.message for item in review.items))
+
+    def test_apply_results_aggregates_live_readiness_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_lab(root)
+            result_dir = root / "results"
+            result_dir.mkdir()
+            evidence = [
+                {
+                    "task_id": "live-readiness-001",
+                    "artifact": "solver-plan.json",
+                    "evidence": "solver terminal step references attacker-workstation SSH",
+                }
+            ]
+            result = complete_service_result(root, live_readiness_evidence=evidence)
+            write_text(result_dir / "service-build-support-portal.result.yaml", dump_yaml(result))
+
+            report = apply_service_results(LabSpec.load(root), result_dir, force=True, dry_run=True)
+            markdown = service_result_batch_apply_to_markdown(report)
+
+            self.assertEqual(report.status, "passed")
+            self.assertEqual(report.live_readiness_evidence, evidence)
+            self.assertIn("Live Readiness Evidence", markdown)
+            self.assertIn("solver-plan.json", markdown)
 
 
 def live_task() -> dict:
