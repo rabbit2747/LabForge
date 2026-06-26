@@ -70,6 +70,8 @@ class ServiceResultSpec(ServiceArtifactModel):
     normal_workflows: list[dict | str] = Field(default_factory=list)
     vulnerable_paths: list[dict | str] = Field(default_factory=list)
     detection_evidence: list[dict | str] = Field(default_factory=list)
+    live_readiness_tasks: list[dict | str] = Field(default_factory=list)
+    live_readiness_evidence: list[dict | str] = Field(default_factory=list)
     healthcheck_behavior: str = ""
     reset_behavior: str = ""
     service_changes: list[ServiceChangeSpec] = Field(default_factory=list)
@@ -523,6 +525,22 @@ def review_service_result(spec: LabSpec, result_file: Path, *, force: bool = Fal
                     target_path="-",
                     status="warning",
                     message="result does not describe data_model; seed/noise realism is hard to review",
+                )
+            )
+        if result.live_readiness_tasks and not result.live_readiness_evidence:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path="-",
+                    status="warning",
+                    message="result contains live_readiness_tasks but no live_readiness_evidence; URL/SSH/tunnel/submission/solver gaps may still be unresolved",
+                )
+            )
+        if result.live_readiness_tasks and result.live_readiness_evidence:
+            items.append(
+                ServiceResultReviewItem(
+                    target_path="-",
+                    status="ok",
+                    message=f"live readiness evidence supplied for {len(result.live_readiness_tasks)} task(s)",
                 )
             )
 

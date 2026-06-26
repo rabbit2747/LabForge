@@ -420,6 +420,7 @@ def create_service_agent_packages(
         result_payload = service_agent_result_stub(task_id, artifact)
         if baseline_from_runtime:
             result_payload = baseline_service_result_from_runtime(spec, task_id, artifact)
+        attach_live_readiness_to_result(result_payload, live_readiness_tasks)
         write_text(output_path, dump_yaml(result_payload))
         written.append(output_path)
     return written
@@ -453,12 +454,27 @@ def service_agent_result_stub(task_id: str, artifact: Any) -> dict:
         "normal_workflows": [],
         "vulnerable_paths": [],
         "detection_evidence": [],
+        "live_readiness_tasks": [],
+        "live_readiness_evidence": [],
         "healthcheck_behavior": "",
         "reset_behavior": "",
         "service_changes": [],
         "findings": [],
         "open_questions": [],
     }
+
+
+def attach_live_readiness_to_result(result: dict, tasks: list[dict[str, Any]]) -> None:
+    if not tasks:
+        result.setdefault("live_readiness_tasks", [])
+        result.setdefault("live_readiness_evidence", [])
+        return
+    result["live_readiness_tasks"] = tasks
+    result.setdefault("live_readiness_evidence", [])
+    result.setdefault("findings", [])
+    result["findings"].append(
+        "Live readiness tasks are attached; the service-builder result must add live_readiness_evidence before it is treated as implementation-ready."
+    )
 
 
 def baseline_service_result_from_runtime(spec: LabSpec, task_id: str, artifact: Any) -> dict:
@@ -538,7 +554,7 @@ def render_service_builder_system_prompt() -> str:
             "",
             "## Output Contract",
             "",
-            "Write a LabForge service result YAML containing task_id, status, service, summary, implemented_routes, data_model, normal_workflows, vulnerable_paths, detection_evidence, healthcheck_behavior, reset_behavior, service_changes, findings, and open_questions.",
+            "Write a LabForge service result YAML containing task_id, status, service, summary, implemented_routes, data_model, normal_workflows, vulnerable_paths, detection_evidence, live_readiness_tasks, live_readiness_evidence, healthcheck_behavior, reset_behavior, service_changes, findings, and open_questions.",
             "",
         ]
     )
@@ -571,6 +587,7 @@ def render_service_builder_task_prompt(
         "- Implement deterministic seed data, realistic noise data, and evidence logs.",
         "- Implement healthcheck and reset scripts that verify the actual service behavior.",
         "- Keep exact answer keys, final objects, and solver-only payloads out of reusable template metadata.",
+        "- When live readiness tasks are present, add concrete live_readiness_evidence showing the URL, SSH, tunnel, submission, or solver artifact that now satisfies each task.",
         "",
         "## Vulnerability Plugin Contracts",
         "",
