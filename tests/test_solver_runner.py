@@ -1277,6 +1277,11 @@ class SolverRunnerTests(unittest.TestCase):
                 self.assertEqual(report.steps[0].status, "passed")
                 self.assertIn("info=200", report.steps[0].message)
                 self.assertIn("policy=200", report.steps[0].message)
+                self.assertIn("tickets=200", report.steps[0].message)
+                self.assertIn("execution_plan=200", report.steps[0].message)
+                self.assertIn("approved_tickets=1", report.steps[0].message)
+                self.assertIn("operator_sequence=5", report.steps[0].message)
+                self.assertIn("planned_preset=runtime-identity", report.steps[0].message)
                 self.assertIn("presets=1", report.steps[0].message)
                 self.assertIn("targets=1", report.steps[0].message)
                 self.assertIn("accepted=True", report.steps[0].message)
@@ -1628,6 +1633,48 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
                     {
                         "presets": [{"id": "runtime-identity", "command": "id"}],
                         "targets": [{"id": "target-localhost", "name": "localhost", "status": "approved", "zone": "service-runtime"}],
+                        "change_ticket_api": "/api/diagnostics/change-tickets",
+                        "execution_plan_api": "/api/diagnostics/execution-plan",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/diagnostics/change-tickets":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "tickets": [
+                            {
+                                "id": "CHG-DIAG-2026-001",
+                                "status": "approved",
+                                "approved_presets": ["runtime-identity"],
+                                "approved_targets": ["localhost"],
+                            }
+                        ],
+                        "execution_plan_api": "/api/diagnostics/execution-plan",
+                    }
+                ).encode("utf-8")
+            )
+            return
+        if self.path == "/api/diagnostics/execution-plan":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "active_change": "CHG-DIAG-2026-001",
+                        "operator_sequence": [
+                            {"step": 1, "action": "read-target-registry"},
+                            {"step": 2, "action": "read-policy"},
+                            {"step": 3, "action": "read-target-detail"},
+                            {"step": 4, "action": "run-approved-preset"},
+                            {"step": 5, "action": "review-audit"},
+                        ],
+                        "run_request_shape": {"preset": "runtime-identity", "target": "localhost"},
                     }
                 ).encode("utf-8")
             )
@@ -1659,6 +1706,8 @@ class DiagnosticCommandSmokeHandler(BaseHTTPRequestHandler):
                         "run_api": "POST /operations/diagnostics/run",
                         "audit_api": "/api/diagnostics/audit",
                         "target_detail_api": "/api/diagnostics/targets/<target>",
+                        "change_ticket_api": "/api/diagnostics/change-tickets",
+                        "execution_plan_api": "/api/diagnostics/execution-plan",
                         "audit_provenance_fields": ["decision", "target_registered", "target_id", "command_source", "output_fingerprint"],
                     }
                 ).encode("utf-8")

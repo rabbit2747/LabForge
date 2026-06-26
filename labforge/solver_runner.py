@@ -1329,14 +1329,31 @@ def run_plugin_http_sequence(
             None,
             timeout_seconds,
         )
+        tickets_status, tickets, _, tickets_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/diagnostics/change-tickets", "/labforge/scaffold/diagnostics/change-tickets"],
+            None,
+            timeout_seconds,
+        )
+        plan_status, execution_plan, _, plan_route = http_json_first(
+            "GET",
+            base_url,
+            ["/api/diagnostics/execution-plan", "/labforge/scaffold/diagnostics/execution-plan"],
+            None,
+            timeout_seconds,
+        )
         targets = info.get("targets", []) if isinstance(info, dict) else []
         target_name = "localhost"
         if targets and isinstance(targets[0], dict) and targets[0].get("name"):
             target_name = str(targets[0]["name"])
+        run_shape = execution_plan.get("run_request_shape", {}) if isinstance(execution_plan, dict) else {}
+        planned_preset = str(run_shape.get("preset") or "runtime-identity")
+        planned_target = str(run_shape.get("target") or target_name)
         target_status, target_detail, _, target_route = http_json_first(
             "GET",
             base_url,
-            [f"/api/diagnostics/targets/{target_name}", f"/labforge/scaffold/diagnostics/targets/{target_name}"],
+            [f"/api/diagnostics/targets/{planned_target}", f"/labforge/scaffold/diagnostics/targets/{planned_target}"],
             None,
             timeout_seconds,
         )
@@ -1344,7 +1361,7 @@ def run_plugin_http_sequence(
             "POST",
             base_url,
             ["/operations/diagnostics/run", "/labforge/scaffold/diagnostics/run"],
-            {"preset": "runtime-identity", "target": "localhost"},
+            {"preset": planned_preset, "target": planned_target},
             timeout_seconds,
         )
         blocked_status, blocked_data, _, blocked_route = http_json_first(
@@ -1364,9 +1381,11 @@ def run_plugin_http_sequence(
         audit_records = audit.get("records", []) if isinstance(audit, dict) else []
         accepted_decision = data.get("policy_decision", {}) if isinstance(data, dict) else {}
         blocked_decision = blocked_data.get("policy_decision", {}) if isinstance(blocked_data, dict) else {}
+        tickets_list = tickets.get("tickets", []) if isinstance(tickets, dict) else []
+        operator_sequence = execution_plan.get("operator_sequence", []) if isinstance(execution_plan, dict) else []
         accepted_recorded = any(
             isinstance(record, dict)
-            and record.get("preset") == "runtime-identity"
+            and record.get("preset") == planned_preset
             and record.get("accepted") is True
             and record.get("policy_decision", {}).get("decision") == "allow"
             and bool(record.get("output_fingerprint"))
@@ -1386,6 +1405,11 @@ def run_plugin_http_sequence(
             and isinstance(info.get("targets"), list)
             and policy_status == 200
             and "docker" in policy.get("blocked_tokens", [])
+            and tickets_status == 200
+            and any(isinstance(ticket, dict) and ticket.get("status") == "approved" for ticket in tickets_list)
+            and plan_status == 200
+            and len(operator_sequence) >= 5
+            and execution_plan.get("run_request_shape", {}).get("preset") == planned_preset
             and target_status == 200
             and status == 200
             and data.get("accepted") is True
@@ -1407,9 +1431,12 @@ def run_plugin_http_sequence(
             evidence,
             ok,
             (
-                f"{context_note}; info_route={info_route}; policy_route={policy_route}; target_route={target_route}; route={route}; "
+                f"{context_note}; info_route={info_route}; policy_route={policy_route}; tickets_route={tickets_route}; plan_route={plan_route}; "
+                f"target_route={target_route}; route={route}; "
                 f"blocked_route={blocked_route}; audit_route={audit_route}; info={info_status}; policy={policy_status}; "
-                f"target={target_status}/{target_name}; "
+                f"tickets={tickets_status}; execution_plan={plan_status}; approved_tickets={len([ticket for ticket in tickets_list if isinstance(ticket, dict) and ticket.get('status') == 'approved'])}; "
+                f"operator_sequence={len(operator_sequence)}; planned_preset={planned_preset}; planned_target={planned_target}; "
+                f"target={target_status}/{planned_target}; "
                 f"presets={len(info.get('presets', [])) if isinstance(info, dict) else 0}; "
                 f"targets={len(info.get('targets', [])) if isinstance(info, dict) else 0}; "
                 f"http_status={status}; accepted={data.get('accepted')}; blocked={blocked_status}; "
